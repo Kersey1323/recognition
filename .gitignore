@@ -1,0 +1,16 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+logs/
+temp
+embedding_models/
+CR400AF型动车组部件说明.docx
+resnet_models/
+dinov2_models/
