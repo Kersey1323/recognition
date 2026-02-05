@@ -22,6 +22,7 @@ from csrcqsf.settings import minio_bucket, temp_dir
 from .colmap_processor import ColmapProcessor
 from .gaussian_trainer import GaussianTrainer
 from .mesh_extractor import MeshExtractor
+from .opensplat_trainer import OpenSplatTrainer
 
 
 class TaskStatus(str, Enum):
@@ -34,6 +35,12 @@ class TaskStatus(str, Enum):
     UPLOADING = "uploading"       # 上传结果中
     COMPLETED = "completed"       # 完成
     FAILED = "failed"             # 失败
+
+
+class TrainerType(str, Enum):
+    """训练器类型"""
+    GAUSSIAN = "gaussian"         # 原版 gaussian-splatting (conda)
+    OPENSPLAT = "opensplat"       # OpenSplat (C++ 二进制)
 
 
 class ReconstructionTask(BaseModel):
@@ -103,7 +110,9 @@ class ReconstructionPipeline:
         cls, 
         local_image_dir: str, 
         item_id: int = 0,
-        upload_result: bool = False
+        upload_result: bool = False,
+        trainer_type: TrainerType = TrainerType.OPENSPLAT,
+        iterations: int = 7000
     ) -> ReconstructionTask:
         """从本地图片目录创建重建任务 (用于快速测试)
         
@@ -111,6 +120,8 @@ class ReconstructionPipeline:
             local_image_dir: 本地图片目录路径，包含多角度照片 (jpg/png)
             item_id: 配件ID，默认为0表示测试任务
             upload_result: 是否上传结果到 MinIO，默认 False
+            trainer_type: 训练器类型 (gaussian/opensplat)，默认 opensplat
+            iterations: 训练迭代次数，默认 7000
             
         Returns:
             ReconstructionTask: 重建任务对象
@@ -130,7 +141,9 @@ class ReconstructionPipeline:
         _task_store[task.task_id] = task
         
         # 启动后台处理
-        asyncio.create_task(cls._process_task_from_local(task, local_image_dir, upload_result))
+        asyncio.create_task(cls._process_task_from_local(
+            task, local_image_dir, upload_result, trainer_type, iterations
+        ))
         
         return task
     
@@ -139,7 +152,8 @@ class ReconstructionPipeline:
         cls, 
         local_image_dir: str, 
         output_dir: str = None,
-        iterations: int = 7000
+        iterations: int = 7000,
+        trainer_type: TrainerType = TrainerType.OPENSPLAT
     ) -> dict:
         """同步执行本地 3D 重建 (用于快速测试)
         
@@ -147,6 +161,7 @@ class ReconstructionPipeline:
             local_image_dir: 本地图片目录路径
             output_dir: 输出目录，默认在 temp_dir 下创建
             iterations: 3DGS 训练迭代次数，默认 7000
+            trainer_type: 训练器类型 (gaussian/opensplat)，默认 opensplat
             
         Returns:
             dict: 包含重建结果的字典
@@ -190,12 +205,23 @@ class ReconstructionPipeline:
             logger.info(f"[本地测试] COLMAP 完成, 点云数量: {colmap_result['num_points']}")
             
             # Step 2: 3DGS 训练
-            logger.info(f"[本地测试] 开始 3DGS 训练, 迭代次数: {iterations}")
-            gs_result = await GaussianTrainer.train(
-                colmap_dir=output_dir,
-                output_dir=gs_output_dir,
-                iterations=iterations
-            )
+            logger.info(f"[本地测试] 开始 3DGS 训练 ({trainer_type.value}), 迭代次数: {iterations}")
+            
+            if trainer_type == TrainerType.OPENSPLAT:
+                # 使用 OpenSplat
+                ply_output = os.path.join(gs_output_dir, 'point_cloud.ply')
+                gs_result = await OpenSplatTrainer.train(
+                    colmap_dir=output_dir,
+                    output_path=ply_output,
+                    iterations=iterations
+                )
+            else:
+                # 使用原版 gaussian-splatting
+                gs_result = await GaussianTrainer.train(
+                    colmap_dir=output_dir,
+                    output_dir=gs_output_dir,
+                    iterations=iterations
+                )
             
             if not gs_result['success']:
                 result['message'] = f"3DGS 训练失败: {gs_result['message']}"
@@ -237,7 +263,9 @@ class ReconstructionPipeline:
         cls, 
         task: ReconstructionTask, 
         local_image_dir: str,
-        upload_result: bool = False
+        upload_result: bool = False,
+        trainer_type: TrainerType = TrainerType.OPENSPLAT,
+        iterations: int = 7000
     ):
         """处理本地图片重建任务"""
         task.started_at = datetime.now().isoformat()
@@ -277,15 +305,25 @@ class ReconstructionPipeline:
             
             # Step 2: 3DGS 训练 (80%)
             task.status = TaskStatus.TRAINING
-            task.message = '正在训练 3D Gaussian Splatting...'
+            task.message = f'正在训练 3D Gaussian Splatting ({trainer_type.value})...'
             task.progress = 45
             _task_store[task.task_id] = task
             
-            gs_result = await GaussianTrainer.train(
-                colmap_dir=work_dir,
-                output_dir=gs_output_dir,
-                iterations=7000
-            )
+            if trainer_type == TrainerType.OPENSPLAT:
+                # 使用 OpenSplat
+                ply_output = os.path.join(gs_output_dir, 'point_cloud.ply')
+                gs_result = await OpenSplatTrainer.train(
+                    colmap_dir=work_dir,
+                    output_path=ply_output,
+                    iterations=iterations
+                )
+            else:
+                # 使用原版 gaussian-splatting
+                gs_result = await GaussianTrainer.train(
+                    colmap_dir=work_dir,
+                    output_dir=gs_output_dir,
+                    iterations=iterations
+                )
             
             if not gs_result['success']:
                 raise Exception(f"3DGS 训练失败: {gs_result['message']}")

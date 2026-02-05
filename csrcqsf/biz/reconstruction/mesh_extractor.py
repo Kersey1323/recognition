@@ -5,12 +5,11 @@
 """
 
 import os
-import sys
 import subprocess
-from pathlib import Path
+
 from anyio.to_thread import run_sync
 
-from csrcqsf.logger import logger, CodeTimer
+from csrcqsf.logger import CodeTimer, logger
 
 
 class MeshExtractor:
@@ -21,6 +20,8 @@ class MeshExtractor:
     
     # SuGaR 仓库路径 (需要预先克隆)
     SUGAR_REPO_PATH = os.environ.get('SUGAR_REPO_PATH', '/opt/SuGaR')
+    # Conda 环境名称
+    SUGAR_CONDA_ENV = 'sugar'
     
     @classmethod
     def _check_sugar_installed(cls) -> tuple[bool, str]:
@@ -118,7 +119,8 @@ class MeshExtractor:
         extract_script = os.path.join(cls.SUGAR_REPO_PATH, 'extract_mesh.py')
         
         cmd = [
-            sys.executable, extract_script,
+            'conda', 'run', '-n', cls.SUGAR_CONDA_ENV, '--no-capture-output',
+            'python', extract_script,
             '-s', colmap_dir,
             '-c', gaussian_model_dir,
             '-o', os.path.dirname(output_path),
@@ -156,8 +158,8 @@ class MeshExtractor:
         """通过 pip 包提取 (如果可用)"""
         try:
             # 尝试使用 Open3D 的 Poisson 重建作为备选方案
-            import open3d as o3d
             import numpy as np
+            import open3d as o3d
             
             # 读取 3DGS 点云
             gs_ply_path = cls._find_point_cloud(gaussian_model_dir)

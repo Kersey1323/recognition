@@ -5,7 +5,6 @@
 
 import os
 import subprocess
-import sys
 
 from anyio.to_thread import run_sync
 
@@ -20,6 +19,8 @@ class GaussianTrainer:
     
     # 3DGS 仓库路径 (需要预先克隆)
     GS_REPO_PATH = os.environ.get('GS_REPO_PATH', '/opt/gaussian-splatting')
+    # Conda 环境名称
+    GS_CONDA_ENV = 'gaussian_splatting'
     
     @classmethod
     def _check_gs_installed(cls) -> tuple[bool, str]:
@@ -68,7 +69,8 @@ class GaussianTrainer:
         train_script = os.path.join(cls.GS_REPO_PATH, 'train.py')
         
         cmd = [
-            sys.executable, train_script,
+            'conda', 'run', '-n', cls.GS_CONDA_ENV, '--no-capture-output',
+            'python', train_script,
             '-s', colmap_dir,  # 源数据目录 (COLMAP 输出)
             '-m', output_dir,  # 模型输出目录
             '--iterations', str(iterations),
