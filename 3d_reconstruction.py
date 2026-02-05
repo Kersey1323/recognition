@@ -12,7 +12,7 @@ from csrcqsf.biz.reconstruction.pipeline import ReconstructionPipeline, TrainerT
 async def test_async_task():
     """方式1: 异步任务 (后台运行)"""
     task = await ReconstructionPipeline.create_task_from_local(
-        local_image_dir=r"E:\test_images",
+        local_image_dir=r"./images",
         item_id=123,
         upload_result=False,
         trainer_type=TrainerType.OPENSPLAT,  # 或 TrainerType.GAUSSIAN
@@ -35,8 +35,8 @@ async def test_async_task():
 async def test_sync_run():
     """方式2: 同步等待结果 (快速测试)"""
     result = await ReconstructionPipeline.run_local_sync(
-        local_image_dir=r"E:\test_images",
-        output_dir=r"E:\output",
+        local_image_dir=r"./images",
+        output_dir=r"./output",
         iterations=3000,
         trainer_type=TrainerType.OPENSPLAT  # 或 TrainerType.GAUSSIAN
     )
