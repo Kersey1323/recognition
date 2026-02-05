@@ -80,11 +80,14 @@ class ColmapProcessor:
         # Step 1: 特征提取
         with CodeTimer(name='COLMAP特征提取'):
             success, msg = cls._run_command([
+                'xvfb-run','-a', 
                 'colmap', 'feature_extractor',
                 '--database_path', database_path,
                 '--image_path', image_dir,
-                '--ImageReader.single_camera', '1',
-                '--SiftExtraction.use_gpu', gpu_flag
+                '--ImageReader.single_camera', '0',
+                '--SiftExtraction.peak_threshold','0.0066',
+               # '--SiftExtraction.edge_threshold', '15' ,
+                '--SiftExtraction.max_num_features', '8192',
             ])
             if not success:
                 result['message'] = f'特征提取失败: {msg}'
@@ -95,7 +98,7 @@ class ColmapProcessor:
             success, msg = cls._run_command([
                 'colmap', 'exhaustive_matcher',
                 '--database_path', database_path,
-                '--SiftMatching.use_gpu', gpu_flag
+                '--FeatureMatching.use_gpu', gpu_flag
             ])
             if not success:
                 result['message'] = f'特征匹配失败: {msg}'
@@ -107,7 +110,9 @@ class ColmapProcessor:
                 'colmap', 'mapper',
                 '--database_path', database_path,
                 '--image_path', image_dir,
-                '--output_path', sparse_dir
+                '--output_path', sparse_dir,
+                '--Mapper.init_min_tri_angle', '8.0', 
+      
             ])
             if not success:
                 result['message'] = f'稀疏重建失败: {msg}'
