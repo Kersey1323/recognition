@@ -79,7 +79,7 @@ class SuGaRTrainer:
         os.makedirs(output_dir, exist_ok=True)
         
         # 准备 SuGaR 需要的目录结构: scene_path/ 下必须有 images/ 和 sparse/0/
-        scene_path = cls._prepare_scene_dir(colmap_dir)
+        scene_path = os.path.abspath(cls._prepare_scene_dir(colmap_dir))
         
         # 构建命令
         script = os.path.join(cls.SUGAR_REPO_PATH, 'train_full_pipeline.py')
