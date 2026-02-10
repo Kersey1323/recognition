@@ -51,6 +51,16 @@
                 "config_url": "127.0.0.1:10001"
             }
         },
+         {
+            "name": "3d",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceRoot}/3d_reconstruction.py",
+            "console": "integratedTerminal",
+            "env": {
+                "config_url": "127.0.0.1:10001"
+            }
+        },
         {
             "name": "单文件调试",
             "type": "debugpy",
