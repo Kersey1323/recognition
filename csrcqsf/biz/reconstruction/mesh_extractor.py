@@ -118,15 +118,19 @@ class MeshExtractor:
         """通过 SuGaR 仓库脚本提取"""
         extract_script = os.path.join(cls.SUGAR_REPO_PATH, 'extract_mesh.py')
         
+        # mesh_resolution 映射到顶点数 (1-10 → 50k-1M)
+        decimation_target = min(1_000_000, max(50_000, mesh_resolution * 100_000))
+        
         cmd = [
-            'conda', 'run', '-n', cls.SUGAR_CONDA_ENV, '--no-capture-output',
-            'python', extract_script,
+            '/root/miniconda3/envs/sugar/bin/python', extract_script,
             '-s', colmap_dir,
             '-c', gaussian_model_dir,
             '-o', os.path.dirname(output_path),
-            '--mesh_output_name', os.path.basename(output_path),
-            '--mesh_resolution', str(mesh_resolution),
+            '-d', str(decimation_target),
+            '-l', '0.3',
         ]
+
+        print(cmd)
         
         try:
             process = subprocess.run(

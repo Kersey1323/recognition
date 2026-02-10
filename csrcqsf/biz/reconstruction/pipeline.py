@@ -169,9 +169,9 @@ class ReconstructionPipeline:
         if output_dir is None:
             output_dir = os.path.join(temp_dir, f'reconstruction_test_{uuid.uuid4().hex[:8]}')
         
-        colmap_dir = os.path.join(output_dir, 'colmap')
-        gs_output_dir = os.path.join(output_dir, 'gaussian')
-        mesh_output_dir = os.path.join(output_dir, 'mesh')
+        colmap_dir = os.path.join(output_dir, 'colmap/')
+        gs_output_dir = os.path.join(output_dir, 'gaussian/')
+        mesh_output_dir = os.path.join(output_dir, 'mesh/')
         
         os.makedirs(colmap_dir, exist_ok=True)
         os.makedirs(gs_output_dir, exist_ok=True)
@@ -194,40 +194,40 @@ class ReconstructionPipeline:
         }
         
         try:
-            # Step 1: COLMAP SfM
-            logger.info(f"[本地测试] 开始 COLMAP SfM: {local_image_dir}")
-            colmap_result = await ColmapProcessor.run_sfm(image_link, colmap_dir)
+            # # Step 1: COLMAP SfM
+            # logger.info(f"[本地测试] 开始 COLMAP SfM: {local_image_dir}")
+            # colmap_result = await ColmapProcessor.run_sfm(image_link, colmap_dir)
             
-            if not colmap_result['success']:
-                result['message'] = f"COLMAP 失败: {colmap_result['message']}"
-                return result
+            # if not colmap_result['success']:
+            #     result['message'] = f"COLMAP 失败: {colmap_result['message']}"
+            #     return result
             
-            logger.info(f"[本地测试] COLMAP 完成, 点云数量: {colmap_result['num_points']}")
+            # logger.info(f"[本地测试] COLMAP 完成, 点云数量: {colmap_result['num_points']}")
             
-            # Step 2: 3DGS 训练
-            logger.info(f"[本地测试] 开始 3DGS 训练 ({trainer_type.value}), 迭代次数: {iterations}")
+            # # Step 2: 3DGS 训练
+            # logger.info(f"[本地测试] 开始 3DGS 训练 ({trainer_type.value}), 迭代次数: {iterations}")
             
-            if trainer_type == TrainerType.OPENSPLAT:
-                # 使用 OpenSplat
-                ply_output = os.path.join(gs_output_dir, 'point_cloud.ply')
-                gs_result = await OpenSplatTrainer.train(
-                    colmap_dir=output_dir,
-                    output_path=ply_output,
-                    iterations=iterations
-                )
-            else:
-                # 使用原版 gaussian-splatting
-                gs_result = await GaussianTrainer.train(
-                    colmap_dir=output_dir,
-                    output_dir=gs_output_dir,
-                    iterations=iterations
-                )
+            # if trainer_type == TrainerType.OPENSPLAT:
+            #     # 使用 OpenSplat
+            #     ply_output = os.path.join(gs_output_dir, 'point_cloud.ply')
+            #     gs_result = await OpenSplatTrainer.train(
+            #         colmap_dir=output_dir,
+            #         output_path=ply_output,
+            #         iterations=iterations
+            #     )
+            # else:
+            #     # 使用原版 gaussian-splatting
+            #     gs_result = await GaussianTrainer.train(
+            #         colmap_dir=output_dir,
+            #         output_dir=gs_output_dir,
+            #         iterations=iterations
+            #     )
             
-            if not gs_result['success']:
-                result['message'] = f"3DGS 训练失败: {gs_result['message']}"
-                return result
+            # if not gs_result['success']:
+            #     result['message'] = f"3DGS 训练失败: {gs_result['message']}"
+            #     return result
             
-            logger.info("[本地测试] 3DGS 训练完成")
+            # logger.info("[本地测试] 3DGS 训练完成")
             
             # Step 3: Mesh 提取
             obj_path = os.path.join(mesh_output_dir, 'output.obj')
