@@ -110,10 +110,16 @@ class SuGaRTrainer:
                     timeout=7200,  # 2小时超时
                 )
                 
+                # 无论成功失败，都输出日志
+                if process.stdout:
+                    logger.info(f"SuGaR stdout:\n{process.stdout}")
+                if process.stderr:
+                    logger.info(f"SuGaR stderr:\n{process.stderr}")
+                
                 if process.returncode != 0:
-                    stderr = process.stderr[-1000:] if process.stderr else ''
-                    result['message'] = f'训练失败: {stderr}'
-                    logger.error(f"SuGaR 失败: {stderr}")
+                    error_msg = process.stderr or process.stdout or '未知错误'
+                    result['message'] = f'训练失败 (code={process.returncode}):\n{error_msg}'
+                    logger.error(f"SuGaR 失败 (code={process.returncode})")
                     return result
                     
             except subprocess.TimeoutExpired:
