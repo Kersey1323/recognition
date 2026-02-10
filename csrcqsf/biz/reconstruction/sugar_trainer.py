@@ -26,7 +26,7 @@ class SuGaRTrainer:
     """
     
     SUGAR_REPO_PATH = os.environ.get('SUGAR_REPO_PATH', '/opt/SuGaR')
-    SUGAR_CONDA_ENV = os.environ.get('SUGAR_CONDA_ENV', 'sugar')
+    SUGAR_PYTHON = os.environ.get('SUGAR_PYTHON', '/root/miniconda3/envs/sugar/bin/python')
     
     @classmethod
     def _check_installed(cls) -> tuple[bool, str]:
@@ -78,13 +78,15 @@ class SuGaRTrainer:
         
         os.makedirs(output_dir, exist_ok=True)
         
+        # 准备 SuGaR 需要的目录结构: scene_path/ 下必须有 images/ 和 sparse/0/
+        scene_path = cls._prepare_scene_dir(colmap_dir)
+        
         # 构建命令
         script = os.path.join(cls.SUGAR_REPO_PATH, 'train_full_pipeline.py')
         
         cmd = [
-            'conda', 'run', '-n', cls.SUGAR_CONDA_ENV, '--no-capture-output',
-            'python', script,
-            '-s', colmap_dir,
+            cls.SUGAR_PYTHON, script,
+            '-s', scene_path,
             '-r', regularization,
             '--export_obj', 'True',
             '--export_ply', 'True',
@@ -100,11 +102,21 @@ class SuGaRTrainer:
         
         logger.info(f"SuGaR 开始训练: {' '.join(cmd)}")
         
+        # 构建环境变量: 把 sugar 的 bin 目录放到 PATH 最前面
+        # 因为 train_full_pipeline.py 内部用 os.system("python ...") 调用子进程，
+        # 裸 python 命令必须指向 sugar 环境的 python
+        env = os.environ.copy()
+        sugar_bin_dir = os.path.dirname(cls.SUGAR_PYTHON)  # /root/miniconda3/envs/sugar/bin
+        env['PATH'] = sugar_bin_dir + os.pathsep + env.get('PATH', '')
+        # 同时设置 CONDA 相关变量，确保子进程也在正确环境中
+        env['CONDA_PREFIX'] = os.path.dirname(sugar_bin_dir)  # /root/miniconda3/envs/sugar
+        
         with CodeTimer(name='SuGaR训练+提取'):
             try:
                 process = subprocess.run(
                     cmd,
                     cwd=cls.SUGAR_REPO_PATH,  # 关键: 在 SuGaR 根目录运行
+                    env=env,                   # 关键: 确保 python 指向 sugar 环境
                     capture_output=True,
                     text=True,
                     timeout=7200,  # 2小时超时
