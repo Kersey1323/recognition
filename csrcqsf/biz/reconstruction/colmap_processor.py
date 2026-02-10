@@ -4,12 +4,13 @@
 """
 
 import os
-import subprocess
 import shutil
+import subprocess
 from pathlib import Path
+
 from anyio.to_thread import run_sync
 
-from csrcqsf.logger import logger, CodeTimer
+from csrcqsf.logger import CodeTimer, logger
 
 
 class ColmapProcessor:
@@ -133,9 +134,41 @@ class ColmapProcessor:
                 '--output_type', 'TXT'
             ])
         
+        # Step 5: 图像去畸变 (将相机模型转换为 PINHOLE，SuGaR/3DGS 要求)
+        undistorted_dir = os.path.join(output_dir, 'undistorted')
+        with CodeTimer(name='COLMAP图像去畸变'):
+            success, msg = cls._run_command([
+                'colmap', 'image_undistorter',
+                '--image_path', image_dir,
+                '--input_path', sparse_model_dir,  # sparse/0/ 具体模型目录
+                '--output_path', undistorted_dir,
+                '--output_type', 'COLMAP',
+            ])
+            if not success:
+                logger.warning(f'图像去畸变失败 (非致命): {msg}')
+            else:
+                # undistorter 输出 sparse/ 直接包含模型文件，
+                # 但 3DGS/SuGaR 期望 sparse/0/，需要重新组织
+                undist_sparse = os.path.join(undistorted_dir, 'sparse')
+                undist_sparse_0 = os.path.join(undist_sparse, '0')
+                if os.path.exists(undist_sparse) and not os.path.exists(undist_sparse_0):
+                    # sparse/ 下有 .bin 文件但没有 0/ 子目录，需要移动
+                    bin_files = [f for f in os.listdir(undist_sparse) if f.endswith('.bin') or f.endswith('.txt')]
+                    if bin_files:
+                        os.makedirs(undist_sparse_0, exist_ok=True)
+                        import shutil
+                        for f in bin_files:
+                            shutil.move(
+                                os.path.join(undist_sparse, f),
+                                os.path.join(undist_sparse_0, f)
+                            )
+                        logger.info('重组 sparse 目录: sparse/ -> sparse/0/')
+                logger.info(f'图像去畸变完成，输出到: {undistorted_dir}')
+        
         result['success'] = True
         result['message'] = 'COLMAP SfM 完成'
         result['sparse_dir'] = sparse_model_dir
+        result['undistorted_dir'] = undistorted_dir if os.path.exists(undistorted_dir) else ''
         
         # 统计信息
         images_txt = os.path.join(sparse_model_dir, 'images.txt')
