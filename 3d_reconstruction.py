@@ -1,7 +1,7 @@
 """3D 重建测试脚本
 
 从本地图片目录进行 3D Gaussian Splatting 重建测试。
-支持选择 opensplat 或 gaussian-splatting 训练器。
+支持选择 opensplat / gaussian / sugar 训练器。
 """
 
 import asyncio
@@ -15,8 +15,8 @@ async def test_async_task():
         local_image_dir=r"./images",
         item_id=123,
         upload_result=False,
-        trainer_type=TrainerType.OPENSPLAT,  # 或 TrainerType.GAUSSIAN
-        iterations=3000
+        trainer_type=TrainerType.SUGAR,  # SUGAR / OPENSPLAT / GAUSSIAN
+        iterations=7000
     )
     print(f"任务ID: {task.task_id}")
     
@@ -37,8 +37,8 @@ async def test_sync_run():
     result = await ReconstructionPipeline.run_local_sync(
         local_image_dir=r"./images",
         output_dir=r"./output",
-        iterations=3000,
-        trainer_type=TrainerType.OPENSPLAT  # 或 TrainerType.GAUSSIAN
+        iterations=7000,
+        trainer_type=TrainerType.SUGAR  # SUGAR / OPENSPLAT / GAUSSIAN
     )
     
     if result['success']:

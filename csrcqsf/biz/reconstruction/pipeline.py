@@ -23,6 +23,7 @@ from .colmap_processor import ColmapProcessor
 from .gaussian_trainer import GaussianTrainer
 from .mesh_extractor import MeshExtractor
 from .opensplat_trainer import OpenSplatTrainer
+from .sugar_trainer import SuGaRTrainer
 
 
 class TaskStatus(str, Enum):
@@ -41,6 +42,7 @@ class TrainerType(str, Enum):
     """训练器类型"""
     GAUSSIAN = "gaussian"         # 原版 gaussian-splatting (conda)
     OPENSPLAT = "opensplat"       # OpenSplat (C++ 二进制)
+    SUGAR = "sugar"               # SuGaR (训练+提取一步完成)
 
 
 class ReconstructionTask(BaseModel):
@@ -204,52 +206,72 @@ class ReconstructionPipeline:
             
             logger.info(f"[本地测试] COLMAP 完成, 点云数量: {colmap_result['num_points']}")
             
-            # Step 2: 3DGS 训练
-            logger.info(f"[本地测试] 开始 3DGS 训练 ({trainer_type.value}), 迭代次数: {iterations}")
-            
-            if trainer_type == TrainerType.OPENSPLAT:
-                # 使用 OpenSplat
-                ply_output = os.path.join(gs_output_dir, 'point_cloud.ply')
-                gs_result = await OpenSplatTrainer.train(
+            if trainer_type == TrainerType.SUGAR:
+                # SuGaR 一步完成: 3DGS 训练 + Mesh 提取
+                logger.info(f"[本地测试] 开始 SuGaR 训练+提取, 迭代次数: {iterations}")
+                
+                sugar_result = await SuGaRTrainer.train_and_extract(
                     colmap_dir=output_dir,
-                    output_path=ply_output,
-                    iterations=iterations
+                    output_dir=mesh_output_dir,
+                    iterations=iterations,
                 )
+                
+                if not sugar_result['success']:
+                    result['message'] = f"SuGaR 失败: {sugar_result['message']}"
+                    return result
+                
+                result['success'] = True
+                result['obj_path'] = sugar_result['obj_path']
+                result['num_vertices'] = sugar_result['num_vertices']
+                result['num_faces'] = sugar_result['num_faces']
+                result['message'] = '3D 重建完成 (SuGaR)'
+                
+                logger.info(f"[本地测试] SuGaR 完成! OBJ: {sugar_result['obj_path']}")
             else:
-                # 使用原版 gaussian-splatting
-                gs_result = await GaussianTrainer.train(
+                # OpenSplat / Gaussian 两步流程
+                logger.info(f"[本地测试] 开始 3DGS 训练 ({trainer_type.value}), 迭代次数: {iterations}")
+                
+                if trainer_type == TrainerType.OPENSPLAT:
+                    ply_output = os.path.join(gs_output_dir, 'point_cloud.ply')
+                    gs_result = await OpenSplatTrainer.train(
+                        colmap_dir=output_dir,
+                        output_path=ply_output,
+                        iterations=iterations
+                    )
+                else:
+                    gs_result = await GaussianTrainer.train(
+                        colmap_dir=output_dir,
+                        output_dir=gs_output_dir,
+                        iterations=iterations
+                    )
+                
+                if not gs_result['success']:
+                    result['message'] = f"3DGS 训练失败: {gs_result['message']}"
+                    return result
+                
+                logger.info("[本地测试] 3DGS 训练完成")
+                
+                # Mesh 提取
+                obj_path = os.path.join(mesh_output_dir, 'output.obj')
+                logger.info(f"[本地测试] 开始 Mesh 提取: {obj_path}")
+                
+                mesh_result = await MeshExtractor.extract_mesh(
+                    gaussian_model_dir=gs_output_dir,
                     colmap_dir=output_dir,
-                    output_dir=gs_output_dir,
-                    iterations=iterations
+                    output_path=obj_path
                 )
-            
-            if not gs_result['success']:
-                result['message'] = f"3DGS 训练失败: {gs_result['message']}"
-                return result
-            
-            logger.info("[本地测试] 3DGS 训练完成")
-            
-            # Step 3: Mesh 提取
-            obj_path = os.path.join(mesh_output_dir, 'output.obj')
-            logger.info(f"[本地测试] 开始 Mesh 提取: {obj_path}")
-            
-            mesh_result = await MeshExtractor.extract_mesh(
-                gaussian_model_dir=gs_output_dir,
-                colmap_dir=output_dir,
-                output_path=obj_path
-            )
-            
-            if not mesh_result['success']:
-                result['message'] = f"Mesh 提取失败: {mesh_result['message']}"
-                return result
-            
-            result['success'] = True
-            result['obj_path'] = obj_path
-            result['num_vertices'] = mesh_result['num_vertices']
-            result['num_faces'] = mesh_result['num_faces']
-            result['message'] = '3D 重建完成'
-            
-            logger.info(f"[本地测试] 完成! OBJ: {obj_path}, 顶点: {mesh_result['num_vertices']}, 面: {mesh_result['num_faces']}")
+                
+                if not mesh_result['success']:
+                    result['message'] = f"Mesh 提取失败: {mesh_result['message']}"
+                    return result
+                
+                result['success'] = True
+                result['obj_path'] = obj_path
+                result['num_vertices'] = mesh_result['num_vertices']
+                result['num_faces'] = mesh_result['num_faces']
+                result['message'] = '3D 重建完成'
+                
+                logger.info(f"[本地测试] 完成! OBJ: {obj_path}, 顶点: {mesh_result['num_vertices']}, 面: {mesh_result['num_faces']}")
             
             return result
             
@@ -303,56 +325,77 @@ class ReconstructionPipeline:
             task.progress = 40
             _task_store[task.task_id] = task
             
-            # Step 2: 3DGS 训练 (80%)
-            task.status = TaskStatus.TRAINING
-            task.message = f'正在训练 3D Gaussian Splatting ({trainer_type.value})...'
-            task.progress = 45
-            _task_store[task.task_id] = task
-            
-            if trainer_type == TrainerType.OPENSPLAT:
-                # 使用 OpenSplat
-                ply_output = os.path.join(gs_output_dir, 'point_cloud.ply')
-                gs_result = await OpenSplatTrainer.train(
-                    colmap_dir=work_dir,
-                    output_path=ply_output,
-                    iterations=iterations
-                )
-            else:
-                # 使用原版 gaussian-splatting
-                gs_result = await GaussianTrainer.train(
-                    colmap_dir=work_dir,
-                    output_dir=gs_output_dir,
-                    iterations=iterations
-                )
-            
-            if not gs_result['success']:
-                raise Exception(f"3DGS 训练失败: {gs_result['message']}")
-            
-            task.progress = 80
-            _task_store[task.task_id] = task
-            
-            # Step 3: Mesh 提取 (95%)
-            task.status = TaskStatus.EXTRACTING
-            task.message = '正在提取三角网格...'
-            task.progress = 82
-            _task_store[task.task_id] = task
-            
             obj_filename = f'part_{task.item_id}.obj' if task.item_id else 'output.obj'
             obj_path = os.path.join(mesh_output_dir, obj_filename)
             
-            mesh_result = await MeshExtractor.extract_mesh(
-                gaussian_model_dir=gs_output_dir,
-                colmap_dir=work_dir,
-                output_path=obj_path
-            )
-            
-            if not mesh_result['success']:
-                raise Exception(f"Mesh 提取失败: {mesh_result['message']}")
-            
-            task.mesh_vertices = mesh_result['num_vertices']
-            task.mesh_faces = mesh_result['num_faces']
-            task.progress = 95
-            _task_store[task.task_id] = task
+            if trainer_type == TrainerType.SUGAR:
+                # SuGaR: 训练+提取一步完成 (45% → 95%)
+                task.status = TaskStatus.TRAINING
+                task.message = '正在执行 SuGaR 训练+提取...'
+                task.progress = 45
+                _task_store[task.task_id] = task
+                
+                sugar_result = await SuGaRTrainer.train_and_extract(
+                    colmap_dir=work_dir,
+                    output_dir=mesh_output_dir,
+                    iterations=iterations,
+                )
+                
+                if not sugar_result['success']:
+                    raise Exception(f"SuGaR 失败: {sugar_result['message']}")
+                
+                obj_path = sugar_result['obj_path']
+                task.mesh_vertices = sugar_result['num_vertices']
+                task.mesh_faces = sugar_result['num_faces']
+                task.progress = 95
+                _task_store[task.task_id] = task
+            else:
+                # OpenSplat / Gaussian 两步流程
+                # Step 2: 3DGS 训练 (80%)
+                task.status = TaskStatus.TRAINING
+                task.message = f'正在训练 3D Gaussian Splatting ({trainer_type.value})...'
+                task.progress = 45
+                _task_store[task.task_id] = task
+                
+                if trainer_type == TrainerType.OPENSPLAT:
+                    ply_output = os.path.join(gs_output_dir, 'point_cloud.ply')
+                    gs_result = await OpenSplatTrainer.train(
+                        colmap_dir=work_dir,
+                        output_path=ply_output,
+                        iterations=iterations
+                    )
+                else:
+                    gs_result = await GaussianTrainer.train(
+                        colmap_dir=work_dir,
+                        output_dir=gs_output_dir,
+                        iterations=iterations
+                    )
+                
+                if not gs_result['success']:
+                    raise Exception(f"3DGS 训练失败: {gs_result['message']}")
+                
+                task.progress = 80
+                _task_store[task.task_id] = task
+                
+                # Step 3: Mesh 提取 (95%)
+                task.status = TaskStatus.EXTRACTING
+                task.message = '正在提取三角网格...'
+                task.progress = 82
+                _task_store[task.task_id] = task
+                
+                mesh_result = await MeshExtractor.extract_mesh(
+                    gaussian_model_dir=gs_output_dir,
+                    colmap_dir=work_dir,
+                    output_path=obj_path
+                )
+                
+                if not mesh_result['success']:
+                    raise Exception(f"Mesh 提取失败: {mesh_result['message']}")
+                
+                task.mesh_vertices = mesh_result['num_vertices']
+                task.mesh_faces = mesh_result['num_faces']
+                task.progress = 95
+                _task_store[task.task_id] = task
             
             # Step 4: 上传结果 (可选)
             if upload_result and task.item_id:

@@ -11,75 +11,60 @@ resnet_models:
 # 用法: just extract-frames <视频文件> <输出目录> [目标帧数]
 # 示例: just extract-frames video.mp4 ./images 120
 extract-frames video output_dir frames="120":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mkdir -p {{output_dir}}
-    # 获取视频总帧数
-    total_frames=$(ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets -of csv=p=0 "{{video}}")
-    # 计算采样间隔
-    interval=$((total_frames / {{frames}}))
-    if [ $interval -lt 1 ]; then interval=1; fi
-    echo "视频总帧数: $total_frames, 采样间隔: $interval, 目标帧数: {{frames}}"
-    # 使用 select 过滤器均匀采样
-    ffmpeg -i "{{video}}" -vf "select='not(mod(n\,${interval}))',setpts=N/FRAME_RATE/TB" -vsync vfr -q:v 2 "{{output_dir}}/frame_%04d.jpg"
-    echo "完成! 图片保存到: {{output_dir}}"
+    #!powershell
+    New-Item -ItemType Directory -Force -Path "{{output_dir}}" | Out-Null
+    $total = (ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets -of csv=p=0 "{{video}}")
+    $interval = [math]::Max(1, [math]::Floor($total / {{frames}}))
+    Write-Host "视频总帧数: $total, 采样间隔: $interval, 目标帧数: {{frames}}"
+    ffmpeg -i "{{video}}" -vf "select='not(mod(n,$interval))',setpts=N/FRAME_RATE/TB" -vsync vfr -q:v 2 "{{output_dir}}/frame_%04d.jpg"
+    Write-Host "完成! 图片保存到: {{output_dir}}"
 
 # 简化版: 按固定帧率抽帧 (推荐用于短视频)
 # 用法: just extract-fps <视频文件> <输出目录> [fps]
 extract-fps video output_dir fps="2":
-    mkdir -p {{output_dir}}
+    #!powershell
+    New-Item -ItemType Directory -Force -Path "{{output_dir}}" | Out-Null
     ffmpeg -i "{{video}}" -vf "fps={{fps}}" -q:v 2 "{{output_dir}}/frame_%04d.jpg"
-    echo "完成! 图片保存到: {{output_dir}}"
+    Write-Host "完成! 图片保存到: {{output_dir}}"
 
-# 合并多个视频文件
+# 合并多个视频文件 (相同编码格式)
 # 用法: just concat-videos <输出文件> <视频1> <视频2> ...
 # 示例: just concat-videos output.mp4 video1.mp4 video2.mp4 video3.mp4
 concat-videos output +videos:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # 创建临时文件列表
-    filelist=$(mktemp)
-    trap "rm -f $filelist" EXIT
-    for v in {{videos}}; do
-        echo "file '$(realpath "$v")'" >> "$filelist"
-    done
-    echo "合并以下视频:"
-    cat "$filelist"
-    # 使用 concat demuxer 合并 (无需重新编码)
-    ffmpeg -f concat -safe 0 -i "$filelist" -c copy "{{output}}"
-    echo "完成! 输出文件: {{output}}"
+    #!powershell
+    $filelist = "filelist_temp.txt"
+    $videos = "{{videos}}" -split ' '
+    $videos | ForEach-Object { "file '$((Resolve-Path $_).Path -replace '\\','/')'" } | Out-File -Encoding utf8 $filelist
+    Write-Host "合并以下视频:"
+    Get-Content $filelist
+    ffmpeg -f concat -safe 0 -i $filelist -c copy "{{output}}"
+    Remove-Item $filelist
+    Write-Host "完成! 输出文件: {{output}}"
 
 # 合并目录下所有视频 (按文件名排序)
 # 用法: just concat-dir <视频目录> <输出文件> [扩展名]
 # 示例: just concat-dir ./videos output.mp4 mp4
 concat-dir video_dir output ext="mp4":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    filelist=$(mktemp)
-    trap "rm -f $filelist" EXIT
-    # 查找并排序所有视频文件
-    find "{{video_dir}}" -maxdepth 1 -name "*.{{ext}}" | sort | while read f; do
-        echo "file '$(realpath "$f")'" >> "$filelist"
-    done
-    count=$(wc -l < "$filelist")
-    echo "找到 $count 个 .{{ext}} 文件"
-    cat "$filelist"
-    ffmpeg -f concat -safe 0 -i "$filelist" -c copy "{{output}}"
-    echo "完成! 输出文件: {{output}}"
+    #!powershell
+    $filelist = "filelist_temp.txt"
+    $files = Get-ChildItem -Path "{{video_dir}}" -Filter "*.{{ext}}" | Sort-Object Name
+    $files | ForEach-Object { "file '$($_.FullName -replace '\\','/')'" } | Out-File -Encoding utf8 $filelist
+    Write-Host "找到 $($files.Count) 个 .{{ext}} 文件"
+    Get-Content $filelist
+    ffmpeg -f concat -safe 0 -i $filelist -c copy "{{output}}"
+    Remove-Item $filelist
+    Write-Host "完成! 输出文件: {{output}}"
 
-# 合并视频并统一编码 (不同格式/分辨率时使用)
+# 合并视频并重新编码 (不同格式/分辨率时使用)
 # 用法: just concat-reencode <输出文件> <视频1> <视频2> ...
 concat-reencode output +videos:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    inputs=""
-    filter=""
-    i=0
-    for v in {{videos}}; do
-        inputs="$inputs -i \"$v\""
-        filter="${filter}[$i:v][$i:a]"
-        i=$((i+1))
-    done
-    filter="${filter}concat=n=$i:v=1:a=1[v][a]"
-    eval ffmpeg $inputs -filter_complex "'$filter'" -map "'[v]'" -map "'[a]'" -c:v libx264 -crf 23 -c:a aac "{{output}}"
-    echo "完成! 输出文件: {{output}}"
+    #!powershell
+    $videos = "{{videos}}" -split ' '
+    $inputs = ($videos | ForEach-Object { "-i `"$_`"" }) -join ' '
+    $n = $videos.Count
+    $streams = (0..($n-1) | ForEach-Object { "[$_`:v][$_`:a]" }) -join ''
+    $filter = "${streams}concat=n=${n}:v=1:a=1[v][a]"
+    $cmd = "ffmpeg $inputs -filter_complex `"$filter`" -map `"[v]`" -map `"[a]`" -c:v libx264 -crf 23 -c:a aac `"{{output}}`""
+    Write-Host "执行: $cmd"
+    Invoke-Expression $cmd
+    Write-Host "完成! 输出文件: {{output}}"
