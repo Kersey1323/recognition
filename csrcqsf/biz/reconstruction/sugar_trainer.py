@@ -186,44 +186,54 @@ class SuGaRTrainer:
     def _prepare_scene_dir(cls, colmap_dir: str) -> str:
         """准备 SuGaR 需要的场景目录结构
         
-        SuGaR 要求 -s 指向的目录同时包含:
-          - images/     (原始图片)
-          - sparse/0/   (COLMAP 稀疏重建结果，必须是 PINHOLE 相机)
+        SuGaR 期望 -s 指向的目录结构:
+          scene_path/
+          ├── images/              (原始图片)
+          ├── sparse/0/            (原始 COLMAP，可选)
+          └── undistorted/         (去畸变后的数据，优先使用)
+              ├── images/
+              ├── sparse/0/
+              └── point_cloud.ply
           
-        我们的 pipeline 目录结构可能是:
-          output_dir/
+        我们的 COLMAP 输出结构:
+          colmap_dir/
           ├── images/
           ├── colmap/
-          │   ├── sparse/0/        (原始，可能是 SIMPLE_RADIAL)
-          │   └── undistorted/     (去畸变后，PINHOLE 相机) ← 优先使用
+          │   ├── sparse/0/
+          │   └── undistorted/
         """
+        # 情况1: 如果有 colmap/undistorted/，返回 colmap/ 并确保有 images 链接
+        colmap_subdir = os.path.join(colmap_dir, 'colmap')
+        undistorted_dir = os.path.join(colmap_subdir, 'undistorted')
+        
+        if os.path.exists(undistorted_dir):
+            undist_images = os.path.join(undistorted_dir, 'images')
+            undist_sparse = os.path.join(undistorted_dir, 'sparse')
+            undist_ply = os.path.join(undistorted_dir, 'point_cloud.ply')
+            
+            if os.path.exists(undist_images) and os.path.exists(undist_sparse):
+                # 确保 colmap/ 下有 images/ 符号链接指向原始图片
+                colmap_images_link = os.path.join(colmap_subdir, 'images')
+                original_images = os.path.join(colmap_dir, 'images')
+                
+                if not os.path.exists(colmap_images_link) and os.path.exists(original_images):
+                    try:
+                        os.symlink(original_images, colmap_images_link, target_is_directory=True)
+                        logger.info(f"创建 images 符号链接: {colmap_images_link} -> {original_images}")
+                    except OSError as e:
+                        logger.warning(f"创建符号链接失败: {e}")
+                
+                logger.info(f"使用 colmap/ 目录 (包含 undistorted 子目录): {colmap_subdir}")
+                return colmap_subdir
+        
+        # 情况2: 已有正确结构 (images/ + sparse/ 在同一层)
         images_dir = os.path.join(colmap_dir, 'images')
         sparse_dir = os.path.join(colmap_dir, 'sparse')
-        
-        # 情况1: 已有正确结构 (images/ + sparse/ 在同一层)
         if os.path.exists(images_dir) and os.path.exists(sparse_dir):
             logger.info(f"场景目录结构正确: {colmap_dir}")
             return colmap_dir
         
-        # 情况2 (优先): 使用去畸变后的输出 (PINHOLE 相机，SuGaR 兼容)
-        undistorted_dir = os.path.join(colmap_dir, 'colmap', 'undistorted')
-        if os.path.exists(undistorted_dir):
-            undist_images = os.path.join(undistorted_dir, 'images')
-            undist_sparse = os.path.join(undistorted_dir, 'sparse')
-            if os.path.exists(undist_images) and os.path.exists(undist_sparse):
-                logger.info(f"使用 undistorted 目录 (PINHOLE 相机): {undistorted_dir}")
-                return undistorted_dir
-        
-        # 情况3 (备选): sparse 在 colmap/ 子目录下，创建符号链接
-        # 注意: 此时相机模型可能不是 PINHOLE，SuGaR 可能报错
-        colmap_sparse = os.path.join(colmap_dir, 'colmap', 'sparse')
-        if os.path.exists(images_dir) and os.path.exists(colmap_sparse):
-            if not os.path.exists(sparse_dir):
-                os.symlink(colmap_sparse, sparse_dir)
-                logger.warning(f"使用原始 sparse (未去畸变): {sparse_dir} -> {colmap_sparse}")
-            return colmap_dir
-        
-        # 情况4: 找不到，返回原目录让 SuGaR 报告具体错误
+        # 情况3: 找不到，返回原目录让 SuGaR 报告具体错误
         logger.warning(f"无法确认场景目录结构，尝试使用: {colmap_dir}")
         return colmap_dir
     

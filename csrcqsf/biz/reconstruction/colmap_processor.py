@@ -163,6 +163,21 @@ class ColmapProcessor:
                                 os.path.join(undist_sparse_0, f)
                             )
                         logger.info('重组 sparse 目录: sparse/ -> sparse/0/')
+                
+                # 导出点云为 PLY 格式 (SuGaR 训练需要)
+                if os.path.exists(undist_sparse_0):
+                    ply_output = os.path.join(undistorted_dir, 'point_cloud.ply')
+                    success_ply, msg_ply = cls._run_command([
+                        'colmap', 'model_converter',
+                        '--input_path', undist_sparse_0,
+                        '--output_path', undistorted_dir,
+                        '--output_type', 'PLY'
+                    ])
+                    if success_ply and os.path.exists(ply_output):
+                        logger.info(f'点云导出成功: {ply_output}')
+                    else:
+                        logger.warning(f'点云导出失败: {msg_ply}')
+                
                 logger.info(f'图像去畸变完成，输出到: {undistorted_dir}')
         
         result['success'] = True
