@@ -170,7 +170,7 @@ class ColmapProcessor:
                     success_ply, msg_ply = cls._run_command([
                         'colmap', 'model_converter',
                         '--input_path', undist_sparse_0,
-                        '--output_path', undistorted_dir,
+                        '--output_path', ply_output,
                         '--output_type', 'PLY'
                     ])
                     if success_ply and os.path.exists(ply_output):
