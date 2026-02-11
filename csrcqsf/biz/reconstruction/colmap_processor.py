@@ -86,6 +86,7 @@ class ColmapProcessor:
                 '--database_path', database_path,
                 '--image_path', image_dir,
                 '--ImageReader.single_camera', '0',
+                '--ImageReader.camera_model', 'SIMPLE_PINHOLE',  # SuGaR/3DGS 要求无畸变
                 '--SiftExtraction.peak_threshold','0.0066',
                # '--SiftExtraction.edge_threshold', '15' ,
                 '--SiftExtraction.max_num_features', '8192',

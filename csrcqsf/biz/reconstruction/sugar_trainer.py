@@ -186,73 +186,60 @@ class SuGaRTrainer:
     def _prepare_scene_dir(cls, colmap_dir: str) -> str:
         """准备 SuGaR 需要的标准 COLMAP 场景目录
         
-        SuGaR 内部用 scene_path 最后一级目录名作为场景名:
-          gs_checkpoint_dir = output/vanilla_gs/<scene_name>/
-        
         SuGaR 要求 scene_path 包含:
           scene_path/
           ├── images/      (图片)
-          └── sparse/0/    (COLMAP 稀疏重建, 必须 PINHOLE 相机)
+          └── sparse/0/    (COLMAP 稀疏重建, SIMPLE_PINHOLE 相机)
         
-        我们在 colmap_dir 下创建 sugar_scene/ 目录，用符号链接指向正确的数据。
+        由于 COLMAP 已配置 SIMPLE_PINHOLE，不需要 undistortion。
+        在 colmap_dir 下创建 sugar_scene/ 目录。
         """
         import shutil
         
-        # 目标: colmap_dir/sugar_scene/
         scene_dir = os.path.join(colmap_dir, 'sugar_scene')
         
-        # 如果已有，先清理
         if os.path.exists(scene_dir):
             shutil.rmtree(scene_dir)
         os.makedirs(scene_dir, exist_ok=True)
         
-        # 查找 images 目录
+        # 查找 images
         images_src = os.path.join(colmap_dir, 'images')
         if not os.path.exists(images_src):
             logger.error(f"找不到 images 目录: {images_src}")
             return colmap_dir
         
-        # 查找最佳 sparse 数据源 (优先 undistorted，因为是 PINHOLE 相机)
-        undist_dir = os.path.join(colmap_dir, 'colmap', 'undistorted')
-        colmap_sparse = os.path.join(colmap_dir, 'colmap', 'sparse', '0')
-        
+        # 查找 sparse (优先 undistorted, 其次 colmap/sparse/0)
         sparse_src = None
-        use_undist_images = False
+        for candidate in [
+            os.path.join(colmap_dir, 'colmap', 'undistorted', 'sparse', '0'),
+            os.path.join(colmap_dir, 'colmap', 'undistorted', 'sparse'),
+            os.path.join(colmap_dir, 'colmap', 'sparse', '0'),
+        ]:
+            if os.path.exists(candidate):
+                sparse_src = candidate
+                # 如果用 undistorted，也用它的 images
+                if 'undistorted' in candidate:
+                    undist_images = os.path.join(colmap_dir, 'colmap', 'undistorted', 'images')
+                    if os.path.exists(undist_images):
+                        images_src = undist_images
+                break
         
-        # 优先用 undistorted (PINHOLE 相机)
-        undist_sparse = os.path.join(undist_dir, 'sparse', '0')
-        if not os.path.exists(undist_sparse):
-            undist_sparse = os.path.join(undist_dir, 'sparse')  # 可能没有 0/ 子目录
-        
-        if os.path.exists(undist_sparse):
-            sparse_src = undist_sparse
-            # undistorted 有自己的 images，用它的
-            undist_images = os.path.join(undist_dir, 'images')
-            if os.path.exists(undist_images):
-                images_src = undist_images
-                use_undist_images = True
-            logger.info(f"使用 undistorted sparse (PINHOLE): {sparse_src}")
-        elif os.path.exists(colmap_sparse):
-            sparse_src = colmap_sparse
-            logger.warning(f"使用原始 sparse (可能非 PINHOLE): {sparse_src}")
-        else:
-            logger.error(f"找不到任何 sparse 数据")
+        if not sparse_src:
+            logger.error("找不到任何 sparse 数据")
             return colmap_dir
         
-        # 创建符号链接
+        # 创建符号链接: images
         os.symlink(os.path.abspath(images_src), os.path.join(scene_dir, 'images'))
         
-        # sparse/0/ 结构
+        # 复制 sparse 到 sparse/0/
         scene_sparse_0 = os.path.join(scene_dir, 'sparse', '0')
         os.makedirs(scene_sparse_0, exist_ok=True)
-        
-        # 复制 sparse 文件到 sparse/0/
         for f in os.listdir(sparse_src):
             src_file = os.path.join(sparse_src, f)
             if os.path.isfile(src_file):
                 shutil.copy2(src_file, os.path.join(scene_sparse_0, f))
         
-        logger.info(f"SuGaR 场景目录准备完成: {scene_dir}")
+        logger.info(f"SuGaR 场景目录: {scene_dir}")
         logger.info(f"  images -> {images_src}")
         logger.info(f"  sparse <- {sparse_src}")
         
