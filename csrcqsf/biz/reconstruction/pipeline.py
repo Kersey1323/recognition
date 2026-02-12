@@ -21,9 +21,11 @@ from csrcqsf.settings import minio_bucket, temp_dir
 
 from .colmap_processor import ColmapProcessor
 from .gaussian_trainer import GaussianTrainer
+from .mask_preprocessor import MaskPreprocessor
 from .mesh_extractor import MeshExtractor
 from .opensplat_trainer import OpenSplatTrainer
 from .sugar_trainer import SuGaRTrainer
+from .tdgs_trainer import TDGSTrainer
 
 
 class TaskStatus(str, Enum):
@@ -43,6 +45,7 @@ class TrainerType(str, Enum):
     GAUSSIAN = "gaussian"         # 原版 gaussian-splatting (conda)
     OPENSPLAT = "opensplat"       # OpenSplat (C++ 二进制)
     SUGAR = "sugar"               # SuGaR (训练+提取一步完成)
+    TDGS = "2dgs"                 # 2D Gaussian Splatting (更快更好的mesh)
 
 
 class ReconstructionTask(BaseModel):
@@ -155,7 +158,8 @@ class ReconstructionPipeline:
         local_image_dir: str, 
         output_dir: str = None,
         iterations: int = 7000,
-        trainer_type: TrainerType = TrainerType.OPENSPLAT
+        trainer_type: TrainerType = TrainerType.OPENSPLAT,
+        use_mask: bool = False,
     ) -> dict:
         """同步执行本地 3D 重建 (用于快速测试)
         
@@ -163,7 +167,8 @@ class ReconstructionPipeline:
             local_image_dir: 本地图片目录路径
             output_dir: 输出目录，默认在 temp_dir 下创建
             iterations: 3DGS 训练迭代次数，默认 7000
-            trainer_type: 训练器类型 (gaussian/opensplat)，默认 opensplat
+            trainer_type: 训练器类型，默认 opensplat
+            use_mask: 是否使用 SAM 分割前景 (只重建目标物体)
             
         Returns:
             dict: 包含重建结果的字典
@@ -196,6 +201,19 @@ class ReconstructionPipeline:
         }
         
         try:
+            # Step 0: Mask 预处理 (可选)
+            if use_mask:
+                logger.info("[本地测试] SAM 前景分割...")
+                masked_dir = os.path.join(output_dir, 'masked_images')
+                mask_result = MaskPreprocessor.preprocess_images(image_link, masked_dir)
+                if mask_result['success'] and mask_result['masked'] > 0:
+                    # 用 masked 图片替换原始图片链接
+                    masked_link = os.path.join(output_dir, 'images_original')
+                    os.rename(image_link, masked_link)
+                    os.rename(masked_dir, image_link)
+                    logger.info(f"[本地测试] 前景分割: {mask_result['masked']}/{mask_result['total']} 张")
+                else:
+                    logger.warning("[本地测试] 前景分割失败，使用原图")
             # # Step 1: COLMAP SfM
             # logger.info(f"[本地测试] 开始 COLMAP SfM: {local_image_dir}")
             # colmap_result = await ColmapProcessor.run_sfm(image_link, colmap_dir)
@@ -206,27 +224,36 @@ class ReconstructionPipeline:
             
             # logger.info(f"[本地测试] COLMAP 完成, 点云数量: {colmap_result['num_points']}")
             
-            if trainer_type == TrainerType.SUGAR:
-                # SuGaR 一步完成: 3DGS 训练 + Mesh 提取
-                logger.info(f"[本地测试] 开始 SuGaR 训练+提取, 迭代次数: {iterations}")
+            if trainer_type in (TrainerType.SUGAR, TrainerType.TDGS):
+                # SuGaR / 2DGS 一步完成: 训练 + Mesh 提取
+                trainer_name = '2DGS' if trainer_type == TrainerType.TDGS else 'SuGaR'
+                logger.info(f"[本地测试] 开始 {trainer_name} 训练+提取, 迭代次数: {iterations}")
                 
-                sugar_result = await SuGaRTrainer.train_and_extract(
-                    colmap_dir=output_dir,
-                    output_dir=mesh_output_dir,
-                    iterations=iterations,
-                )
+                if trainer_type == TrainerType.TDGS:
+                    one_step_result = await TDGSTrainer.train_and_extract(
+                        colmap_dir=output_dir,
+                        output_dir=mesh_output_dir,
+                        iterations=iterations,
+                        white_background=use_mask,
+                    )
+                else:
+                    one_step_result = await SuGaRTrainer.train_and_extract(
+                        colmap_dir=output_dir,
+                        output_dir=mesh_output_dir,
+                        iterations=iterations,
+                    )
                 
-                if not sugar_result['success']:
-                    result['message'] = f"SuGaR 失败: {sugar_result['message']}"
+                if not one_step_result['success']:
+                    result['message'] = f"{trainer_name} 失败: {one_step_result['message']}"
                     return result
                 
                 result['success'] = True
-                result['obj_path'] = sugar_result['obj_path']
-                result['num_vertices'] = sugar_result['num_vertices']
-                result['num_faces'] = sugar_result['num_faces']
-                result['message'] = '3D 重建完成 (SuGaR)'
+                result['obj_path'] = one_step_result['obj_path']
+                result['num_vertices'] = one_step_result['num_vertices']
+                result['num_faces'] = one_step_result['num_faces']
+                result['message'] = f'3D 重建完成 ({trainer_name})'
                 
-                logger.info(f"[本地测试] SuGaR 完成! OBJ: {sugar_result['obj_path']}")
+                logger.info(f"[本地测试] {trainer_name} 完成! OBJ: {one_step_result['obj_path']}")
             else:
                 # OpenSplat / Gaussian 两步流程
                 logger.info(f"[本地测试] 开始 3DGS 训练 ({trainer_type.value}), 迭代次数: {iterations}")
@@ -328,25 +355,33 @@ class ReconstructionPipeline:
             obj_filename = f'part_{task.item_id}.obj' if task.item_id else 'output.obj'
             obj_path = os.path.join(mesh_output_dir, obj_filename)
             
-            if trainer_type == TrainerType.SUGAR:
-                # SuGaR: 训练+提取一步完成 (45% → 95%)
+            if trainer_type in (TrainerType.SUGAR, TrainerType.TDGS):
+                # SuGaR / 2DGS: 训练+提取一步完成 (45% → 95%)
+                trainer_name = '2DGS' if trainer_type == TrainerType.TDGS else 'SuGaR'
                 task.status = TaskStatus.TRAINING
-                task.message = '正在执行 SuGaR 训练+提取...'
+                task.message = f'正在执行 {trainer_name} 训练+提取...'
                 task.progress = 45
                 _task_store[task.task_id] = task
                 
-                sugar_result = await SuGaRTrainer.train_and_extract(
-                    colmap_dir=work_dir,
-                    output_dir=mesh_output_dir,
-                    iterations=iterations,
-                )
+                if trainer_type == TrainerType.TDGS:
+                    one_step_result = await TDGSTrainer.train_and_extract(
+                        colmap_dir=work_dir,
+                        output_dir=mesh_output_dir,
+                        iterations=iterations,
+                    )
+                else:
+                    one_step_result = await SuGaRTrainer.train_and_extract(
+                        colmap_dir=work_dir,
+                        output_dir=mesh_output_dir,
+                        iterations=iterations,
+                    )
                 
-                if not sugar_result['success']:
-                    raise Exception(f"SuGaR 失败: {sugar_result['message']}")
+                if not one_step_result['success']:
+                    raise Exception(f"{trainer_name} 失败: {one_step_result['message']}")
                 
-                obj_path = sugar_result['obj_path']
-                task.mesh_vertices = sugar_result['num_vertices']
-                task.mesh_faces = sugar_result['num_faces']
+                obj_path = one_step_result['obj_path']
+                task.mesh_vertices = one_step_result['num_vertices']
+                task.mesh_faces = one_step_result['num_faces']
                 task.progress = 95
                 _task_store[task.task_id] = task
             else:
