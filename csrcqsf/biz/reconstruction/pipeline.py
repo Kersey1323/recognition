@@ -196,15 +196,15 @@ class ReconstructionPipeline:
         }
         
         try:
-            # # Step 1: COLMAP SfM
-            # logger.info(f"[本地测试] 开始 COLMAP SfM: {local_image_dir}")
-            # colmap_result = await ColmapProcessor.run_sfm(image_link, colmap_dir)
+            # Step 1: COLMAP SfM
+            logger.info(f"[本地测试] 开始 COLMAP SfM: {local_image_dir}")
+            colmap_result = await ColmapProcessor.run_sfm(image_link, colmap_dir)
             
-            # if not colmap_result['success']:
-            #     result['message'] = f"COLMAP 失败: {colmap_result['message']}"
-            #     return result
+            if not colmap_result['success']:
+                result['message'] = f"COLMAP 失败: {colmap_result['message']}"
+                return result
             
-            # logger.info(f"[本地测试] COLMAP 完成, 点云数量: {colmap_result['num_points']}")
+            logger.info(f"[本地测试] COLMAP 完成, 点云数量: {colmap_result['num_points']}")
             
             if trainer_type == TrainerType.SUGAR:
                 # SuGaR 一步完成: 3DGS 训练 + Mesh 提取
