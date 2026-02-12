@@ -214,9 +214,10 @@ class ReconstructionPipeline:
                     logger.info(f"[本地测试] 前景分割: {mask_result['masked']}/{mask_result['total']} 张")
                 else:
                     logger.warning("[本地测试] 前景分割失败，使用原图")
-            # # Step 1: COLMAP SfM
-            # logger.info(f"[本地测试] 开始 COLMAP SfM: {local_image_dir}")
-            # colmap_result = await ColmapProcessor.run_sfm(image_link, colmap_dir)
+            
+            # Step 1: COLMAP SfM
+            logger.info(f"[本地测试] 开始 COLMAP SfM: {local_image_dir}")
+            colmap_result = await ColmapProcessor.run_sfm(image_link, colmap_dir)
             
             if not colmap_result['success']:
                 result['message'] = f"COLMAP 失败: {colmap_result['message']}"
