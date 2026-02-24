@@ -1,0 +1,32 @@
+flowchart TD
+    %% 阶段1: 视觉预处理
+    INPUT(连续照图集) --> COLMAP[COLMAP推算姿态]
+    COLMAP --> C_POS[获取全局稀疏点云]
+    COLMAP --> C_CAM[推算内参矩阵]
+
+    %% 桥接
+    C_POS ==> INIT_2DGS[2D高斯体云初始化]
+    C_CAM ==> INIT_2DGS
+
+    %% 阶段2: 2D高斯渲染训练
+    INIT_2DGS --> T_FORWARD[前向光栅化渲染]
+    T_FORWARD --> T_LOSS[Loss评估提取]
+    T_LOSS --> T_REGULAR{深度及法向一致性正则化}
+    T_REGULAR --> T_BACK[反向传播求导]
+    T_BACK --> T_UPDATE[更新几何光照属性]
+    T_UPDATE --> T_CLONE{自适应密度控制}
+    
+    %% 训练循环
+    T_CLONE -. 循环迭代 .-> T_FORWARD
+
+    %% 阶段3: 模型导出
+    T_CLONE ====> EXPORT_PLY[(导出点云 .ply)]
+    EXPORT_PLY --> RECONSTRUCT[泊松表面重建]
+    RECONSTRUCT --> EXPORT_OBJ[生成标准模型 .obj]
+
+    %% 主题颜色
+    style INPUT fill:#FFF8E1,stroke:#FF8F00,stroke-width:1px,color:#333
+    style EXPORT_PLY fill:#1A237E,stroke:#fff,stroke-width:1px,color:#fff
+    style EXPORT_OBJ fill:#E65100,stroke:#fff,stroke-width:2px,color:#fff
+
+

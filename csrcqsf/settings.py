@@ -9,11 +9,11 @@ from bfrcommon.settings import Settings
 from pydantic import BaseModel
 minio_bucket = 'bfr-ai-files'
 temp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'temp')
-brisconfig_url = os.environ.get("brisconfig_url") or "192.168.100.2:10001"
+brisconfig_url = os.environ.get("brisconfig_url") or "10.144.145.6:10001"
 sgo_url = 'https://sgo.csrcqsf.com/uc/sfsso/authByAccount?tenantId=1463844437338755072'
 
 model_dir = '/opt/models' if sys.platform.startswith(
-    'win') is False else 'E:\\models'
+    'win') is False else 'D:\\models'
 
 mkdir(temp_dir)
 mkdir(model_dir)
@@ -64,13 +64,13 @@ class AISettings(Settings):
     neo4j_outer_url: str = ''
     llm_model_name: str = ''
     embeddings_model_name: str = ''
-    milvus_url: str = 'http://192.168.100.8:19530'
-    minio_url: str = '192.168.100.2:9000'
-    sgo_mysql_url: str = '192.168.100.12'
+    milvus_url: str = 'http://10.144.145.4:19530'
+    minio_url: str = '10.144.145.6:9000'
+    sgo_mysql_url: str = '10.144.145.4'
     sgo_mysql_port: str = '33306'
     sgo_mysql_password: str = 'REMOVED_CREDENTIAL'
     sgo_mysql_username: str = 'root'
-    basis_api_grpc_url : str = '127.0.0.1:8701'
+    basis_api_grpc_url : str = '10.144.145.6:8701'
     search_use_vechile: bool = False
 
     def parse_config(self, response):
@@ -78,13 +78,13 @@ class AISettings(Settings):
         self.basis_api_grpc_url = data.basis_api_grpc_url
         self.deepseek_url = data.deepseek_url
         self.api_key = data.api_key
-        self.neo4j_url = data.neo4j_url
+        #self.neo4j_url = data.neo4j_url
         self.neo4j_outer_url = data.neo4j_outer_url
         self.llm_model_name = data.llm_model_name
         self.embeddings_model_name = data.embeddings_model_name
-        self.milvus_url = data.milvus_url
-        self.minio_url = data.minio_url
-        self.sgo_mysql_url = data.sgo_mysql_url
+        #self.milvus_url = data.milvus_url
+        #self.minio_url = data.minio_url
+        #self.sgo_mysql_url = data.sgo_mysql_url
         self.sgo_mysql_port = data.sgo_mysql_port
         self.sgo_mysql_password = data.sgo_mysql_password
         self.sgo_mysql_username = data.sgo_mysql_username
@@ -100,12 +100,12 @@ class AISettings(Settings):
         return f"postgresql+psycopg2://{self.pg.user_name}:{quote_plus(self.pg.password)}@{self.pg.url}:{self.pg.port}/zcsf"
 
     def get_async_pg_dsn(self):
-        return f"postgresql+asyncpg://{self.pg.user_name}:{quote_plus(self.pg.password)}@192.168.100.2:{self.pg.port}/zcsf"
+        return f"postgresql+asyncpg://{self.pg.user_name}:{quote_plus(self.pg.password)}@10.144.145.6:{self.pg.port}/zcsf"
     
 
     def get_sgo_dsn(self):
         #return f"mysql+asyncmy://{self.sgo_mysql_username}:{self.sgo_mysql_password}@{self.sgo_mysql_url}:{self.sgo_mysql_port}/mdpdb"
-        return f"mysql+asyncmy://{self.sgo_mysql_username}:{self.sgo_mysql_password}@192.168.100.12:{self.sgo_mysql_port}/mdpdb"
+        return f"mysql+asyncmy://{self.sgo_mysql_username}:{self.sgo_mysql_password}@10.144.145.4:{self.sgo_mysql_port}/mdpdb"
 
 
 settings_path = os.path.join(os.path.dirname(

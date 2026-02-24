@@ -6,6 +6,7 @@
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from anyio.to_thread import run_sync
@@ -80,8 +81,7 @@ class ColmapProcessor:
         
         # Step 1: 特征提取
         with CodeTimer(name='COLMAP特征提取'):
-            success, msg = cls._run_command([
-                'xvfb-run','-a', 
+            cmd = [
                 'colmap', 'feature_extractor',
                 '--database_path', database_path,
                 '--image_path', image_dir,
@@ -90,7 +90,12 @@ class ColmapProcessor:
                 '--SiftExtraction.peak_threshold','0.0066',
                # '--SiftExtraction.edge_threshold', '15' ,
                 '--SiftExtraction.max_num_features', '8192',
-            ])
+            ]
+            
+            if sys.platform.startswith('linux'):
+                cmd = ['xvfb-run', '-a'] + cmd
+
+            success, msg = cls._run_command(cmd)
             if not success:
                 result['message'] = f'特征提取失败: {msg}'
                 return result

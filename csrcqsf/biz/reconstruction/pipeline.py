@@ -117,7 +117,7 @@ class ReconstructionPipeline:
         item_id: int = 0,
         upload_result: bool = False,
         trainer_type: TrainerType = TrainerType.OPENSPLAT,
-        iterations: int = 7000
+        iterations: int = 30000
     ) -> ReconstructionTask:
         """从本地图片目录创建重建任务 (用于快速测试)
         
@@ -157,7 +157,7 @@ class ReconstructionPipeline:
         cls, 
         local_image_dir: str, 
         output_dir: str = None,
-        iterations: int = 7000,
+        iterations: int = 30000,
         trainer_type: TrainerType = TrainerType.OPENSPLAT,
         use_mask: bool = False,
     ) -> dict:

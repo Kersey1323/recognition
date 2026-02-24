@@ -38,7 +38,8 @@ async def test_sync_run():
         local_image_dir=r"./images",
         output_dir=r"./output",
         iterations=7000,
-        trainer_type=TrainerType.TDGS  # SUGAR / OPENSPLAT / GAUSSIAN
+        trainer_type=TrainerType.TDGS,  # SUGAR / OPENSPLAT / GAUSSIAN
+        use_mask=False,
     )
     
     if result['success']:
