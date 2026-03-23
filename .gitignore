@@ -18,3 +18,8 @@ images/
 output/
 videos/
 doc/
+data/
+
+# Compiled extensions
+*.so
+*.deb
