@@ -45,4 +45,5 @@
     "python.analysis.inlayHints.functionReturnTypes": true,
     "python.analysis.inlayHints.pytestParameters": true,
     "python.analysis.inlayHints.variableTypes": true,
+    "kiroAgent.configureMCP": "Disabled",
 }

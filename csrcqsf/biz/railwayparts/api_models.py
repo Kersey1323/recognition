@@ -27,11 +27,24 @@ class CreateItemReq(BaseModel):
 
 
 class ListItemReq(PageReq):
-    query: str | None
-    parent_item_id: str | None
-    only_has_index: int = Field(description='只查看有索引的配件.1 为是 0为否', default=0)
-    has_inquery_code: int = Field(description='只查看有询码记录的配件.1为是 0为否', default=0)
-    has_images: int = Field(description='只查看有图片的配件.1 为是 0为否', default=0)
+    query: str | None = Field(default=None, description='搜索关键词', example="司机室")
+    parent_item_id: str | None = Field(default=None, description='父配件ID', example=None)
+    only_has_index: int = Field(description='只查看有索引的配件.1 为是 0为否', default=0, example=0)
+    has_inquery_code: int = Field(description='只查看有询码记录的配件.1为是 0为否', default=0, example=0)
+    has_images: int = Field(description='只查看有图片的配件.1 为是 0为否', default=0, example=0)
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "page": 1,
+                "pageSize": 20,
+                "query": "司机室",
+                "parent_item_id": None,
+                "only_has_index": 0,
+                "has_inquery_code": 0,
+                "has_images": 0
+            }
+        }
 
 
 class ListItem(BaseModel):
@@ -83,7 +96,14 @@ class ItemImageItem(BaseModel):
 
 
 class GetItemDetailReq(BaseModel):
-    item_id: str
+    item_id: str = Field(description='配件ID', example="2023080809420000001")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "item_id": "2023080809420000001"
+            }
+        }
 
 
 class GetItemDetailRes(BaseModel):
@@ -133,7 +153,14 @@ class UpdateFeatureReq(BaseModel):
 
 
 class ListFeaturesReq(BaseModel):
-    item_id: str
+    item_id: str = Field(description='配件ID', example="2023080809420000001")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "item_id": "2023080809420000001"
+            }
+        }
 
 
 class ListFeautresRes(BaseModel):
@@ -141,9 +168,18 @@ class ListFeautresRes(BaseModel):
 
 
 class ImageSearchReq(BaseModel):
-    images_url: list[str] = []
-    radius: float = Field(default=0.8, description='相似度，-1到1的浮点数，越大要求越严格')
-    texts: list[str] = []
+    images_url: list[str] = Field(default=[], description='图片URL列表', example=["http://192.168.100.2:9000/bfr-ai-files/1725402784070635520.jpg"])
+    radius: float = Field(default=0.8, description='相似度，-1到1的浮点数，越大要求越严格', example=0.8)
+    texts: list[str] = Field(default=[], description='文字特征列表', example=["控制主机", "司机室"])
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "images_url": ["http://192.168.100.2:9000/bfr-ai-files/1725402784070635520.jpg"],
+                "radius": 0.8,
+                "texts": []
+            }
+        }
 
 
 class ImageSearchItem(ListItem):

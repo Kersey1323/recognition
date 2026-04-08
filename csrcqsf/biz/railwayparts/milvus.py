@@ -583,6 +583,49 @@ class MilvusManager:
     async def __init_hp_collection(cls):
         """初始化高精度特征集合 (DINOv2, 1024维)"""
         if milvus_client.has_collection(collection_name=ColletionEnum.HP_INDEX_COLLECTION.value):
+            # 检查向量索引是否已存在，若缺失则先补建再加载
+            # list_indexes 返回索引名字符串列表，需逐个 describe_index 获取 field_name
+            index_names = milvus_client.list_indexes(ColletionEnum.HP_INDEX_COLLECTION.value)
+            existing_indexes = set()
+            for idx_name in index_names:
+                try:
+                    info = milvus_client.describe_index(
+                        collection_name=ColletionEnum.HP_INDEX_COLLECTION.value,
+                        index_name=idx_name
+                    )
+                    field = info.get("field_name") if isinstance(info, dict) else getattr(info, "field_name", None)
+                    if field:
+                        existing_indexes.add(field)
+                except Exception:
+                    pass
+            logger.info(f"HP集合已存在，当前索引字段: {existing_indexes}")
+            
+            if "images[image_vector]" not in existing_indexes:
+                logger.info("补建缺失索引: images[image_vector]")
+                idx_params1 = milvus_client.prepare_index_params()
+                idx_params1.add_index(
+                    field_name="images[image_vector]",
+                    index_type="AUTOINDEX",
+                    metric_type="MAX_SIM_L2"
+                )
+                milvus_client.create_index(
+                    collection_name=ColletionEnum.HP_INDEX_COLLECTION.value,
+                    index_params=idx_params1
+                )
+            
+            if "features[feature_vector]" not in existing_indexes:
+                logger.info("补建缺失索引: features[feature_vector]")
+                idx_params2 = milvus_client.prepare_index_params()
+                idx_params2.add_index(
+                    field_name="features[feature_vector]",
+                    index_type="AUTOINDEX",
+                    metric_type="MAX_SIM_IP"
+                )
+                milvus_client.create_index(
+                    collection_name=ColletionEnum.HP_INDEX_COLLECTION.value,
+                    index_params=idx_params2
+                )
+            
             milvus_client.load_collection(ColletionEnum.HP_INDEX_COLLECTION.value)
             return
         
@@ -633,9 +676,8 @@ class MilvusManager:
         
         index_params.add_index(
             field_name="images[image_vector]",
-            index_type="HNSW",
-            metric_type="COSINE",
-            params={"M": 32, "efConstruction": 256}  # 更高的精度参数
+            index_type="AUTOINDEX",
+            metric_type="MAX_SIM_L2"
         )
         
         index_params.add_index(field_name="parent_item_info", index_type="AUTOINDEX")
@@ -643,9 +685,8 @@ class MilvusManager:
         
         index_params.add_index(
             field_name="features[feature_vector]",
-            index_type="HNSW",
-            metric_type="COSINE",
-            params={"M": 32, "efConstruction": 256}
+            index_type="AUTOINDEX",
+            metric_type="MAX_SIM_IP"
         )
         
         # milvus_client.create_collection(
@@ -659,25 +700,27 @@ class MilvusManager:
             schema=schema
         )
         
-        # 2. 强行针对复杂的 Struct 字段挂载索引
+        # 2. 强行针对复杂的 Struct 字段挂载索引 (通过 prepare_index_params 构建)
+        idx_params_img = milvus_client.prepare_index_params()
+        idx_params_img.add_index(
+            field_name="images[image_vector]",
+            index_type="AUTOINDEX",
+            metric_type="MAX_SIM_L2"
+        )
         milvus_client.create_index(
             collection_name=ColletionEnum.HP_INDEX_COLLECTION.value,
-            field_name="images[image_vector]",
-            index_params={
-                "index_type": "HNSW",
-                "metric_type": "COSINE",
-                "params": {"M": 32, "efConstruction": 256}
-            }
+            index_params=idx_params_img
         )
         
+        idx_params_feat = milvus_client.prepare_index_params()
+        idx_params_feat.add_index(
+            field_name="features[feature_vector]",
+            index_type="AUTOINDEX",
+            metric_type="MAX_SIM_IP"
+        )
         milvus_client.create_index(
             collection_name=ColletionEnum.HP_INDEX_COLLECTION.value,
-            field_name="features[feature_vector]",
-            index_params={
-                "index_type": "HNSW",
-                "metric_type": "COSINE",
-                "params": {"M": 32, "efConstruction": 256}
-            }
+            index_params=idx_params_feat
         )
         
         # 3. 最后再加载进内存

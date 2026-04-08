@@ -39,8 +39,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(docs_url=None, redoc_url=None,
-              default_response_class=DefaultResponse, lifespan=lifespan, redirect_slashes=False)
+app = FastAPI(default_response_class=DefaultResponse, lifespan=lifespan, redirect_slashes=False)
 
 
 @app.exception_handler(RequestValidationError)
@@ -62,14 +61,15 @@ app.middleware('http')(add_process_time_header(logger))
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
-swagger_static_url = os.environ.get('swagger')
-if swagger_static_url is None:
-    make_doc_router()
-else:
-    make_doc_router(swagger_static_url=swagger_static_url)
+# 注释掉自定义doc_router，使用FastAPI默认的Swagger UI
+# swagger_static_url = os.environ.get('swagger')
+# if swagger_static_url is None:
+#     # 使用Swagger官方CDN，避免依赖内部不可访问的静态文件服务器
+#     swagger_static_url = "https://unpkg.com/swagger-ui-dist@5.9.0/"
+# make_doc_router(swagger_static_url=swagger_static_url)
 
 
-app.include_router(doc_router)
+# app.include_router(doc_router)
 app.include_router(parts_router)
 app.include_router(image_router)
 app.include_router(sgo_router)

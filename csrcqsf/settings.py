@@ -66,7 +66,7 @@ class AISettings(Settings):
     llm_model_name: str = ''
     embeddings_model_name: str = ''
     milvus_url: str = 'http://192.168.100.12:19530'
-    minio_url: str = '192.168.100.8:9000'
+    minio_url: str = '192.168.100.2:9000'
     sgo_mysql_url: str = '192.168.100.12'
     sgo_mysql_port: str = '33306'
     sgo_mysql_password: str = 'REMOVED_CREDENTIAL'
@@ -101,7 +101,7 @@ class AISettings(Settings):
         return f"postgresql+psycopg2://{self.pg.user_name}:{quote_plus(self.pg.password)}@{self.pg.url}:{self.pg.port}/zcsf"
 
     def get_async_pg_dsn(self):
-        return f"postgresql+asyncpg://{self.pg.user_name}:{quote_plus(self.pg.password)}@192.168.100.8:{self.pg.port}/zcsf"
+        return f"postgresql+asyncpg://{self.pg.user_name}:{quote_plus(self.pg.password)}@{self.pg.url}:{self.pg.port}/zcsf"
     
 
     def get_sgo_dsn(self):
@@ -115,5 +115,11 @@ settings_path = os.path.join(os.path.dirname(
 ai_settings = AISettings()
 # ai_settings.register_config(
 #     brisconfig_url, settings_path, "zcsf-ai", "zcsf-ai")
+
+# 修复数据库地址：使用有完整表结构的数据库
+# 192.168.100.126 无法连接
+# 192.168.100.8 缺少 image_index_num 和 feature_index_num 字段
+# 192.168.100.2 有完整的表结构 ✓
+ai_settings.pg.url = "192.168.100.2"
 
 print(ai_settings.get_sgo_dsn())

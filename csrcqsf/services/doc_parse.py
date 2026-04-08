@@ -20,7 +20,16 @@ class CreateFileReq(BaseModel):
     file_url : str 
 
 class ListFileReq(PageReq):
-    query : str | None = ''
+    query : str | None = Field(default='', description='搜索关键词', example='手册')
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "page": 1,
+                "pageSize": 20,
+                "query": "手册"
+            }
+        }
 
 class ListFileItem(BaseModel):
     file_name: str | None 
@@ -36,8 +45,18 @@ class DeleteFileReq(BaseModel):
     file_id : str 
 
 class ListFileTableReq(PageReq):
-    file_id : str 
-    query: str | None = ''
+    file_id : str = Field(description='文件ID', example='1990363621896622080')
+    query: str | None = Field(default='', description='搜索关键词', example='')
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "file_id": "1990363621896622080",
+                "page": 1,
+                "pageSize": 20,
+                "query": ""
+            }
+        }
 
 class ListFileTableItem(BaseModel):
     table_name: str | None 

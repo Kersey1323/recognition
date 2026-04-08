@@ -21,9 +21,20 @@ sgo_router = APIRouter(
 
 
 class ListInqueryReq(PageReq):
-    has_indexed: int = Field(default=1, description='1. 做过索引了 2. 没做过索引 0 不要这个条件')
+    has_indexed: int = Field(default=1, description='1. 做过索引了 2. 没做过索引 0 不要这个条件', example=0)
     current_status: str = Field(
-        default='FINISH', description='询码的状态.FINISH 已结束 CREATE:技术部待回复 CONFIRMAUDIT:编码确认审核中 BACKAUDIT:驳回审核中 REGING:编码注册中')
+        default='FINISH', description='询码的状态.FINISH 已结束 CREATE:技术部待回复 CONFIRMAUDIT:编码确认审核中 BACKAUDIT:驳回审核中 REGING:编码注册中',
+        example='FINISH')
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "page": 1,
+                "pageSize": 20,
+                "has_indexed": 0,
+                "current_status": "FINISH"
+            }
+        }
 
 
 
@@ -42,7 +53,14 @@ class SyncItemsImages(BaseModel):
 
 
 class ListSgoItemImagesReq(BaseModel):
-    item_id: str
+    item_id: str = Field(description='配件ID', example="1557988408477880320")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "item_id": "1557988408477880320"
+            }
+        }
 
 
 class ListSgoItemImageItem(BaseModel):
