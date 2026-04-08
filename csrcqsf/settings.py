@@ -12,11 +12,11 @@ temp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'temp')
 brisconfig_url = os.environ.get("brisconfig_url") or "10.144.145.6:10001"
 sgo_url = 'https://sgo.csrcqsf.com/uc/sfsso/authByAccount?tenantId=1463844437338755072'
 
-model_dir = '/opt/models' if sys.platform.startswith(
+model_dir = '/home/ubuntu/CV/models' if sys.platform.startswith(
     'win') is False else 'D:\\models'
 
-mkdir(temp_dir)
-mkdir(model_dir)
+# mkdir(temp_dir)
+# mkdir(model_dir)
 
 
 async def download_file(url, file_path):
@@ -36,7 +36,8 @@ async def download_file(url, file_path):
             else:
                 print(f"下载失败，状态码: {response.status}")
 
-SAM_MODEL = os.path.join(model_dir, 'sam_vit_h_4b8939.pth')
+SAM_MODEL = os.path.join(model_dir, 'sam_vit_h_4b8939/sam_vit_h_4b8939.pth')
+
 obj_model_path = os.path.join(model_dir, 'yolo_obj_det.onnx')
 edge_model_path = os.path.join(model_dir,'yolo_edge_det.onnx')
 cls_model_path = os.path.join(model_dir,'paddle_cls_det.onnx')
@@ -64,9 +65,9 @@ class AISettings(Settings):
     neo4j_outer_url: str = ''
     llm_model_name: str = ''
     embeddings_model_name: str = ''
-    milvus_url: str = 'http://10.144.145.4:19530'
-    minio_url: str = '10.144.145.6:9000'
-    sgo_mysql_url: str = '10.144.145.4'
+    milvus_url: str = 'http://192.168.100.12:19530'
+    minio_url: str = '192.168.100.8:9000'
+    sgo_mysql_url: str = '192.168.100.12'
     sgo_mysql_port: str = '33306'
     sgo_mysql_password: str = 'REMOVED_CREDENTIAL'
     sgo_mysql_username: str = 'root'
@@ -82,8 +83,8 @@ class AISettings(Settings):
         self.neo4j_outer_url = data.neo4j_outer_url
         self.llm_model_name = data.llm_model_name
         self.embeddings_model_name = data.embeddings_model_name
-        #self.milvus_url = data.milvus_url
-        #self.minio_url = data.minio_url
+        # self.milvus_url = data.milvus_url
+        # self.minio_url = data.minio_url
         #self.sgo_mysql_url = data.sgo_mysql_url
         self.sgo_mysql_port = data.sgo_mysql_port
         self.sgo_mysql_password = data.sgo_mysql_password
@@ -100,19 +101,19 @@ class AISettings(Settings):
         return f"postgresql+psycopg2://{self.pg.user_name}:{quote_plus(self.pg.password)}@{self.pg.url}:{self.pg.port}/zcsf"
 
     def get_async_pg_dsn(self):
-        return f"postgresql+asyncpg://{self.pg.user_name}:{quote_plus(self.pg.password)}@10.144.145.6:{self.pg.port}/zcsf"
+        return f"postgresql+asyncpg://{self.pg.user_name}:{quote_plus(self.pg.password)}@192.168.100.8:{self.pg.port}/zcsf"
     
 
     def get_sgo_dsn(self):
         #return f"mysql+asyncmy://{self.sgo_mysql_username}:{self.sgo_mysql_password}@{self.sgo_mysql_url}:{self.sgo_mysql_port}/mdpdb"
-        return f"mysql+asyncmy://{self.sgo_mysql_username}:{self.sgo_mysql_password}@10.144.145.4:{self.sgo_mysql_port}/mdpdb"
+        return f"mysql+asyncmy://{self.sgo_mysql_username}:{self.sgo_mysql_password}@{self.sgo_mysql_url}:{self.sgo_mysql_port}/mdpdb"
 
 
 settings_path = os.path.join(os.path.dirname(
     __file__), "./settings_schema.json")
 
 ai_settings = AISettings()
-ai_settings.register_config(
-    brisconfig_url, settings_path, "zcsf-ai", "zcsf-ai")
+# ai_settings.register_config(
+#     brisconfig_url, settings_path, "zcsf-ai", "zcsf-ai")
 
 print(ai_settings.get_sgo_dsn())

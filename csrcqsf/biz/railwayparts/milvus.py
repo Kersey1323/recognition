@@ -226,7 +226,7 @@ class DINOv2Extractor:
 class MilvusManager:
     # 标准模式: ResNet34 (512维)
     extractor = FeatureExtractor("resnet34")
-    _embedding_model = SentenceTransformer('./embedding_models')
+    _embedding_model = SentenceTransformer('./embedding_models/bge-small-zh-v1.5')
     
     # 高精度模式: DINOv2-Large (1024维) - 延迟加载
     _hp_extractor = None
@@ -648,12 +648,42 @@ class MilvusManager:
             params={"M": 32, "efConstruction": 256}
         )
         
+        # milvus_client.create_collection(
+        #     collection_name=ColletionEnum.HP_INDEX_COLLECTION.value,
+        #     schema=schema,
+        #     index_params=index_params
+        # )
+                # 1. 纯净建表
         milvus_client.create_collection(
             collection_name=ColletionEnum.HP_INDEX_COLLECTION.value,
-            schema=schema,
-            index_params=index_params
+            schema=schema
         )
+        
+        # 2. 强行针对复杂的 Struct 字段挂载索引
+        milvus_client.create_index(
+            collection_name=ColletionEnum.HP_INDEX_COLLECTION.value,
+            field_name="images[image_vector]",
+            index_params={
+                "index_type": "HNSW",
+                "metric_type": "COSINE",
+                "params": {"M": 32, "efConstruction": 256}
+            }
+        )
+        
+        milvus_client.create_index(
+            collection_name=ColletionEnum.HP_INDEX_COLLECTION.value,
+            field_name="features[feature_vector]",
+            index_params={
+                "index_type": "HNSW",
+                "metric_type": "COSINE",
+                "params": {"M": 32, "efConstruction": 256}
+            }
+        )
+        
+        # 3. 最后再加载进内存
         milvus_client.load_collection(ColletionEnum.HP_INDEX_COLLECTION.value)
+
+        # milvus_client.load_collection(ColletionEnum.HP_INDEX_COLLECTION.value)
 
     @classmethod
     async def init_collection(cls):
