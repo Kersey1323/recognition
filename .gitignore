@@ -10,8 +10,6 @@ wheels/
 .venv
 logs/
 temp
-embedding_models/
-CR400AF型动车组部件说明.docx
 resnet_models/
 dinov2_models/
 images/
@@ -19,7 +17,7 @@ output/
 videos/
 doc/
 data/
-
+models/*
 # Compiled extensions
 *.so
 *.deb
