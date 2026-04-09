@@ -14,7 +14,7 @@ image_router = APIRouter(
 )
 
 
-@image_router.post('/ocr/front',  tags=["image"], summary='获取ocr内容', responses={
+@image_router.post('/ocr/front',  tags=["算法-OCR识别"], summary='获取ocr内容', responses={
     200: {
         'model': str
     }

@@ -1,12 +1,20 @@
+"""
+服务层 - 配件管理API路由
+职责：定义API接口、参数验证、调用业务逻辑
+注意：此层不包含具体业务实现，仅负责路由和参数处理
+"""
 from fastapi import APIRouter, BackgroundTasks
 from csrcqsf.biz.railwayparts.api_models import *
 from bfrcommon.snowflake import get_id
 from bfrcommon.common import date_to_str
 from csrcqsf.models.sgo import SgoItemImages
 from csrcqsf.settings import ai_settings
+# 导入业务逻辑层
 from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
 from csrcqsf.biz.railwayparts.milvus import MilvusManager
 from anyio.to_thread import run_sync
+
+# 配件管理路由器
 parts_router = APIRouter(
     prefix="/railway/parts",
     tags=["railway"],
@@ -15,27 +23,43 @@ parts_router = APIRouter(
 )
 
 
-@parts_router.post('/item',  tags=["railway"], summary='创建配件实体', responses={
+
+# ============================================
+# 配件基础管理接口
+# ============================================
+
+@parts_router.post('/item',  tags=["业务-配件管理"], summary='创建配件实体', responses={
     200: {
         'model': str
     }
 })
 async def create_item(req: CreateItemReq):
+    """
+    创建配件实体
+    
+    服务层职责：接收HTTP请求，验证参数，调用业务逻辑
+    业务逻辑：RailwayPartsManager.create_item() in biz/railwayparts/parts.py
+    """
     await RailwayPartsManager.create_item(item_name=req.item_name, item_code=req.item_code, obj_url=req.obj_url,
                                           height=req.height, length=req.length, width=req.width)
 
 
-@parts_router.post('/item_delete',  tags=["railway"], summary='删除配件实体', responses={
+@parts_router.post('/item_delete',  tags=["业务-配件管理"], summary='删除配件实体', responses={
     200: {
         'model': str
     }
 })
 async def delete_item(req: DeleteItemReq):
+    """
+    删除配件实体
+    
+    业务逻辑：RailwayPartsManager.delete_item() in biz/railwayparts/parts.py
+    """
     item_id_list = [int(item_id) for item_id in (req.item_id_list)]
     await RailwayPartsManager.delete_item(item_id_list=item_id_list)
 
 
-@parts_router.post('/item_put',  tags=["railway"], summary='修改配件实体描述', responses={
+@parts_router.post('/item_put',  tags=["业务-配件管理"], summary='修改配件实体描述', responses={
     200: {
         'model': str
     }
@@ -46,7 +70,7 @@ async def put_item(req: UpdateItemReq):
                                           width=req.width, height=req.height)
 
 
-@parts_router.post('/item/size_put',  tags=["railway"], summary='修改配件3D模型的尺寸描述', responses={
+@parts_router.post('/item/size_put',  tags=["业务-配件管理"], summary='修改配件3D模型的尺寸描述', responses={
     200: {
         'model': str
     }
@@ -55,7 +79,7 @@ async def put_item_size_desc(req: UpdateItemSizeStr):
     await RailwayPartsManager.update_item_size(item_id=int(req.item_id), item_size_str=req.item_size_desc)
 
 
-@parts_router.post('/list_items',  tags=["railway"], summary='列出配件列表', responses={
+@parts_router.post('/list_items',  tags=["业务-配件管理"], summary='列出配件列表', responses={
     200: {
         'model': LisItemRes
     }
@@ -65,7 +89,7 @@ async def list_items(req: ListItemReq):
     return await RailwayPartsManager.list_item(req)
 
 
-@parts_router.post('/create_item_image',  tags=["railway"], summary='为配件上传图片', responses={
+@parts_router.post('/create_item_image',  tags=["业务-图片管理"], summary='为配件上传图片', responses={
     200: {
         'model': str
     }
@@ -74,7 +98,7 @@ async def create_item_image(req: CreateItemImagesReq):
     await RailwayPartsManager.create_item_image(int(req.item_id), image_url_list=req.images_url)
 
 
-@parts_router.post('/item_image_indexed',  tags=["railway"], summary='为配件建立索引,可以是原图，也可以是裁剪后的照片', responses={
+@parts_router.post('/item_image_indexed',  tags=["算法-特征索引"], summary='为配件建立索引,可以是原图，也可以是裁剪后的照片', responses={
     200: {
         'model': str
     }
@@ -83,7 +107,7 @@ async def create_item_image_index(req: CreateItemImagesIndexReq):
     await RailwayPartsManager.create_item_index(req)
 
 
-@parts_router.post('/get_item_details',  tags=["railway"], summary='获取配件的详细信息', responses={
+@parts_router.post('/get_item_details',  tags=["业务-配件管理"], summary='获取配件的详细信息', responses={
     200: {
         'model': GetItemDetailRes
     }
@@ -92,7 +116,7 @@ async def get_item_image_detail(req: GetItemDetailReq):
     return await RailwayPartsManager.get_item_detail(int(req.item_id))
 
 
-@parts_router.post('/update_item_features',  tags=["railway"], summary='修改配件文字特征', responses={
+@parts_router.post('/update_item_features',  tags=["业务-特征管理"], summary='修改配件文字特征', responses={
     200: {
         'model': str
     }
@@ -101,7 +125,7 @@ async def update_item_features(req: UpdateFeatureReq):
     await RailwayPartsManager.update_item_features(req)
 
 
-@parts_router.post('/delete_item_features',  tags=["railway"], summary='删除配件文字特征', responses={
+@parts_router.post('/delete_item_features',  tags=["业务-特征管理"], summary='删除配件文字特征', responses={
     200: {
         'model': str
     }
@@ -110,7 +134,7 @@ async def delete_item_features(req: DeleteFeaturesReq):
     await RailwayPartsManager.delete_item_features(req)
 
 
-@parts_router.post('/delete_item_image_index',  tags=["railway"], summary='删除配件图片索引', responses={
+@parts_router.post('/delete_item_image_index',  tags=["业务-图片管理"], summary='删除配件图片索引', responses={
     200: {
         'model': str
     }
@@ -119,7 +143,7 @@ async def delete_item_image_index(req: DeleteImageIndexedReq):
     await RailwayPartsManager.delete_item_image_index(int(req.item_id), req.image_file_url)
 
 
-@parts_router.post('/list_item_features',  tags=["railway"], summary='列出当前配件的features', responses={
+@parts_router.post('/list_item_features',  tags=["业务-特征管理"], summary='列出当前配件的features', responses={
     200: {
         'model': ListFeautresRes
     }
@@ -134,7 +158,7 @@ async def list_item_features(req: ListFeaturesReq):
     return res
 
 
-@parts_router.post('/image_search',  tags=["railway"], summary='根据图片查询配件', responses={
+@parts_router.post('/image_search',  tags=["算法-智能检索"], summary='根据图片查询配件', responses={
     200: {
         'model': ImageSearchRes
     }
@@ -143,12 +167,29 @@ async def item_search(req: ImageSearchReq):
     return await RailwayPartsManager.image_search_to_item(req.images_url, req.radius)
 
 
-@parts_router.post('/index_rebuild',  tags=["railway"], summary='重建所有配件的图片索引', responses={
+
+# ============================================
+# 算法接口 - 特征索引
+# ============================================
+
+@parts_router.post('/index_rebuild',  tags=["算法-特征索引"], summary='重建所有配件的图片索引', responses={
     200: {
         'model': str
     }
 })
 async def rebuild_parts_pic_index():
+    """
+    重建所有配件的图片索引
+    
+    算法流程：
+    1. 标记所有图片为未索引状态
+    2. 获取所有图片
+    3. 使用DINOv2提取特征并重建Milvus向量索引
+    4. 标记所有图片为已索引状态
+    
+    业务逻辑：RailwayPartsManager.rebuild_pic_index() in biz/railwayparts/parts.py:529
+    核心算法：MilvusManager.rebuild_collection() - DINOv2特征提取 + Milvus索引
+    """
     return await RailwayPartsManager.rebuild_pic_index()
 
 
@@ -163,7 +204,7 @@ class SearchReq(BaseModel):
 
 
 
-@parts_router.post('/search/v2',  tags=["railway"], summary='检索V2版本', responses={
+@parts_router.post('/search/v2',  tags=["算法-智能检索"], summary='检索V2版本', responses={
     200: {
         'model': SearchRes
     }
@@ -173,7 +214,7 @@ async def search_v2(req: SearchReq):
                                             sgo_inquery_id=req.sgo_inquery_id, parent_item_id=int(req.parent_item_id))
 
 
-@parts_router.post('/search/history/v2',  tags=["railway"], summary='检索历史列表', responses={
+@parts_router.post('/search/history/v2',  tags=["业务-检索历史"], summary='检索历史列表', responses={
     200: {
         'model': ListSearchHistoryRes
     }
@@ -182,7 +223,7 @@ async def list_search_history_v2(req: ListSearchHistoryReq):
     return await RailwayPartsManager.list_search_history(req.page, req.per_page)
 
 
-@parts_router.post('/search/history/delete/v2',  tags=["railway"], summary='删除检索历史', responses={
+@parts_router.post('/search/history/delete/v2',  tags=["业务-检索历史"], summary='删除检索历史', responses={
     200: {
         'model': ListSearchHistoryRes
     }
@@ -191,7 +232,7 @@ async def delete_search_history_v2(req: DeleteSearchHistoryReq):
     await RailwayPartsManager.delete_history([int(id) for id in req.history_id_list])
 
 
-@parts_router.post('/data/statistics',  tags=["railway"], summary='索引统计', responses={
+@parts_router.post('/data/statistics',  tags=["业务-数据统计"], summary='索引统计', responses={
     200: {
         'model': IndexStatisticsRes
     }
@@ -205,17 +246,32 @@ async def indexstatistics(req: IndexStatisticsReq):
 from csrcqsf.biz.railwayparts.auto_processor import AutoPartProcessor
 
 
-@parts_router.post('/auto_segment', tags=["railway"], summary='自动分割并建立索引 (SAM + DINOv2)', responses={
+
+# ============================================
+# 算法接口 - 图像分割
+# ============================================
+
+@parts_router.post('/auto_segment', tags=["算法-图像分割"], summary='自动分割并建立索引 (SAM + DINOv2)', responses={
     200: {'model': AutoSegmentRes}
 })
 async def auto_segment(req: AutoSegmentReq):
-    """根据配件ID自动分割并建立高精度索引
+    """
+    自动分割并建立高精度索引
     
-    1. 自动获取配件的 BASEINFO 类型图片
-    2. SAM 自动分割出配件主体
+    算法流程：
+    1. 获取配件的 BASEINFO 类型图片
+    2. 使用 SAM (Segment Anything Model) 自动分割出配件主体
     3. 分割后的图片上传到 MinIO
     4. 分割记录保存到数据库 (segmented_image_info 表)
-    5. DINOv2 提取高精度特征并建立 Milvus 索引
+    5. 使用 DINOv2 提取高精度特征（1024维向量）
+    6. 建立 Milvus 向量索引
+    
+    参数：
+    - item_id: 配件ID
+    - rebuild: 是否重建已有索引
+    
+    业务逻辑：AutoPartProcessor.auto_segment_by_item_id() in biz/railwayparts/auto_processor.py
+    核心算法：SAM分割 + DINOv2特征提取 + Milvus索引
     """
     result = await AutoPartProcessor.auto_segment_by_item_id(
         item_id=int(req.item_id),
@@ -233,7 +289,7 @@ async def auto_segment(req: AutoSegmentReq):
     )
 
 
-@parts_router.get('/segmented_images/{item_id}', tags=["railway"], summary='获取配件的分割记录', responses={
+@parts_router.get('/segmented_images/{item_id}', tags=["业务-图片管理"], summary='获取配件的分割记录', responses={
     200: {'model': ListSegmentedImagesRes}
 })
 async def list_segmented_images(item_id: str):
@@ -253,7 +309,7 @@ async def list_segmented_images(item_id: str):
 from csrcqsf.biz.reconstruction import ReconstructionPipeline
 
 
-@parts_router.post('/reconstruct_3d', tags=["railway"], summary='3D重建 (多角度照片→OBJ)', responses={
+@parts_router.post('/reconstruct_3d', tags=["算法-3D重建"], summary='3D重建 (多角度照片→OBJ)', responses={
     200: {'model': Reconstruct3DTaskRes}
 })
 async def reconstruct_3d(req: Reconstruct3DReq):
@@ -290,7 +346,7 @@ async def reconstruct_3d(req: Reconstruct3DReq):
     )
 
 
-@parts_router.get('/reconstruct_3d/progress/{task_id}', tags=["railway"], summary='查询3D重建进度', responses={
+@parts_router.get('/reconstruct_3d/progress/{task_id}', tags=["业务-任务管理"], summary='查询3D重建进度', responses={
     200: {'model': TaskProgressRes}
 })
 async def get_reconstruct_progress(task_id: str):
@@ -323,7 +379,7 @@ async def get_reconstruct_progress(task_id: str):
     )
 
 
-@parts_router.get('/reconstruct_3d/tasks', tags=["railway"], summary='列出3D重建任务')
+@parts_router.get('/reconstruct_3d/tasks', tags=["业务-任务管理"], summary='列出3D重建任务')
 async def list_reconstruct_tasks(item_id: str = None):
     """列出所有 3D 重建任务"""
     tasks = ReconstructionPipeline.list_tasks(

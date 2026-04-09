@@ -1,3 +1,8 @@
+"""
+业务逻辑层 - 配件管理核心业务
+职责：实现具体的业务逻辑、算法调用、数据处理
+注意：此层包含核心业务实现，调用数据层和算法模块
+"""
 from datetime import datetime
 import json
 from csrcqsf.models.item import *
@@ -7,6 +12,7 @@ from csrcqsf.data.mdpdb import sgo_sessionLocal
 from csrcqsf.data.minio import minio_instance
 from csrcqsf.models.search_history import SearchHistory, SearchHistoryItem, SearchParameters
 from csrcqsf.models.sgo_models import SgoMaterielMasterplate
+# 导入Milvus向量检索管理器
 from .milvus import MilvusManager, ImageIndex, PartsIndex, FeaturesIndex, ColletionEnum
 from .api_models import *
 from bfrcommon.common import date_to_str
@@ -22,16 +28,38 @@ from pymilvus.client.embedding_list import EmbeddingList
 from csrcqsf.settings import ai_settings,minio_bucket
 from sqlalchemy import func
 
+
 class RailwayPartsManager:
+    """
+    配件管理核心业务类
+    
+    职责：
+    1. 配件CRUD操作
+    2. 图片管理和索引
+    3. 特征提取和检索
+    4. 与Milvus向量数据库交互
+    """
 
     _milvus_manager = MilvusManager()
 
     @classmethod
     async def init(cls):
+        """初始化配件管理器"""
         pass
 
     @classmethod
     async def create_item(cls, item_name: str, item_code: str, obj_url: str = None, height: float = None, length: float = None, width: float = None):
+        """
+        创建配件实体
+        
+        参数：
+            item_name: 配件名称
+            item_code: 配件编码
+            obj_url: 3D模型URL（可选）
+            height/length/width: 尺寸信息（可选）
+        
+        数据库操作：Items.create_item() in models/item.py
+        """
         item = Items(
             item_name=item_name,
             item_code=item_code,
@@ -527,11 +555,44 @@ class RailwayPartsManager:
 
     @classmethod
     async def rebuild_pic_index(cls):
+        """
+        重建所有配件的图片索引
+        
+        核心算法流程：
+        1. 标记所有图片为未索引状态（数据库操作）
+        2. 获取所有图片记录
+        3. 使用DINOv2提取特征并重建Milvus向量索引
+        4. 标记所有图片为已索引状态
+        5. 提交数据库事务
+        
+        技术栈：
+        - DINOv2-Large: 提取1024维特征向量
+        - Milvus: 向量数据库，存储和检索特征向量
+        - PostgreSQL: 存储索引状态
+        
+        数据库操作：
+        - SgoItemImages.make_image_unindexed() - 标记未索引
+        - SgoItemImages.get_all_image() - 获取所有图片
+        - SgoItemImages.make_image_indexed() - 标记已索引
+        
+        算法操作：
+        - MilvusManager.rebuild_collection() - 重建向量索引
+        """
         async with SessionLocal() as session:
+            # 步骤1: 标记所有图片为未索引状态
             await SgoItemImages.make_image_unindexed(session=session)
+            
+            # 步骤2: 获取所有图片记录
             images = SgoItemImages.get_all_image(session=session)
+            
+            # 步骤3: 重建Milvus向量索引（核心算法）
+            # 内部会使用DINOv2提取特征并插入Milvus
             await MilvusManager.rebuild_collection([image async for image in images])
+            
+            # 步骤4: 标记所有图片为已索引状态
             await SgoItemImages.make_image_indexed(session=session)
+            
+            # 步骤5: 提交事务
             await session.commit()
 
     @classmethod

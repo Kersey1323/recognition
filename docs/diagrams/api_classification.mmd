@@ -1,0 +1,47 @@
+graph TB
+    subgraph "铁路配件识别系统 API (33个接口)"
+        subgraph "业务接口 Business APIs (20个)"
+            B1[配件管理 6个]
+            B2[图片管理 3个]
+            B3[特征管理 3个]
+            B4[检索历史 2个]
+            B5[SGO集成 4个]
+            B6[文档管理 4个]
+            B7[任务管理 2个]
+            B8[数据统计 1个]
+        end
+        
+        subgraph "算法接口 Algorithm APIs (13个)"
+            A1[图像分割 SAM 2个]
+            A2[特征索引 DINOv2 2个]
+            A3[智能检索 Milvus 2个]
+            A4[OCR识别 1个]
+            A5[3D重建 COLMAP+3DGS 1个]
+        end
+    end
+    
+    B1 --> |CRUD| DB[(PostgreSQL)]
+    B2 --> |存储| MinIO[(MinIO)]
+    B5 --> |同步| SGO[SGO系统]
+    B6 --> |解析| PDF[PDF文档]
+    
+    A1 --> |分割| SAM[SAM模型]
+    A2 --> |特征| DINOv2[DINOv2模型]
+    A3 --> |检索| Milvus[(Milvus向量库)]
+    A4 --> |识别| OCR[OCR引擎]
+    A5 --> |重建| 3DGS[3D Gaussian Splatting]
+    
+    style B1 fill:#e1f5ff
+    style B2 fill:#e1f5ff
+    style B3 fill:#e1f5ff
+    style B4 fill:#e1f5ff
+    style B5 fill:#e1f5ff
+    style B6 fill:#e1f5ff
+    style B7 fill:#e1f5ff
+    style B8 fill:#e1f5ff
+    
+    style A1 fill:#fff3e0
+    style A2 fill:#fff3e0
+    style A3 fill:#fff3e0
+    style A4 fill:#fff3e0
+    style A5 fill:#fff3e0

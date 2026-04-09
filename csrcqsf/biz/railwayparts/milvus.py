@@ -71,7 +71,7 @@ class FeatureExtractor:
         # pretrained_cfg = timm.create_model(modelname).default_cfg
         # pretrained_cfg['file'] = "./resnet_models"
         self.model = timm.create_model(
-            modelname, pretrained=True, num_classes=0, global_pool="avg", pretrained_cfg_overlay=dict(file="./resnet_models/pytorch_model.bin")
+            modelname, pretrained=True, num_classes=0, global_pool="avg", pretrained_cfg_overlay=dict(file="./models/resnet/pytorch_model.bin")
         )
         self.model.eval()
 
@@ -226,7 +226,7 @@ class DINOv2Extractor:
 class MilvusManager:
     # 标准模式: ResNet34 (512维)
     extractor = FeatureExtractor("resnet34")
-    _embedding_model = SentenceTransformer('./embedding_models/bge-small-zh-v1.5')
+    _embedding_model = SentenceTransformer('./models/embedding/bge-small-zh-v1.5')
     
     # 高精度模式: DINOv2-Large (1024维) - 延迟加载
     _hp_extractor = None

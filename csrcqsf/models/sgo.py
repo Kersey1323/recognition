@@ -1,3 +1,8 @@
+"""
+数据模型层 - SGO系统相关模型
+职责：定义数据库表结构、提供基础CRUD方法
+注意：此层不包含业务逻辑，仅提供数据访问接口
+"""
 
 from __future__ import annotations
 from enum import Enum
@@ -132,7 +137,26 @@ class SegmentedImage(Base):
         await session.flush()
 
 
+
 class SgoItemImages(Base):
+    """
+    配件图片信息表
+    
+    表名：sgo_item_image_info
+    Schema：parts
+    
+    字段说明：
+    - item_id: 配件ID（外键关联Items表）
+    - image_url: 图片URL（MinIO存储路径）
+    - raw_url: 原始URL（SGO系统URL）
+    - image_source: 图片来源（INQUERY=询码记录, BASEINFO=基本信息, CREATEBYSELF=手动上传）
+    - is_indexed: 索引状态（0=未索引, 1=已索引, 2=初始状态）
+    
+    用途：
+    1. 存储配件的所有图片信息
+    2. 跟踪图片的索引状态（是否已提取特征并存入Milvus）
+    3. 关联SGO系统的原始图片
+    """
     __tablename__ = 'sgo_item_image_info'
 
     item_id:  Mapped[int] = mapped_column(BIGINT,nullable=False)
@@ -143,6 +167,12 @@ class SgoItemImages(Base):
 
     @classmethod
     async def get_all_image(cls,session:AsyncSession):
+        """
+        获取所有图片记录（生成器）
+        
+        用途：重建索引时获取所有图片
+        返回：异步生成器，逐条返回图片记录
+        """
         stmt = select(cls)
         datas = await session.scalars(stmt)
         for d in datas:
@@ -150,12 +180,24 @@ class SgoItemImages(Base):
     
     @classmethod
     async def make_image_unindexed(cls,session:AsyncSession):
+        """
+        标记所有图片为未索引状态
+        
+        用途：重建索引前，将所有图片标记为未索引（is_indexed=0）
+        注意：此操作会影响所有图片记录
+        """
         stmt = update(cls).values(is_indexed=0)
         await session.execute(stmt)
         await session.flush()
     
     @classmethod
     async def make_image_indexed(cls,session:AsyncSession):
+        """
+        标记所有图片为已索引状态
+        
+        用途：重建索引完成后，将所有图片标记为已索引（is_indexed=1）
+        注意：此操作会影响所有图片记录
+        """
         stmt = update(cls).values(is_indexed=1)
         await session.execute(stmt)
         await session.flush()

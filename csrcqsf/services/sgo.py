@@ -75,7 +75,7 @@ class ListSgoItemImageRes(BaseModel):
     items: list[ListSgoItemImageItem] = []
 
 
-@sgo_router.post('/sgo/parts/sync',  tags=["sgo"], summary='同步一次所有的配件基本信息', responses={
+@sgo_router.post('/sgo/parts/sync',  tags=["业务-SGO集成"], summary='同步一次所有的配件基本信息', responses={
     200: {
         'model': str
     }
@@ -84,7 +84,7 @@ async def sgo_parts_sync(_: SyncItemsReq):
     await SGOBiz.sync_parts_items()
 
 
-@sgo_router.post('/sgo/parts/images/sync',  tags=["sgo"], summary='同步选中的配件的照片', responses={
+@sgo_router.post('/sgo/parts/images/sync',  tags=["业务-SGO集成"], summary='同步选中的配件的照片', responses={
     200: {
         'model': str
     }
@@ -94,7 +94,7 @@ async def sgo_parts_image_sync(req: SyncItemsImages):
     await SGOBiz.sync_images(req.items_id_list)
 
 
-@sgo_router.post('/sgo/parts/images',  tags=["sgo"], summary='根据配件id获取sgo系统里的图片', responses={
+@sgo_router.post('/sgo/parts/images',  tags=["业务-SGO集成"], summary='根据配件id获取sgo系统里的图片', responses={
     200: {
         'model': ListSgoItemImageRes
     }
@@ -113,7 +113,7 @@ async def sgo_parts_image_list(req: ListSgoItemImagesReq):
     return res
 
 
-@sgo_router.post('/sgo/inquery/list',  tags=["sgo"], summary='获取询码记录列表', responses={
+@sgo_router.post('/sgo/inquery/list',  tags=["业务-SGO集成"], summary='获取询码记录列表', responses={
     200: {
         'model': ListInqueryRes
     }

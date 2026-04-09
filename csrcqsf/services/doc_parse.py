@@ -70,7 +70,7 @@ class ExportFileTableToExcelReq(BaseModel):
     user_id: str
 
 
-@parts_docs_router.post('/file',  tags=["docs"], summary='上传并解析配件手册', responses={
+@parts_docs_router.post('/file',  tags=["业务-文档管理"], summary='上传并解析配件手册', responses={
     200: {
         'model': str
     }
@@ -79,7 +79,7 @@ async def create_file(req: CreateFileReq):
     await DocBiz.create_file(req.file_name,req.file_url)
 
 
-@parts_docs_router.post('/files',  tags=["docs"], summary='列出文件列表', responses={
+@parts_docs_router.post('/files',  tags=["业务-文档管理"], summary='列出文件列表', responses={
     200: {
         'model': ListFileRes
     }
@@ -101,7 +101,7 @@ async def list_file(req: ListFileReq):
     return res
 
 
-@parts_docs_router.post('/file/tables',  tags=["docs"], summary='列出文件的表格数据', responses={
+@parts_docs_router.post('/file/tables',  tags=["业务-文档管理"], summary='列出文件的表格数据', responses={
     200: {
         'model': ListFileTableRes
     }
@@ -125,7 +125,7 @@ async def list_file_tables(req: ListFileTableReq):
 
 
 
-@parts_docs_router.post('/file/export',  tags=["docs"], summary='导出excel文件', responses={
+@parts_docs_router.post('/file/export',  tags=["业务-文档管理"], summary='导出excel文件', responses={
     200: {
         'model': str
     }
