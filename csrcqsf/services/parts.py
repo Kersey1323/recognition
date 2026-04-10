@@ -3,7 +3,7 @@
 职责：定义API接口、参数验证、调用业务逻辑
 注意：此层不包含具体业务实现，仅负责路由和参数处理
 """
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, UploadFile, File
 from csrcqsf.biz.railwayparts.api_models import *
 from bfrcommon.snowflake import get_id
 from bfrcommon.common import date_to_str
@@ -397,3 +397,181 @@ async def list_reconstruct_tasks(item_id: str = None):
             created_at=t.created_at
         ) for t in tasks
     ]
+
+
+
+# ============================================
+# 新向量数据库接口 (SigLIP + DINOv2)
+# ============================================
+
+@parts_router.post('/v2/collections/init', tags=["算法-向量检索V2"], summary='初始化V2向量数据库并建立索引')
+async def init_v2_collections(
+    limit: int = None,
+    drop_existing: bool = False,
+    background_tasks: BackgroundTasks = None
+):
+    """
+    初始化新的向量数据库集合 (SigLIP + DINOv2) 并建立索引
+    
+    创建两个集合：
+    - PARTS_SIGLIP_SO400M_1152D_V1: SigLIP 图文特征 (1152维)
+    - PARTS_DINOV2_LARGE_1024D_V1: DINOv2 视觉特征 (1024维)
+    
+    参数：
+    - limit: 限制处理数量（可选，用于测试，如 limit=10 只处理10条数据）
+    - drop_existing: 是否删除已存在的集合（默认 False，保留现有数据）
+    - background_tasks: 后台任务（自动传入）
+    
+    注意：
+    - 如果集合已存在且 drop_existing=False，将跳过创建直接建索引
+    - 如果 limit 较大或为空，将在后台执行建库任务
+    - drop_existing=True 会清空所有现有数据，请谨慎使用！
+    """
+    # 创建集合（如果不存在）
+    await RailwayPartsManager.create_v2_collections(drop_existing=drop_existing)
+    
+    # 如果指定了 limit，则同时建立索引
+    if limit is not None:
+        if limit > 100 and background_tasks:
+            # 大批量任务放到后台执行
+            background_tasks.add_task(
+                RailwayPartsManager.rebuild_v2_index,
+                item_id=None,
+                limit=limit
+            )
+            return {
+                'message': f'V2 collections initialized, building index for {limit} items in background',
+                'drop_existing': drop_existing
+            }
+        else:
+            # 小批量任务直接执行
+            result = await RailwayPartsManager.rebuild_v2_index(
+                item_id=None,
+                limit=limit
+            )
+            return {
+                'message': f'V2 collections initialized and index built for {limit} items',
+                'drop_existing': drop_existing,
+                'result': result
+            }
+    
+    return {
+        'message': 'V2 collections initialized successfully (no indexing performed)',
+        'drop_existing': drop_existing
+    }
+
+
+@parts_router.post('/v2/search/text', tags=["算法-向量检索V2"], summary='V2文本检索')
+async def search_v2_by_text(
+    query_text: str,
+    top_k: int = 10,
+    # use_image_vector: bool = False
+):
+    """
+    使用新算法进行文本检索
+    
+    参数：
+    - query_text: 查询文本（如"制动盘"）
+    - top_k: 返回结果数量
+    - use_image_vector: 是否使用 image_vector 字段（可选）
+        - False（默认）: 使用 text_vector 字段进行文本匹配
+        - True: 使用 image_vector 字段进行图像内容语义匹配
+    
+    算法：
+    - 使用 SigLIP 提取文本特征
+    - 在 PARTS_SIGLIP_SO400M_1152D_V1 集合中检索
+    - 返回最相似的配件
+    """
+    result = await RailwayPartsManager.search_v2_by_text(
+        query_text=query_text,
+        top_k=top_k
+        # use_image_vector=use_image_vector
+    )
+    return result
+
+
+@parts_router.post('/v2/search/image', tags=["算法-向量检索V2"], summary='V2图像检索')
+async def search_v2_by_image(
+    file: UploadFile = File(...),
+    top_k: int = 10,
+    search_mode: str = "hybrid"
+):
+    """
+    使用新算法进行图像检索（上传图片文件）
+    
+    参数：
+    - file: 上传的图片文件（支持 jpg, png, jpeg 等格式）
+    - top_k: 返回结果数量
+    - search_mode: 检索模式
+        - "siglip": SigLIP 模式 - 使用 image_vector 字段，简单快速
+        - "dinov2": DINOv2 两阶段检索 - global_vector 粗排 + patch_tokens 精排
+        - "hybrid": 混合检索（推荐）- RRF 融合 + Patch Token 精排
+    
+    算法流程（hybrid模式）：
+    1. 粗排：SigLIP + DINOv2 全局特征 RRF 融合
+    2. 精排：DINOv2 Patch Token 细粒度匹配
+    3. 加权融合：alpha * RRF分数 + (1-alpha) * Patch分数
+    
+    注意：
+    - siglip 模式：默认使用 text_vector 进行文本匹配，image_vector 是可选字段
+    - dinov2 模式：两阶段检索，适合需要精确匹配视觉细节的场景
+    - hybrid 模式：推荐使用，融合两个模型的优势
+    """
+    result = await RailwayPartsManager.search_v2_by_image(
+        file=file,
+        top_k=top_k,
+        search_mode=search_mode
+    )
+    return result
+
+
+@parts_router.get('/v2/search/modes', tags=["算法-向量检索V2"], summary='获取V2检索模式说明')
+async def get_v2_search_modes():
+    """
+    获取 V2 检索模式说明
+    
+    返回各种检索模式的详细说明和适用场景
+    """
+    return {
+        'modes': [
+            {
+                'name': 'siglip',
+                'description': 'SigLIP 图像检索',
+                'features': [
+                    '使用 image_vector 字段',
+                    '图文共享空间，1152维特征',
+                    '简单快速'
+                ],
+                'use_case': '快速图像检索，对精度要求不高的场景',
+                'speed': '快',
+                'accuracy': '中',
+                'note': 'image_vector 是可选字段，默认为 text_vector 匹配'
+            },
+            {
+                'name': 'dinov2',
+                'description': 'DINOv2 两阶段检索',
+                'features': [
+                    'global_vector (1024D) 粗排',
+                    'patch_tokens (1369×1024) 精排',
+                    '细粒度局部特征匹配'
+                ],
+                'use_case': '需要精确匹配视觉细节的场景，识别微小规格差异',
+                'speed': '慢',
+                'accuracy': '高'
+            },
+            {
+                'name': 'hybrid',
+                'description': '混合检索（推荐）',
+                'features': [
+                    'RRF 融合 SigLIP + DINOv2',
+                    'Patch Token 精排',
+                    '多模型互补，鲁棒性强'
+                ],
+                'use_case': '生产环境推荐，工业配件精确检索',
+                'speed': '中',
+                'accuracy': '最高'
+            }
+        ],
+        'recommendation': 'hybrid 模式在准确率和速度之间取得最佳平衡，推荐用于生产环境',
+        'text_search_note': '文本检索默认使用 text_vector 字段，可选 use_image_vector=true 使用 image_vector 字段'
+    }

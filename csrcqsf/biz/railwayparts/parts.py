@@ -27,7 +27,7 @@ from pymilvus import AnnSearchRequest
 from pymilvus.client.embedding_list import EmbeddingList
 from csrcqsf.settings import ai_settings,minio_bucket
 from sqlalchemy import func
-
+from .vector_db.storage.milvus_manager import MilvusManagerV2
 
 class RailwayPartsManager:
     """
@@ -179,7 +179,8 @@ class RailwayPartsManager:
     @classmethod
     async def list_item_images(cls, item_id_list: list[int]):
         async with SessionLocal() as session:
-            return await SgoItemImages.list_item_images_by_item_id_list(session, item_id_list)
+            result = await SgoItemImages.list_item_images_by_item_id_list(session, item_id_list)
+            return list(result) if result else []
 
     @classmethod
     async def delete_item_image_index(cls, item_id: int, image_url_list: list[str]):
@@ -288,7 +289,8 @@ class RailwayPartsManager:
             if item is None:
                 raise Exception(f'配件不存在')
 
-            item_images = await SgoItemImages.list_item_images_by_item_id(session, item_id=item_id)
+            item_images_result = await SgoItemImages.list_item_images_by_item_id(session, item_id=item_id)
+            item_images = list(item_images_result) if item_images_result else []
 
             image_url_set = set()
             for image in item_images:
@@ -890,3 +892,209 @@ class RailwayPartsManager:
         final_ranking = sorted(fused_scores.items(),
                                key=lambda x: x[1], reverse=True)
         return final_ranking
+
+
+    # ==================== 新向量数据库功能 (SigLIP + DINOv2) ====================
+    
+    @classmethod
+    async def create_v2_collections(cls, drop_existing: bool = False):
+        """
+        创建新的向量数据库集合 (SigLIP + DINOv2)
+        
+        Args:
+            drop_existing: 是否删除已存在的集合（默认 False）
+        """
+        manager = MilvusManagerV2()
+        
+        if drop_existing:
+            logger.warning("删除已存在的集合...")
+            await run_sync(manager.drop_collections)
+            logger.info("已存在的集合已删除")
+        
+        await run_sync(manager.create_collections)
+        logger.info("V2 collections created successfully")
+    
+    @classmethod
+    async def rebuild_v2_index(cls, item_id: int = None, limit: int = None):
+        """
+        使用新算法重建索引 (SigLIP + DINOv2)
+        
+        Args:
+            item_id: 指定配件ID（可选，为空则重建所有）
+            limit: 限制处理数量（可选，用于测试）
+        """
+        
+        manager = MilvusManagerV2()
+        
+        async with SessionLocal() as session:
+            # 获取需要建库的配件
+            if item_id:
+                items = [await Items.get_item_by_id(session, item_id)]
+                if items[0] is None:
+                    raise Exception(f'配件不存在: {item_id}')
+            else:
+                result = await Items.list_items(
+                    session=session,
+                    query='',
+                    page=1,
+                    per_page=limit or 10000,
+                    has_images=True
+                )
+                items = result.data
+            
+            logger.info(f"开始为 {len(items)} 个配件建立 V2 索引")
+            
+            success_count = 0
+            fail_count = 0
+            
+            for item in items:
+                try:
+                    # 获取配件的图片
+                    images_result = await SgoItemImages.list_item_images_by_item_id(session, item.id)
+                    # 将 ScalarResult 转换为列表
+                    images = list(images_result) if images_result else []
+                    
+                    if len(images) == 0:
+                        logger.warning(f"配件 {item.id} 没有图片，跳过")
+                        continue
+                    
+                    # 为每张图片建立索引
+                    for img in images:
+                        try:
+                            # 从 MinIO 加载图片
+                            image_array = await cls.get_image_from_oss(img.image_url)
+                            if image_array is None:
+                                logger.warning(f"图片加载失败: {img.image_url}")
+                                continue
+                            
+                            # 转换 numpy array 为 PIL Image
+                            from PIL import Image
+                            import cv2
+                            # cv2 读取的是 BGR 格式，需要转换为 RGB
+                            image_rgb = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
+                            pil_image = Image.fromarray(image_rgb)
+                            
+                            # 建立索引
+                            siglip_ok, dinov2_ok = await manager.index_image(
+                                image=pil_image,
+                                item_id=item.id,
+                                item_name=item.item_name,
+                                item_code=item.item_code,
+                                image_id=img.id,
+                                image_url=img.image_url,
+                                description=item.item_name
+                            )
+                            
+                            if siglip_ok and dinov2_ok:
+                                success_count += 1
+                                logger.info(f"索引成功: item={item.id}, image={img.id}")
+                            else:
+                                fail_count += 1
+                                logger.warning(f"索引部分失败: item={item.id}, siglip={siglip_ok}, dinov2={dinov2_ok}")
+                        
+                        except Exception as e:
+                            fail_count += 1
+                            logger.error(f"索引失败: item={item.id}, image={img.id}, error={e}")
+                
+                except Exception as e:
+                    fail_count += 1
+                    logger.error(f"处理配件失败: item={item.id}, error={e}")
+            
+            logger.info(f"V2 索引重建完成: 成功={success_count}, 失败={fail_count}")
+            
+            return {
+                'success_count': success_count,
+                'fail_count': fail_count,
+                'total': success_count + fail_count
+            }
+    
+    @classmethod
+    async def search_v2_by_text(cls, query_text: str, top_k: int = 10):
+        """
+        使用新算法进行文本检索
+        
+        Args:
+            query_text: 查询文本
+            top_k: 返回结果数量
+        
+        Returns:
+            检索结果列表
+        """
+       
+        
+        manager = MilvusManagerV2()
+        results = await manager.search_by_text(
+            text=query_text,
+            top_k=top_k,
+            # use_image_vector=use_image_vector
+        )
+        
+        # 转换为标准格式
+        search_items = []
+        async with SessionLocal() as session:
+            for result in results:
+                item_id = result['entity']['item_id']
+                image_url = result['entity']['image_url']
+                item = await Items.get_item_by_id(session, item_id)
+                if item:
+                    search_items.append(SearchItem(
+                        item_id=str(item.id),
+                        item_code=item.item_code,
+                        item_name=item.item_name,
+                        image_url=image_url,
+                        rate=result['distance']
+                    ))
+        
+        return SearchRes(data=search_items)
+ 
+    @classmethod
+    async def search_v2_by_image(
+        cls,
+        file,
+        top_k: int = 10,
+        search_mode: str = "hybrid"
+    ):
+        """
+        使用新算法进行图像检索
+        
+        Args:
+            file: 上传的图片文件（FastAPI UploadFile 对象）
+            top_k: 返回结果数量
+            search_mode: 检索模式 ("siglip", "dinov2", "hybrid")
+        
+        Returns:
+            检索结果列表
+        """
+        from PIL import Image
+        import io
+        
+        # 读取上传的文件
+        contents = await file.read()
+        
+        # 将字节流转换为 PIL Image
+        pil_image = Image.open(io.BytesIO(contents)).convert('RGB')
+        
+        manager = MilvusManagerV2()
+        results = await manager.search_by_image(
+            image=pil_image,
+            top_k=top_k,
+            mode=search_mode,
+            coarse_top_k=50,
+            alpha=0.6
+        )
+        
+        # 转换为标准格式
+        search_items = []
+        async with SessionLocal() as session:
+            for result in results:
+                item_id = result['entity']['item_id']
+                item = await Items.get_item_by_id(session, item_id)
+                if item:
+                    search_items.append(SearchItem(
+                        item_id=str(item.id),
+                        item_code=item.item_code,
+                        item_name=item.item_name,
+                        rate=result['distance']
+                    ))
+        
+        return SearchRes(data=search_items)

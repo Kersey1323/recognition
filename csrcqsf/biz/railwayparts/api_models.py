@@ -232,8 +232,9 @@ class DeleteSearchHistoryReq(BaseModel):
 
 class SearchItem(BaseModel):
     item_id: str = 0
-    item_code: str =''
+    item_code: str = ''
     item_name: str = ''
+    image_url: str = ''
     rate: float = 0
 
 class SearchRes(BaseModel):

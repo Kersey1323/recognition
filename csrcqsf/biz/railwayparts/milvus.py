@@ -823,3 +823,4 @@ class MilvusManager:
         
         # 初始化高精度集合 (DINOv2, 1024维)
         await cls.__init_hp_collection()
+
