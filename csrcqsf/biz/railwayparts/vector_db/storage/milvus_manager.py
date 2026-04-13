@@ -234,6 +234,7 @@ class MilvusManagerV2:
 
     # ==================== 检索功能 ====================
 
+    # TODO 使用文本向量取匹配图像；当前使用的是文本完全匹配
     async def search_by_text(
         self,
         text: str,

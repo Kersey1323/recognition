@@ -914,6 +914,8 @@ class RailwayPartsManager:
         await run_sync(manager.create_collections)
         logger.info("V2 collections created successfully")
     
+    
+    
     @classmethod
     async def rebuild_v2_index(cls, item_id: int = None, limit: int = None):
         """
@@ -946,8 +948,8 @@ class RailwayPartsManager:
             
             success_count = 0
             fail_count = 0
-            
-            for item in items:
+            from tqdm import tqdm
+            for item in tqdm(items):
                 try:
                     # 获取配件的图片
                     images_result = await SgoItemImages.list_item_images_by_item_id(session, item.id)
@@ -1088,13 +1090,23 @@ class RailwayPartsManager:
         async with SessionLocal() as session:
             for result in results:
                 item_id = result['entity']['item_id']
-                item = await Items.get_item_by_id(session, item_id)
-                if item:
-                    search_items.append(SearchItem(
-                        item_id=str(item.id),
-                        item_code=item.item_code,
-                        item_name=item.item_name,
-                        rate=result['distance']
-                    ))
+                image_url = result['entity'].get('image_url', '')
+                item_name = result['entity'].get('item_name', '')
+                item_code = result['entity'].get('item_code', '')
+                
+                # 如果 Milvus 中没有 item_name，则从数据库查询
+                if not item_name:
+                    item = await Items.get_item_by_id(session, item_id)
+                    if item:
+                        item_name = item.item_name
+                        item_code = item.item_code
+                
+                search_items.append(SearchItem(
+                    item_id=str(item_id),
+                    item_code=item_code,
+                    item_name=item_name,
+                    image_url=image_url,
+                    rate=result['distance']
+                ))
         
         return SearchRes(data=search_items)
