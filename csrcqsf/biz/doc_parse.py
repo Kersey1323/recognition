@@ -11,8 +11,14 @@ import io
 from csrcqsf.logger import CodeTimer
 from csrcqsf.settings import temp_dir, minio_bucket
 import os
-from csrcqsf.data.basis_api import grpc_client
 from io import StringIO
+
+# 尝试导入 grpc_client，如果失败则设为 None
+try:
+    from csrcqsf.data.basis_api import grpc_client
+except ModuleNotFoundError as e:
+    logger.warning(f"无法导入 grpc_client: {e}. 文档解析功能可能受限")
+    grpc_client = None
 
 class DocBiz:
 

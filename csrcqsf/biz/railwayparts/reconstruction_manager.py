@@ -1,25 +1,46 @@
 """
 三维重构管理器 - 业务逻辑层
-直接使用 PipelineManager，不需要额外的 API 服务
+直接调用 Celery 任务，支持 Flower 监控
 """
+import os
+import sys
+from pathlib import Path
+from celery.result import AsyncResult
 from csrcqsf.logger import logger
 from csrcqsf.data.pg import SessionLocal
 from csrcqsf.models.reconstruction import ReconstructionRecord, ReconstructionStatus
 from csrcqsf.models.item import Items
-from csrcqsf.biz.railwayparts.reconstruction_server.pipelineManager import PipelineManager, JobStatus
 
+# 导入 Celery app 和 tasks - 使用延迟导入避免启动时的循环依赖
+_celery_app = None
+_train_reconstruction = None
+_video_reconstruction = None
 
-# 全局 PipelineManager 实例
-_pipeline_manager = PipelineManager()
+def _get_celery_modules():
+    """延迟导入 Celery 模块"""
+    global _celery_app, _train_reconstruction, _video_reconstruction
+    
+    if _celery_app is None:
+        reconstruction_server_path = Path(__file__).parent / "reconstruction_server"
+        if str(reconstruction_server_path) not in sys.path:
+            sys.path.insert(0, str(reconstruction_server_path))
+        
+        from celery_app import celery_app
+        from tasks import train_reconstruction, video_reconstruction
+        
+        _celery_app = celery_app
+        _train_reconstruction = train_reconstruction
+        _video_reconstruction = video_reconstruction
+    
+    return _celery_app, _train_reconstruction, _video_reconstruction
+
+# 路径配置
+BASE_DIR = Path(__file__).parent / "reconstruction_server"
+DATA_DIR = BASE_DIR / "data"
 
 
 class ReconstructionManager:
     """三维重构管理器"""
-    
-    @classmethod
-    def get_pipeline_manager(cls) -> PipelineManager:
-        """获取 PipelineManager 实例"""
-        return _pipeline_manager
     
     @classmethod
     async def submit_train_task(
@@ -41,30 +62,40 @@ class ReconstructionManager:
         Returns:
             dict: 包含 task_id 的响应
         """
-        # 直接调用 PipelineManager
-        mgr = cls.get_pipeline_manager()
-        job_id = mgr.submit(
-            scene=scene,
-            iterations=iterations,
-            output_name=output_name
+        # 获取 Celery 模块
+        _, train_reconstruction, _ = _get_celery_modules()
+        
+        # 检查场景是否存在
+        scene_dir = DATA_DIR / scene
+        if not scene_dir.exists():
+            raise ValueError(f"场景 '{scene}' 不存在: {scene_dir}")
+        
+        # 生成输出名称
+        if not output_name:
+            output_name = f"{scene}_{int(os.urandom(4).hex(), 16):08x}"
+        
+        # 提交 Celery 任务
+        task = train_reconstruction.apply_async(
+            args=[scene, iterations, output_name]
         )
+        task_id = task.id
         
         # 创建数据库记录
         async with SessionLocal() as session:
             await ReconstructionRecord.create_record(
                 session=session,
                 item_id=item_id,
-                task_id=job_id,
+                task_id=task_id,
                 task_type="train",
                 scene_name=scene,
                 iterations=iterations
             )
             await session.commit()
         
-        logger.info(f"训练任务已提交: task_id={job_id}, item_id={item_id}, scene={scene}")
+        logger.info(f"训练任务已提交: task_id={task_id}, item_id={item_id}, scene={scene}")
         
         return {
-            "task_id": job_id,
+            "task_id": task_id,
             "item_id": item_id,
             "mode": "train",
             "message": "训练任务已提交"
@@ -101,40 +132,53 @@ class ReconstructionManager:
             video_path: 视频文件路径
             name: 场景名称
             iterations: 训练迭代次数
-            其他参数见 PipelineManager.submit_video
+            其他参数见 video_reconstruction task
             
         Returns:
             dict: 包含 task_id 的响应
         """
-        # 直接调用 PipelineManager
-        mgr = cls.get_pipeline_manager()
-        job_id = mgr.submit_video(
-            video_path=video_path,
-            name=name,
-            iterations=iterations,
-            fps=fps,
-            image_size=image_size,
-            blur_threshold=blur_threshold,
-            dedup_threshold=dedup_threshold,
-            min_frames=min_frames,
-            sam3_model=sam3_model,
-            text_prompt=text_prompt,
-            mask_dilate=mask_dilate,
-            camera=camera,
-            no_gpu=no_gpu,
-            skip_extract=skip_extract,
-            skip_filter=skip_filter,
-            skip_colmap=skip_colmap,
-            skip_sam3=skip_sam3,
-            output_name=output_name
+        # 获取 Celery 模块
+        _, _, video_reconstruction = _get_celery_modules()
+        
+        # 检查视频文件是否存在
+        if not os.path.exists(video_path):
+            raise ValueError(f"视频文件不存在: {video_path}")
+        
+        # 生成输出名称
+        if not output_name:
+            output_name = f"{name}_{int(os.urandom(4).hex(), 16):08x}"
+        
+        # 提交 Celery 任务
+        task = video_reconstruction.apply_async(
+            kwargs={
+                "video_path": video_path,
+                "name": name,
+                "iterations": iterations,
+                "output_name": output_name,
+                "fps": fps,
+                "image_size": image_size,
+                "blur_threshold": blur_threshold,
+                "dedup_threshold": dedup_threshold,
+                "min_frames": min_frames,
+                "sam3_model": sam3_model,
+                "text_prompt": text_prompt,
+                "mask_dilate": mask_dilate,
+                "camera": camera,
+                "no_gpu": no_gpu,
+                "skip_extract": skip_extract,
+                "skip_filter": skip_filter,
+                "skip_colmap": skip_colmap,
+                "skip_sam3": skip_sam3,
+            }
         )
+        task_id = task.id
         
         # 创建数据库记录
         async with SessionLocal() as session:
             await ReconstructionRecord.create_record(
                 session=session,
                 item_id=item_id,
-                task_id=job_id,
+                task_id=task_id,
                 task_type="video",
                 scene_name=name,
                 video_path=video_path,
@@ -142,10 +186,10 @@ class ReconstructionManager:
             )
             await session.commit()
         
-        logger.info(f"视频重建任务已提交: task_id={job_id}, item_id={item_id}, video={video_path}")
+        logger.info(f"视频重建任务已提交: task_id={task_id}, item_id={item_id}, video={video_path}")
         
         return {
-            "task_id": job_id,
+            "task_id": task_id,
             "item_id": item_id,
             "mode": "video",
             "message": "视频重建任务已提交"
@@ -154,7 +198,7 @@ class ReconstructionManager:
     @classmethod
     async def get_task_status(cls, task_id: str) -> dict:
         """
-        获取任务状态
+        获取任务状态（从 Celery）
         
         Args:
             task_id: 任务ID
@@ -162,59 +206,83 @@ class ReconstructionManager:
         Returns:
             dict: 任务状态信息
         """
-        # 从 PipelineManager 获取实时状态
-        mgr = cls.get_pipeline_manager()
-        job_status = mgr.get_status(task_id)
+        # 获取 Celery 模块
+        celery_app, _, _ = _get_celery_modules()
         
-        if not job_status:
-            # 如果 PipelineManager 中没有，尝试从数据库获取
-            async with SessionLocal() as session:
-                record = await ReconstructionRecord.get_by_task_id(session, task_id)
-                if record:
-                    return {
-                        "task_id": task_id,
-                        "item_id": record.item_id,
-                        "status": record.status,
-                        "progress": record.progress,
-                        "current_stage": record.current_stage,
-                        "error_message": record.error_message,
-                        "ply_url": record.ply_url,
-                        "obj_url": record.obj_url,
-                        "glb_url": record.glb_url,
-                        "total_frames": record.total_frames,
-                        "filtered_frames": record.filtered_frames,
-                        "colmap_points": record.colmap_points,
-                        "created_at": record.created_at.isoformat() if record.created_at else None,
-                        "updated_at": record.updated_at.isoformat() if record.updated_at else None
-                    }
-            return {"task_id": task_id, "error": "任务不存在"}
+        # 从 Celery 获取任务状态
+        result = AsyncResult(task_id, app=celery_app)
         
-        # 从数据库获取记录并更新
+        # 从数据库获取记录
         async with SessionLocal() as session:
             record = await ReconstructionRecord.get_by_task_id(session, task_id)
             
-            if record:
-                # 映射 JobStatus 到 ReconstructionStatus
-                status_map = {
-                    JobStatus.PENDING: ReconstructionStatus.PENDING,
-                    JobStatus.TRAINING: ReconstructionStatus.TRAINING,
-                    JobStatus.RUNNING: ReconstructionStatus.TRAINING,
-                    JobStatus.DONE: ReconstructionStatus.SUCCESS,
-                    JobStatus.FAILED: ReconstructionStatus.FAILED
+            if not record:
+                # 如果数据库中没有记录，只返回 Celery 状态
+                response = {
+                    "task_id": task_id,
+                    "status": result.state,
+                    "result": None,
+                    "error": None,
+                    "stage": None,
+                    "progress": 0,
                 }
                 
-                new_status = status_map.get(job_status["status"], record.status)
-                stage = job_status.get("stage", record.current_stage)
-                error = job_status.get("error", record.error_message)
+                if result.state == "PENDING":
+                    response["stage"] = "等待中"
+                elif result.state == "STARTED":
+                    response["stage"] = "已开始"
+                elif result.state == "PROGRESS":
+                    info = result.info or {}
+                    response["stage"] = info.get("stage", "处理中")
+                    response["progress"] = info.get("progress", 0)
+                elif result.state == "SUCCESS":
+                    response["stage"] = "完成"
+                    response["progress"] = 100
+                    response["result"] = result.result
+                elif result.state == "FAILURE":
+                    response["stage"] = "失败"
+                    response["error"] = str(result.info)
                 
-                # 计算进度（简单估算）
-                progress = record.progress
-                if new_status == ReconstructionStatus.TRAINING:
-                    progress = 50  # 训练中设为50%
-                elif new_status == ReconstructionStatus.SUCCESS:
-                    progress = 100
-                
-                # 更新数据库状态
+                return response
+            
+            # 映射 Celery 状态到 ReconstructionStatus
+            status_map = {
+                "PENDING": ReconstructionStatus.PENDING,
+                "STARTED": ReconstructionStatus.TRAINING,
+                "PROGRESS": ReconstructionStatus.TRAINING,
+                "SUCCESS": ReconstructionStatus.SUCCESS,
+                "FAILURE": ReconstructionStatus.FAILED,
+            }
+            
+            new_status = status_map.get(result.state, record.status)
+            
+            # 获取进度和阶段信息
+            progress = record.progress
+            stage = record.current_stage
+            error = record.error_message
+            
+            if result.state == "PROGRESS":
+                info = result.info or {}
+                stage = info.get("stage", stage)
+                progress = info.get("progress", progress)
+            elif result.state == "SUCCESS":
+                progress = 100
+                stage = "完成"
+                # 更新结果信息
+                task_result = result.result or {}
+                if task_result.get("ply_path"):
+                    await ReconstructionRecord.update_result(
+                        session=session,
+                        task_id=task_id,
+                        output_path=task_result.get("output_dir"),
+                        ply_url=task_result.get("ply_path")
+                    )
+            elif result.state == "FAILURE":
+                error = str(result.info)
+                stage = "失败"
+            
+            # 更新数据库状态
+            if new_status != record.status or progress != record.progress:
                 await ReconstructionRecord.update_status(
                     session=session,
                     task_id=task_id,
@@ -223,57 +291,25 @@ class ReconstructionManager:
                     current_stage=stage,
                     error_message=error
                 )
-                
-                # 如果任务成功，更新结果信息
-                if new_status == ReconstructionStatus.SUCCESS:
-                    ply_path = job_status.get("ply_path")
-                    output_dir = job_status.get("output_dir")
-                    
-                    await ReconstructionRecord.update_result(
-                        session=session,
-                        task_id=task_id,
-                        output_path=output_dir,
-                        ply_url=ply_path
-                    )
-                    
-                    # 更新配件表的 obj_url（如果有 OBJ 文件）
-                    # 注意：PipelineManager 输出的是 PLY，可能需要转换
-                    if ply_path:
-                        item = await Items.get_item_by_id(session, record.item_id)
-                        if item and not item.obj_url:
-                            # 这里可以设置 PLY 路径，或者触发 PLY->OBJ 转换
-                            item.obj_url = ply_path
-                
                 await session.commit()
-                
-                # 返回完整信息
-                return {
-                    "task_id": task_id,
-                    "item_id": record.item_id,
-                    "status": new_status,
-                    "progress": progress,
-                    "current_stage": stage,
-                    "error_message": error,
-                    "ply_url": record.ply_url,
-                    "obj_url": record.obj_url,
-                    "glb_url": record.glb_url,
-                    "psnr": job_status.get("psnr"),
-                    "elapsed_sec": job_status.get("elapsed_sec"),
-                    "output_dir": job_status.get("output_dir"),
-                    "log_file": job_status.get("log_file"),
-                    "total_frames": record.total_frames,
-                    "filtered_frames": record.filtered_frames,
-                    "colmap_points": record.colmap_points,
-                    "created_at": record.created_at.isoformat() if record.created_at else None,
-                    "updated_at": record.updated_at.isoformat() if record.updated_at else None
-                }
-        
-        # 如果数据库中没有记录，只返回 PipelineManager 状态
-        return {
-            "task_id": task_id,
-            "item_id": None,
-            **job_status
-        }
+            
+            # 返回完整信息
+            return {
+                "task_id": task_id,
+                "item_id": record.item_id,
+                "status": new_status,
+                "progress": progress,
+                "current_stage": stage,
+                "error_message": error,
+                "ply_url": record.ply_url,
+                "obj_url": record.obj_url,
+                "glb_url": record.glb_url,
+                "total_frames": record.total_frames,
+                "filtered_frames": record.filtered_frames,
+                "colmap_points": record.colmap_points,
+                "time_created": record.time_created.isoformat() if record.time_created else None,
+                "time_updated": record.time_updated.isoformat() if record.time_updated else None
+            }
     
     @classmethod
     async def list_item_tasks(cls, item_id: int) -> list[dict]:
@@ -303,22 +339,11 @@ class ReconstructionManager:
                     "total_frames": r.total_frames,
                     "filtered_frames": r.filtered_frames,
                     "colmap_points": r.colmap_points,
-                    "created_at": r.created_at.isoformat() if r.created_at else None,
-                    "updated_at": r.updated_at.isoformat() if r.updated_at else None
+                    "time_created": r.time_created.isoformat() if r.time_created else None,
+                    "time_updated": r.time_updated.isoformat() if r.time_updated else None
                 }
                 for r in records
             ]
-    
-    @classmethod
-    async def list_all_jobs(cls) -> list[dict]:
-        """
-        列出所有任务（从 PipelineManager）
-        
-        Returns:
-            list[dict]: 任务列表
-        """
-        mgr = cls.get_pipeline_manager()
-        return mgr.list_jobs()
     
     @classmethod
     def list_scenes(cls) -> list[str]:
@@ -328,5 +353,40 @@ class ReconstructionManager:
         Returns:
             list[str]: 场景名称列表
         """
-        mgr = cls.get_pipeline_manager()
-        return mgr.list_scenes()
+        if not DATA_DIR.exists():
+            return []
+        return sorted(
+            d.name for d in DATA_DIR.iterdir()
+            if d.is_dir() and (d / "sparse").exists()
+        )
+    
+    @classmethod
+    async def cancel_task(cls, task_id: str) -> dict:
+        """
+        取消任务
+        
+        Args:
+            task_id: 任务ID
+            
+        Returns:
+            dict: 取消结果
+        """
+        # 获取 Celery 模块
+        celery_app, _, _ = _get_celery_modules()
+        
+        result = AsyncResult(task_id, app=celery_app)
+        result.revoke(terminate=True)
+        
+        # 更新数据库状态
+        async with SessionLocal() as session:
+            await ReconstructionRecord.update_status(
+                session=session,
+                task_id=task_id,
+                status=ReconstructionStatus.FAILED,
+                error_message="任务已取消"
+            )
+            await session.commit()
+        
+        logger.info(f"任务已取消: task_id={task_id}")
+        
+        return {"message": f"任务 {task_id} 已取消"}
