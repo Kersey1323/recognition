@@ -8,6 +8,8 @@ from csrcqsf.biz.railwayparts.api_models import *
 from bfrcommon.snowflake import get_id
 from bfrcommon.common import date_to_str
 from csrcqsf.models.sgo import SgoItemImages
+from csrcqsf.models.reconstruction import ReconstructionRecord
+from csrcqsf.data.pg import SessionLocal
 from csrcqsf.settings import ai_settings
 # 导入业务逻辑层
 from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
@@ -399,66 +401,223 @@ async def list_reconstruct_tasks(item_id: str = None):
     ]
 
 
+# ===== 新的3D重建接口 (Celery + Redis) =====
+
+from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
+from csrcqsf.biz.railwayparts.reconstruction_api_models import (
+    ReconstructionTrainReq,
+    ReconstructionVideoReq,
+    ReconstructionTaskRes,
+    ReconstructionStatusRes,
+    ReconstructionListRes
+)
+
+
+@parts_router.post('/v2/reconstruct/train', tags=["算法-3D重建V2"], summary='V2: 从已有场景数据训练')
+async def reconstruct_v2_train(req: ReconstructionTrainReq):
+    """
+    从已有场景数据直接训练（快速）
+    
+    前提：场景数据已在 reconstruction_server/data/{scene}/ 中
+    
+    参数：
+    - item_id: 配件ID
+    - scene: 场景名称（data目录下的文件夹名）
+    - iterations: 训练迭代次数（默认30000）
+    - output_name: 输出名称（可选）
+    
+    返回：
+    - task_id: 任务ID，用于查询进度
+    """
+    result = await ReconstructionManager.submit_train_task(
+        item_id=req.item_id,
+        scene=req.scene,
+        iterations=req.iterations,
+        output_name=req.output_name
+    )
+    
+    return ReconstructionTaskRes(**result)
+
+
+@parts_router.post('/v2/reconstruct/video', tags=["算法-3D重建V2"], summary='V2: 从视频完整重建')
+async def reconstruct_v2_video(req: ReconstructionVideoReq):
+    """
+    完整视频重建流程
+    
+    流程：视频 → 提帧 → 去模糊去重 → COLMAP → SAM3分割 → 3DGS训练
+    
+    参数：
+    - item_id: 配件ID
+    - video_path: 视频文件路径（服务器上的绝对路径）
+    - name: 场景名称
+    - iterations: 训练迭代次数
+    - sam3_model: SAM3模型路径，为空则跳过分割
+    - skip_*: 跳过已完成的步骤（断点续跑）
+    
+    返回：
+    - task_id: 任务ID，用于查询进度
+    """
+    result = await ReconstructionManager.submit_video_task(
+        item_id=req.item_id,
+        video_path=req.video_path,
+        name=req.name,
+        iterations=req.iterations,
+        fps=req.fps,
+        image_size=req.image_size,
+        blur_threshold=req.blur_threshold,
+        dedup_threshold=req.dedup_threshold,
+        min_frames=req.min_frames,
+        sam3_model=req.sam3_model,
+        text_prompt=req.text_prompt,
+        mask_dilate=req.mask_dilate,
+        camera=req.camera,
+        no_gpu=req.no_gpu,
+        skip_extract=req.skip_extract,
+        skip_filter=req.skip_filter,
+        skip_colmap=req.skip_colmap,
+        skip_sam3=req.skip_sam3,
+        output_name=req.output_name
+    )
+    
+    return ReconstructionTaskRes(**result)
+
+
+@parts_router.get('/v2/reconstruct/status/{task_id}', tags=["算法-3D重建V2"], summary='V2: 查询任务状态')
+async def get_reconstruct_v2_status(task_id: str):
+    """
+    查询重建任务状态
+    
+    返回：
+    - status: 任务状态 (pending/training/success/failed等)
+    - progress: 进度百分比 (0-100)
+    - current_stage: 当前阶段描述
+    - result: 结果文件URL（完成后）
+    """
+    result = await ReconstructionManager.get_task_status(task_id)
+    return ReconstructionStatusRes(**result)
+
+
+@parts_router.get('/v2/reconstruct/item/{item_id}', tags=["算法-3D重建V2"], summary='V2: 列出配件的重建任务')
+async def list_item_reconstruct_tasks(item_id: int):
+    """
+    列出指定配件的所有重建任务
+    
+    返回任务列表，按创建时间倒序排列
+    """
+    records = await ReconstructionManager.list_item_tasks(item_id)
+    return ReconstructionListRes(records=records)
+
+
+@parts_router.delete('/v2/reconstruct/cancel/{task_id}', tags=["算法-3D重建V2"], summary='V2: 取消任务')
+async def cancel_reconstruct_task(task_id: str):
+    """取消正在执行的重建任务"""
+    return await ReconstructionManager.cancel_task(task_id)
+
+
+@parts_router.get('/v2/reconstruct/scenes', tags=["算法-3D重建V2"], summary='V2: 列出可用场景')
+async def list_reconstruction_scenes():
+    """
+    列出 reconstruction_server/data/ 目录下所有可用场景
+    
+    返回已准备好 COLMAP 数据的场景，可直接用于训练
+    """
+    scenes = ReconstructionManager.list_scenes()
+    return {"scenes": scenes}
+
+
 
 # ============================================
 # 新向量数据库接口 (SigLIP + DINOv2)
 # ============================================
 
-@parts_router.post('/v2/collections/init', tags=["算法-向量检索V2"], summary='初始化V2向量数据库并建立索引')
-async def init_v2_collections(
-    limit: int = None,
-    drop_existing: bool = False,
-    background_tasks: BackgroundTasks = None
-):
+@parts_router.post('/v2/collections/drop', tags=["算法-向量检索V2"], summary='清空V2向量数据库')
+async def drop_v2_collections():
     """
-    初始化新的向量数据库集合 (SigLIP + DINOv2) 并建立索引
+    清空向量数据库（删除所有集合）
+    
+    警告：此操作会删除以下集合的所有数据：
+    - PARTS_SIGLIP_SO400M_1152D_V1: SigLIP 图文特征
+    - PARTS_DINOV2_LARGE_1024D_V1: DINOv2 视觉特征
+    
+    删除后需要重新调用 /v2/collections/init 创建集合
+    """
+    from csrcqsf.biz.railwayparts.vector_db.storage.milvus_manager import MilvusManagerV2
+    
+    manager = MilvusManagerV2()
+    await run_sync(manager.drop_collections)
+    
+    return {
+        'message': 'V2 collections dropped successfully',
+        'warning': 'All vector data has been deleted. Please call /v2/collections/init to recreate collections.'
+    }
+
+
+@parts_router.post('/v2/collections/init', tags=["算法-向量检索V2"], summary='初始化V2向量数据库集合')
+async def init_v2_collections():
+    """
+    初始化新的向量数据库集合 (SigLIP + DINOv2)
     
     创建两个集合：
     - PARTS_SIGLIP_SO400M_1152D_V1: SigLIP 图文特征 (1152维)
     - PARTS_DINOV2_LARGE_1024D_V1: DINOv2 视觉特征 (1024维)
     
+    注意：
+    - 如果集合已存在，将跳过创建
+    - 此接口只创建集合结构，不建立索引
+    - 建立索引请调用 /v2/index/rebuild 接口
+    """
+    await RailwayPartsManager.create_v2_collections(drop_existing=False)
+    
+    return {
+        'message': 'V2 collections initialized successfully',
+        'next_step': 'Call /v2/index/rebuild to build index'
+    }
+
+
+@parts_router.post('/v2/index/rebuild', tags=["算法-向量检索V2"], summary='重建V2索引')
+async def rebuild_v2_index(
+    item_id: int = None,
+    limit: int = None,
+    background_tasks: BackgroundTasks = None
+):
+    """
+    重建V2向量索引 (SigLIP + DINOv2)
+    
     参数：
+    - item_id: 指定配件ID（可选，为空则重建所有）
     - limit: 限制处理数量（可选，用于测试，如 limit=10 只处理10条数据）
-    - drop_existing: 是否删除已存在的集合（默认 False，保留现有数据）
     - background_tasks: 后台任务（自动传入）
     
     注意：
-    - 如果集合已存在且 drop_existing=False，将跳过创建直接建索引
-    - 如果 limit 较大或为空，将在后台执行建库任务
-    - drop_existing=True 会清空所有现有数据，请谨慎使用！
+    - 如果 limit > 100 或未指定 limit，将在后台执行
+    - 小批量任务（limit <= 100）会同步执行并返回结果
     """
-    # 创建集合（如果不存在）
-    await RailwayPartsManager.create_v2_collections(drop_existing=drop_existing)
+    # 判断是否需要后台执行
+    should_background = (limit is None or limit > 100) and background_tasks is not None
     
-    # 如果指定了 limit，则同时建立索引
-    if limit is not None:
-        if limit > 100 and background_tasks:
-            # 大批量任务放到后台执行
-            background_tasks.add_task(
-                RailwayPartsManager.rebuild_v2_index,
-                item_id=None,
-                limit=limit
-            )
-            return {
-                'message': f'V2 collections initialized, building index for {limit} items in background',
-                'drop_existing': drop_existing
-            }
-        else:
-            # 小批量任务直接执行
-            result = await RailwayPartsManager.rebuild_v2_index(
-                item_id=None,
-                limit=limit
-            )
-            return {
-                'message': f'V2 collections initialized and index built for {limit} items',
-                'drop_existing': drop_existing,
-                'result': result
-            }
-    
-    return {
-        'message': 'V2 collections initialized successfully (no indexing performed)',
-        'drop_existing': drop_existing
-    }
+    if should_background:
+        # 大批量任务放到后台执行
+        background_tasks.add_task(
+            RailwayPartsManager.rebuild_v2_index,
+            item_id=item_id,
+            limit=limit
+        )
+        return {
+            'message': f'Index rebuild task started in background',
+            'item_id': item_id,
+            'limit': limit or 'all'
+        }
+    else:
+        # 小批量任务直接执行
+        result = await RailwayPartsManager.rebuild_v2_index(
+            item_id=item_id,
+            limit=limit
+        )
+        return {
+            'message': 'Index rebuilt successfully',
+            'result': result
+        }
+
 
 
 @parts_router.post('/v2/search/text', tags=["算法-向量检索V2"], summary='V2文本检索')

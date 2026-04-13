@@ -99,14 +99,14 @@ class MilvusManagerV2:
 
     # ==================== 建库功能 ====================
 
-    async def create_collections(self):
+    def create_collections(self):
         """创建所有 Collection"""
         logger.info("Creating collections...")
         self.collection_manager.create_siglip_collection(self.siglip_collection)
         self.collection_manager.create_dinov2_collection(self.dinov2_collection)
         logger.info("Collections created")
     
-    async def drop_collections(self):
+    def drop_collections(self):
         """删除所有 Collection（清空向量库）"""
         logger.warning("Dropping collections...")
         
