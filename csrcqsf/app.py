@@ -18,7 +18,7 @@ from bfrcommon.middlewares.auth import add_process_time_header, auth_middleware
 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from .logger import logger
+from globals_vars import logger
 from .settings import make_sure_models
 from .api_models import *
 from csrcqsf.biz.segment import SegmentBiz
@@ -27,6 +27,9 @@ from csrcqsf.services import *
 from csrcqsf.data.pg import db_migrate
 from csrcqsf.biz.sgo import SGOBiz
 from csrcqsf.biz.railwayparts.milvus import MilvusManager
+
+# 导入 scheduler 以启动定时任务（包括重建任务状态同步）
+from csrcqsf.scheduler import scheduler
 
 # CORS配置：允许所有来源
 origins = [

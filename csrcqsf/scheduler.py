@@ -94,3 +94,115 @@ def remove_cron_queue_job(job_id: str):
 
 
 scheduler.start()
+
+
+# ============================================================================
+# 定时任务：同步重建任务状态
+# ============================================================================
+
+def sync_reconstruction_tasks_sync():
+    """
+    定时同步所有进行中的重建任务状态（同步版本）
+    从 Celery 获取最新状态并更新到数据库
+    
+    注意：使用同步数据库操作避免事件循环冲突
+    """
+    try:
+        from csrcqsf.biz.railwayparts.reconstruction_server.celery_app import celery_app
+        from celery.result import AsyncResult
+        from csrcqsf.models.reconstruction import ReconstructionStatus, ReconstructionRecord
+        from sqlalchemy import create_engine, select, or_
+        from sqlalchemy.orm import Session
+        from csrcqsf.settings import ai_settings
+        
+        # 创建同步数据库引擎（使用 psycopg2 驱动）
+        sync_db_url = ai_settings.get_pg_dsn()
+        engine = create_engine(sync_db_url, pool_pre_ping=True)
+        
+        with Session(engine) as session:
+            # 查询进行中的任务
+            stmt = select(ReconstructionRecord).where(
+                or_(
+                    ReconstructionRecord.status == ReconstructionStatus.PENDING,
+                    ReconstructionRecord.status == ReconstructionStatus.TRAINING
+                )
+            )
+            result = session.execute(stmt)
+            running_tasks = result.scalars().all()
+            
+            if not running_tasks:
+                return
+            
+            logger.debug(f"同步 {len(running_tasks)} 个进行中的重建任务状态")
+            
+            # 逐个同步任务状态
+            synced_count = 0
+            for record in running_tasks:
+                try:
+                    # 从 Celery 获取任务状态
+                    result = AsyncResult(record.task_id, app=celery_app)
+                    
+                    # 映射 Celery 状态到 ReconstructionStatus
+                    status_map = {
+                        "PENDING": ReconstructionStatus.PENDING,
+                        "STARTED": ReconstructionStatus.TRAINING,
+                        "PROGRESS": ReconstructionStatus.TRAINING,
+                        "SUCCESS": ReconstructionStatus.SUCCESS,
+                        "FAILURE": ReconstructionStatus.FAILED,
+                    }
+                    
+                    new_status = status_map.get(result.state, record.status)
+                    progress = record.progress
+                    stage = record.current_stage
+                    error = record.error_message
+                    
+                    # 获取进度和阶段信息
+                    if result.state == "PROGRESS":
+                        info = result.info or {}
+                        stage = info.get("stage", stage)
+                        progress = info.get("progress", progress)
+                    elif result.state == "SUCCESS":
+                        progress = 100
+                        stage = "完成"
+                    elif result.state == "FAILURE":
+                        error = str(result.info)
+                        stage = "失败"
+                    
+                    # 更新数据库状态
+                    if new_status != record.status or progress != record.progress:
+                        record.status = new_status
+                        record.progress = progress
+                        record.current_stage = stage
+                        if error:
+                            record.error_message = error
+                        session.commit()
+                        synced_count += 1
+                        
+                except Exception as e:
+                    logger.error(f"同步任务 {record.task_id} 状态失败: {e}")
+                    session.rollback()
+            
+            if synced_count > 0:
+                logger.info(f"成功同步 {synced_count}/{len(running_tasks)} 个重建任务状态")
+                
+    except Exception as e:
+        logger.error(f"同步重建任务状态失败: {e}", exc_info=True)
+
+
+# 添加定时任务：同步重建任务状态
+# 从环境变量读取同步间隔（秒），默认 10 秒
+import os
+RECONSTRUCTION_SYNC_INTERVAL = int(os.getenv('RECONSTRUCTION_SYNC_INTERVAL', '10'))
+
+try:
+    scheduler.add_job(
+        func=sync_reconstruction_tasks_sync,
+        trigger='interval',
+        seconds=RECONSTRUCTION_SYNC_INTERVAL,
+        id='sync_reconstruction_tasks',
+        name='同步重建任务状态',
+        replace_existing=True
+    )
+    logger.info(f"已启动重建任务状态同步定时任务（每{RECONSTRUCTION_SYNC_INTERVAL}秒执行一次）")
+except Exception as e:
+    logger.error(f"启动重建任务状态同步定时任务失败: {e}")
