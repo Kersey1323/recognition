@@ -6,7 +6,6 @@ import os
 import numpy as np
 from PIL import Image
 from typing import List, Dict, Tuple, Optional, Literal
-from configparser import ConfigParser
 
 from csrcqsf.biz.railwayparts.vector_db.models.siglip_extractor import SigLIPExtractor
 from csrcqsf.biz.railwayparts.vector_db.models.dinov2_extractor import DINOv2VectorExtractor
@@ -15,6 +14,7 @@ from csrcqsf.biz.railwayparts.vector_db.storage.collection_manager import Collec
 from csrcqsf.biz.railwayparts.vector_db.data.image_loader import ImageLoader
 from csrcqsf.biz.railwayparts.vector_db.preprocessing.sam3_preprocessor import SAM3Preprocessor
 from csrcqsf.biz.railwayparts.vector_db.utils.logger import setup_logger
+from csrcqsf.biz.railwayparts.vector_db.config.env_config import get_config
 
 logger = setup_logger(__name__)
 
@@ -24,78 +24,88 @@ class MilvusManagerV2:
 
     def __init__(
         self,
-        config_path: str = '/home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/vector_db/config/vector_db.ini',
-        db_config_path: str = '/home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/vector_db/config/db_config.ini',
+        config_path: Optional[str] = None,  # 保留参数以兼容旧代码，但不再使用
+        db_config_path: Optional[str] = None,  # 保留参数以兼容旧代码，但不再使用
         enable_sam3: bool = True
     ):
         """
         初始化 Milvus 管理器
 
         Args:
-            config_path: 向量数据库配置文件路径
-            db_config_path: 数据库连接配置文件路径
+            config_path: (已废弃) 向量数据库配置文件路径，现在从环境变量读取
+            db_config_path: (已废弃) 数据库连接配置文件路径，现在从环境变量读取
             enable_sam3: 是否启用 SAM3 预处理
         """
         logger.info("Initializing Milvus Manager...")
-
-        # 加载配置
-        siglip_config = SigLIPConfig.from_config(config_path)
-        dinov2_config = DINOv2Config.from_config(config_path)
-        milvus_config = MilvusConfig.from_config(config_path)
+        
+        # 从环境变量加载配置
+        env_config = get_config()
+        
+        # 如果传入了旧的配置文件路径，发出警告
+        if config_path or db_config_path:
+            logger.warning(
+                "config_path and db_config_path parameters are deprecated. "
+                "Configuration is now loaded from environment variables (.env file). "
+                "Please update your code to remove these parameters."
+            )
 
         # 初始化 SigLIP 模型
+        logger.info(f"Loading SigLIP model from {env_config.siglip_model_path}")
         self.siglip_extractor = SigLIPExtractor(
-            model_path=siglip_config.model_path,
-            device=siglip_config.device
+            model_path=env_config.siglip_model_path,
+            device=env_config.siglip_device
         )
-        self.siglip_collection = siglip_config.collection_name
+        self.siglip_collection = env_config.siglip_collection_name
 
         # 初始化 DINOv2 模型
+        logger.info(f"Loading DINOv2 model from {env_config.dinov2_model_path}")
         self.dinov2_extractor = DINOv2VectorExtractor(
-            model_name=dinov2_config.model_path,
-            device=dinov2_config.device
+            model_name=env_config.dinov2_model_path,
+            device=env_config.dinov2_device
         )
-        self.dinov2_collection = dinov2_config.collection_name
-        self.patch_tokens_dir = dinov2_config.patch_tokens_dir
+        self.dinov2_collection = env_config.dinov2_collection_name
+        self.patch_tokens_dir = env_config.dinov2_patch_tokens_dir
 
         # 初始化 SAM3 预处理器（可选）
         self.sam3_preprocessor = None
-        if enable_sam3:
-            config_parser = ConfigParser()
-            config_parser.read(config_path, encoding='utf-8')
-            if config_parser.has_section('sam3'):
-                logger.info("Initializing SAM3 preprocessor...")
+        if enable_sam3 and env_config.sam3_model_path:
+            logger.info(f"Initializing SAM3 preprocessor from {env_config.sam3_model_path}")
+            try:
                 self.sam3_preprocessor = SAM3Preprocessor(
-                    model_path=config_parser.get('sam3', 'model_path'),
-                    mask_dilate=config_parser.getint('sam3', 'mask_dilate'),
-                    bg_color=config_parser.get('sam3', 'bg_color'),
-                    device=config_parser.get('sam3', 'device'),
-                    save_debug_images=config_parser.getboolean('sam3', 'save_debug_images', fallback=False),
-                    debug_output_dir=config_parser.get('sam3', 'debug_output_dir', fallback='vector_db/logs/sam3_debug')
+                    model_path=env_config.sam3_model_path,
+                    mask_dilate=env_config.sam3_mask_dilate,
+                    bg_color=env_config.sam3_bg_color,
+                    device=env_config.sam3_device,
+                    save_debug_images=False,
+                    debug_output_dir=os.path.join(env_config.indexing_log_dir, 'sam3_debug')
                 )
-                logger.info("SAM3 preprocessor initialized")
-            else:
-                logger.warning("SAM3 section not found in config, SAM3 preprocessing disabled")
+                logger.info("SAM3 preprocessor initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize SAM3 preprocessor: {e}")
+                logger.warning("SAM3 preprocessing will be disabled")
 
         # 初始化 Milvus Collection 管理器
+        logger.info(f"Connecting to Milvus at {env_config.milvus_host}:{env_config.milvus_port}")
         self.collection_manager = CollectionManager(
-            host=milvus_config.host,
-            port=milvus_config.port
+            host=env_config.milvus_host,
+            port=env_config.milvus_port
         )
 
         # 初始化图像加载器
-        db_parser = ConfigParser()
-        db_parser.read(db_config_path, encoding='utf-8')
+        logger.info(f"Initializing image loader with MinIO endpoint: {env_config.minio_endpoint}")
         self.image_loader = ImageLoader(
-            minio_endpoint=db_parser.get('minio', 'endpoint'),
-            minio_access_key=db_parser.get('minio', 'access_key'),
-            minio_secret_key=db_parser.get('minio', 'secret_key'),
-            minio_bucket=db_parser.get('minio', 'bucket'),
-            minio_secure=db_parser.getboolean('minio', 'secure'),
-            local_image_root=db_parser.get('local', 'image_root')
+            minio_endpoint=env_config.minio_endpoint,
+            minio_access_key=env_config.minio_access_key,
+            minio_secret_key=env_config.minio_secret_key,
+            minio_bucket=env_config.minio_bucket,
+            minio_secure=env_config.minio_secure,
+            local_image_root=env_config.local_image_root
         )
 
         logger.info("Milvus Manager initialized successfully")
+        logger.info(f"  - SigLIP Collection: {self.siglip_collection}")
+        logger.info(f"  - DINOv2 Collection: {self.dinov2_collection}")
+        logger.info(f"  - SAM3 Enabled: {self.sam3_preprocessor is not None}")
 
     # ==================== 建库功能 ====================
 

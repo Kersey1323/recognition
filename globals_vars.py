@@ -42,23 +42,6 @@ from typing import Optional
 load_dotenv(find_dotenv())
 
 
-# 全局 session_id 和 user_id 用于 Langfuse 追踪
-# 在 Baseline 初始化时设置，确保整个实验 session 使用相同的 ID
-_global_session_id: Optional[str] = None
-_global_user_id: Optional[str] = None
-
-
-def set_langfuse_session(session_id: str, user_id: str = "default_user"):
-    """设置全局的 Langfuse session_id 和 user_id"""
-    global _global_session_id, _global_user_id
-    _global_session_id = session_id
-    _global_user_id = user_id
-
-
-def get_langfuse_session() -> tuple[Optional[str], Optional[str]]:
-    """获取全局的 Langfuse session_id 和 user_id"""
-    return _global_session_id, _global_user_id
-
 
 # 工作目录配置
 @dataclass

@@ -7,13 +7,18 @@ import sys
 from bfrcommon.file import mkdir
 from bfrcommon.settings import Settings
 from pydantic import BaseModel
-minio_bucket = 'bfr-ai-files'
-temp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'temp')
-brisconfig_url = os.environ.get("brisconfig_url") or "10.144.145.6:10001"
-sgo_url = 'https://sgo.csrcqsf.com/uc/sfsso/authByAccount?tenantId=1463844437338755072'
+from dotenv import load_dotenv
 
-model_dir = '/home/ubuntu/CV/models' if sys.platform.startswith(
-    'win') is False else 'D:\\models'
+# 加载环境变量
+load_dotenv()
+
+# 从环境变量读取配置
+minio_bucket = os.getenv('MINIO_BUCKET', 'bfr-ai-files')
+temp_dir = os.getenv('TEMP_DIR', os.path.join(os.path.dirname(os.path.dirname(__file__)), 'temp'))
+brisconfig_url = os.getenv("brisconfig_url") or os.getenv("BASIS_API_GRPC_URL", "10.144.145.6:10001")
+sgo_url = os.getenv('SGO_URL', 'https://sgo.csrcqsf.com/uc/sfsso/authByAccount?tenantId=1463844437338755072')
+model_dir = os.getenv('MODEL_DIR', '/home/ubuntu/CV/models' if not sys.platform.startswith('win') else 'D:\\models')
+
 
 # mkdir(temp_dir)
 # mkdir(model_dir)

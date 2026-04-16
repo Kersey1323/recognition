@@ -29,3 +29,5 @@ csrcqsf/biz/railwayparts/vector_db/patch_tokens/
 # Vector DB logs and checkpoints
 csrcqsf/biz/railwayparts/vector_db/logs/
 csrcqsf/biz/railwayparts/vector_db/checkpoint.json
+
+docs/*

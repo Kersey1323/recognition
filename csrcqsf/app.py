@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
     #await make_sure_models()
     await db_migrate()  # 数据库迁移
     await SegmentBiz.init()  # 初始化SAM模型
-    await MilvusManager.init_collection()  # 初始化Milvus集合
+    # await MilvusManager.init_collection()  # 初始化Milvus集合
     SGOBiz.init()  # 初始化SGO业务
     RunVar("_default_thread_limiter").set(CapacityLimiter(200))  # 线程池限制
     yield

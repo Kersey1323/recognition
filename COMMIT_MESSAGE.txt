@@ -1,0 +1,38 @@
+feat: 配置迁移到环境变量 & 升级 PyTorch 支持 RTX 5090
+
+主要变更:
+
+1. 配置管理优化
+   - 将硬编码配置迁移到 .env 环境变量
+   - 创建 env_config.py 统一管理向量数据库配置
+   - 更新 settings.py 使用环境变量
+   - 添加 .env.example 作为配置模板
+
+2. PyTorch 升级 (RTX 5090 支持)
+   - 从 cu118 升级到 cu130 (CUDA 13.0 nightly)
+   - 解决 RTX 5090 (sm_120) CUDA kernel 兼容性问题
+   - 更新 pyproject.toml 配置
+
+3. 向量数据库配置重构
+   - milvus_manager.py 改用环境变量配置
+   - 保留旧参数兼容性，添加废弃警告
+   - 路径配置优化：模型路径相对于 MODEL_DIR
+
+4. 测试和文档
+   - 添加配置验证测试脚本
+   - 添加模型推理测试脚本
+   - 创建配置迁移文档
+
+修改文件:
+- csrcqsf/settings.py
+- csrcqsf/biz/railwayparts/vector_db/storage/milvus_manager.py
+- pyproject.toml
+- .env (新增)
+- .env.example (新增)
+- csrcqsf/biz/railwayparts/vector_db/config/env_config.py (新增)
+
+测试验证:
+- ✅ 环境变量配置加载正常
+- ✅ PyTorch CUDA 13.0 正常工作
+- ✅ 模型推理测试通过
+- ✅ 向量数据库配置验证通过
