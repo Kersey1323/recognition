@@ -262,101 +262,6 @@ async def list_segmented_images(item_id: str):
     )
 
 
-# ===== 3D 重建接口 =====
-
-from csrcqsf.biz.reconstruction import ReconstructionPipeline
-
-
-@parts_router.post('/reconstruct_3d', tags=["算法-3D重建"], summary='3D重建 (多角度照片→OBJ)', responses={
-    200: {'model': Reconstruct3DTaskRes}
-})
-async def reconstruct_3d(req: Reconstruct3DReq):
-    """从多角度照片重建 3D 模型
-    
-    流程:
-    1. COLMAP 相机位姿估计
-    2. 3D Gaussian Splatting 训练
-    3. SuGaR Mesh 提取
-    4. 导出 OBJ 文件
-    
-    由于处理时间较长 (15-30分钟)，采用后台任务方式，
-    返回 task_id 后可通过 /reconstruct_3d/progress 查询进度
-    """
-    if len(req.image_urls) < 10:
-        return Reconstruct3DTaskRes(
-            task_id='',
-            item_id=req.item_id,
-            status='failed',
-            message='图片数量不足，至少需要 10 张多角度照片'
-        )
-    
-    task = await ReconstructionPipeline.create_task(
-        item_id=int(req.item_id),
-        image_urls=req.image_urls
-    )
-    
-    return Reconstruct3DTaskRes(
-        task_id=task.task_id,
-        item_id=req.item_id,
-        status=task.status.value,
-        progress=task.progress,
-        message='3D 重建任务已创建，请使用 task_id 查询进度'
-    )
-
-
-@parts_router.get('/reconstruct_3d/progress/{task_id}', tags=["业务-任务管理"], summary='查询3D重建进度', responses={
-    200: {'model': TaskProgressRes}
-})
-async def get_reconstruct_progress(task_id: str):
-    """查询 3D 重建任务进度"""
-    task = ReconstructionPipeline.get_task(task_id)
-    
-    if task is None:
-        return TaskProgressRes(
-            task_id=task_id,
-            status='not_found',
-            message='任务不存在'
-        )
-    
-    return TaskProgressRes(
-        task_id=task.task_id,
-        item_id=str(task.item_id),
-        status=task.status.value,
-        progress=task.progress,
-        message=task.message,
-        total_images=task.total_images,
-        downloaded_images=task.downloaded_images,
-        colmap_points=task.colmap_points,
-        mesh_vertices=task.mesh_vertices,
-        mesh_faces=task.mesh_faces,
-        obj_url=task.obj_url,
-        created_at=task.created_at,
-        started_at=task.started_at,
-        completed_at=task.completed_at,
-        error=task.error
-    )
-
-
-@parts_router.get('/reconstruct_3d/tasks', tags=["业务-任务管理"], summary='列出3D重建任务')
-async def list_reconstruct_tasks(item_id: str = None):
-    """列出所有 3D 重建任务"""
-    tasks = ReconstructionPipeline.list_tasks(
-        item_id=int(item_id) if item_id else None
-    )
-    
-    return [
-        TaskProgressRes(
-            task_id=t.task_id,
-            item_id=str(t.item_id),
-            status=t.status.value,
-            progress=t.progress,
-            message=t.message,
-            obj_url=t.obj_url,
-            created_at=t.created_at
-        ) for t in tasks
-    ]
-
-
 # ===== 新的3D重建接口 (Celery + Redis) =====
 
 from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
@@ -462,6 +367,44 @@ async def list_item_reconstruct_tasks(item_id: int):
     """
     records = await ReconstructionManager.list_item_tasks(item_id)
     return ReconstructionListRes(records=records)
+
+
+@parts_router.get('/v2/reconstruct/tasks', tags=["算法-3D重建V2"], summary='V2: 列出所有重建任务')
+async def list_all_reconstruct_tasks(
+    status: str = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    """
+    列出所有重建任务（支持分页和状态筛选）
+    
+    参数：
+    - status: 任务状态筛选（可选）
+        - pending: 等待中
+        - extracting: 提帧中
+        - filtering: 帧筛选中
+        - colmap: COLMAP处理中
+        - sam3: SAM3分割中
+        - training: 训练中
+        - converting: 转换中
+        - success: 成功
+        - failed: 失败
+        - cancelled: 已取消
+    - limit: 每页数量（默认100）
+    - offset: 偏移量（默认0）
+    
+    返回：
+    - total: 总任务数
+    - limit: 每页数量
+    - offset: 偏移量
+    - records: 任务列表
+    """
+    result = await ReconstructionManager.list_all_tasks(
+        status=status,
+        limit=limit,
+        offset=offset
+    )
+    return result
 
 
 @parts_router.delete('/v2/reconstruct/cancel/{task_id}', tags=["算法-3D重建V2"], summary='V2: 取消任务')

@@ -59,7 +59,7 @@ class ReconstructionRecord(Base):
     error_message: Mapped[str] = mapped_column(Text, nullable=True, comment='错误信息')
     
     # 时间戳（继承自Base类）
-    # created_at, updated_at 会自动添加
+    # time_created, time_updated 会自动添加
     
     @classmethod
     async def create_record(
@@ -96,15 +96,55 @@ class ReconstructionRecord(Base):
     @classmethod
     async def get_by_item_id(cls, session: AsyncSession, item_id: int) -> list[ReconstructionRecord]:
         """根据配件ID查询所有重构记录"""
-        stmt = select(cls).where(cls.item_id == item_id).order_by(cls.created_at.desc())
+        stmt = select(cls).where(cls.item_id == item_id).order_by(cls.time_created.desc())
         result = await session.scalars(stmt)
         return list(result)
     
     @classmethod
     async def get_latest_by_item_id(cls, session: AsyncSession, item_id: int) -> ReconstructionRecord | None:
         """获取配件的最新重构记录"""
-        stmt = select(cls).where(cls.item_id == item_id).order_by(cls.created_at.desc()).limit(1)
+        stmt = select(cls).where(cls.item_id == item_id).order_by(cls.time_created.desc()).limit(1)
         return await session.scalar(stmt)
+    
+    @classmethod
+    async def get_all_tasks(
+        cls,
+        session: AsyncSession,
+        status: str = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> tuple[list[ReconstructionRecord], int]:
+        """
+        获取所有重构任务（支持分页和状态筛选）
+        
+        Args:
+            session: 数据库会话
+            status: 任务状态筛选（可选）
+            limit: 每页数量
+            offset: 偏移量
+            
+        Returns:
+            tuple: (记录列表, 总数)
+        """
+        from sqlalchemy import func
+        
+        # 构建查询
+        stmt = select(cls)
+        count_stmt = select(func.count(cls.id))
+        
+        # 状态筛选
+        if status:
+            stmt = stmt.where(cls.status == status)
+            count_stmt = count_stmt.where(cls.status == status)
+        
+        # 获取总数
+        total = await session.scalar(count_stmt)
+        
+        # 分页和排序
+        stmt = stmt.order_by(cls.time_created.desc()).limit(limit).offset(offset)
+        result = await session.scalars(stmt)
+        
+        return list(result), total or 0
     
     @classmethod
     async def update_status(

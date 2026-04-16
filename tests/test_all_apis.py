@@ -111,12 +111,19 @@ def main():
     )
     results.append(("数据统计", success))
     
-    # 7. 3D重建任务列表
+    # 7. 3D重建任务列表 (V2版本)
     success, _ = test_api(
-        "GET", "/railway/parts/reconstruct_3d/tasks",
-        description="列出3D重建任务"
+        "GET", "/railway/parts/v2/reconstruct/scenes",
+        description="列出可用场景"
     )
-    results.append(("3D重建任务列表", success))
+    results.append(("3D重建场景列表", success))
+    
+    # 7.1 所有3D重建任务
+    success, _ = test_api(
+        "GET", "/railway/parts/v2/reconstruct/tasks?limit=10&offset=0",
+        description="列出所有3D重建任务"
+    )
+    results.append(("所有3D重建任务", success))
     
     # 8. SGO图片列表
     if item_id:

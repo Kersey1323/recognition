@@ -1,5 +1,7 @@
 refactor: 删除旧版本算法接口，统一使用V2版本
 
+## 1. 删除旧版本检索接口
+
 删除的接口路由：
 - POST /railway/parts/index_rebuild - 旧索引重建接口
 - POST /railway/parts/search/v2 - 旧检索接口
@@ -16,19 +18,78 @@ refactor: 删除旧版本算法接口，统一使用V2版本
 - ListSearchHistoryRes - 检索历史列表响应模型
 - DeleteSearchHistoryReq - 删除检索历史请求模型
 
-保留的V2接口：
+保留的V2检索接口：
 - POST /v2/collections/* - 向量数据库管理
 - POST /v2/index/rebuild - V2索引重建
-- POST /v2/search/text - V2文本检索
-- POST /v2/search/image - V2图像检索
+- POST /v2/search/text - V2文本检索 (SigLIP)
+- POST /v2/search/image - V2图像检索 (SigLIP + DINOv2)
 
-其他修改：
-- 更新测试文件，注释掉已删除接口的测试用例
+## 2. 删除旧版本3D重建接口
+
+删除的接口路由：
+- POST /railway/parts/reconstruct_3d - 旧3D重建接口
+- GET /railway/parts/reconstruct_3d/progress/{task_id} - 旧进度查询接口
+- GET /railway/parts/reconstruct_3d/tasks - 旧任务列表接口
+
+删除的API模型：
+- Reconstruct3DReq - 旧3D重建请求模型
+- Reconstruct3DTaskRes - 旧3D重建任务响应模型
+- TaskProgressRes - 旧任务进度响应模型
+
+保留的V2重建接口：
+- POST /v2/reconstruct/train - V2从场景数据训练
+- POST /v2/reconstruct/video - V2从视频完整重建
+- GET /v2/reconstruct/status/{task_id} - V2查询任务状态
+- GET /v2/reconstruct/item/{item_id} - V2列出配件的重建任务
+- DELETE /v2/reconstruct/cancel/{task_id} - V2取消任务
+- GET /v2/reconstruct/scenes - V2列出可用场景
+
+## 3. 新增功能：列出所有3D重建任务
+
+新增接口：
+- GET /v2/reconstruct/tasks - 列出所有重建任务（支持分页和状态筛选）
+
+功能特性：
+- 支持按状态筛选（pending/training/success/failed等）
+- 支持分页（limit/offset参数）
+- 按创建时间倒序排列
+- 返回任务详细信息（进度、状态、结果URL等）
+
+新增业务逻辑方法：
+- ReconstructionManager.list_all_tasks() - 列出所有任务
+- ReconstructionRecord.get_all_tasks() - 数据库查询方法
+
+## 4. 修复字段名称错误
+
+修复 ReconstructionRecord 模型中的时间戳字段引用：
+- 将 created_at 改为 time_created（与 Base 类保持一致）
+- 将 updated_at 改为 time_updated（与 Base 类保持一致）
+
+影响文件：
+- csrcqsf/models/reconstruction.py - 修复 order_by 字段名
+- csrcqsf/biz/railwayparts/reconstruction_manager.py - 修复返回字段名
+
+## 5. 其他修改
+
+- 更新测试文件，替换为V2接口测试，新增所有任务列表测试
 - 保留 SearchHistory 模型，用于数据统计功能
 - 保留 SearchItem/SearchRes 模型，V2接口仍在使用
+- 旧版本 ReconstructionPipeline 业务逻辑保留在 csrcqsf/biz/reconstruction/ 目录，但不再对外暴露接口
 
-影响范围：
-- csrcqsf/services/parts.py - 删除旧路由
+## 影响范围
+
+- csrcqsf/services/parts.py - 删除旧路由，保留V2路由，新增任务列表接口
 - csrcqsf/biz/railwayparts/parts.py - 删除旧业务逻辑
 - csrcqsf/biz/railwayparts/api_models.py - 删除旧API模型
-- tests/test_all_apis.py - 更新测试用例
+- csrcqsf/models/reconstruction.py - 修复字段名称，新增查询方法
+- csrcqsf/biz/railwayparts/reconstruction_manager.py - 修复字段名称，新增业务方法
+- tests/test_all_apis.py - 更新测试用例为V2接口
+
+## 技术说明
+
+V2版本相比旧版本的优势：
+1. 检索算法：使用 SigLIP + DINOv2 双模型融合，准确率更高
+2. 3D重建：使用 Celery + Redis 异步任务队列，支持断点续跑和进度追踪
+3. 架构优化：业务逻辑与接口层分离更清晰，便于维护和扩展
+4. 数据模型：统一使用 Base 类的时间戳字段命名规范
+5. 任务管理：新增全局任务列表接口，支持分页和状态筛选，便于监控和管理

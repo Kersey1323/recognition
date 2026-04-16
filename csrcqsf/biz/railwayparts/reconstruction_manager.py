@@ -346,6 +346,59 @@ class ReconstructionManager:
             ]
     
     @classmethod
+    async def list_all_tasks(
+        cls,
+        status: str = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> dict:
+        """
+        列出所有重构任务（支持分页和状态筛选）
+        
+        Args:
+            status: 任务状态筛选（可选）
+            limit: 每页数量
+            offset: 偏移量
+            
+        Returns:
+            dict: 包含任务列表和总数
+        """
+        async with SessionLocal() as session:
+            records, total = await ReconstructionRecord.get_all_tasks(
+                session=session,
+                status=status,
+                limit=limit,
+                offset=offset
+            )
+            
+            return {
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "records": [
+                    {
+                        "task_id": r.task_id,
+                        "item_id": r.item_id,
+                        "task_type": r.task_type,
+                        "status": r.status,
+                        "progress": r.progress,
+                        "current_stage": r.current_stage,
+                        "scene_name": r.scene_name,
+                        "error_message": r.error_message,
+                        "ply_url": r.ply_url,
+                        "obj_url": r.obj_url,
+                        "glb_url": r.glb_url,
+                        "total_frames": r.total_frames,
+                        "filtered_frames": r.filtered_frames,
+                        "colmap_points": r.colmap_points,
+                        "time_created": r.time_created.isoformat() if r.time_created else None,
+                        "time_updated": r.time_updated.isoformat() if r.time_updated else None
+                    }
+                    for r in records
+                ]
+            }
+    
+    @classmethod
     def list_scenes(cls) -> list[str]:
         """
         列出可用场景
