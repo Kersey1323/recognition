@@ -69,7 +69,38 @@ refactor: 删除旧版本算法接口，统一使用V2版本
 - csrcqsf/models/reconstruction.py - 修复 order_by 字段名
 - csrcqsf/biz/railwayparts/reconstruction_manager.py - 修复返回字段名
 
-## 5. 其他修改
+## 5. 修复训练进度实时上报问题
+
+根本问题：
+- `video_reconstruction` 任务使用 `subprocess.run()` 阻塞执行，无法实时读取输出
+- `update_state()` 的 meta 参数使用不当，导致进度信息未正确保存到 Redis
+
+修复内容：
+1. **修改 video_reconstruction 任务**：
+   - 从 `subprocess.run()` 改为 `subprocess.Popen()`
+   - 实时读取训练输出并解析进度
+   - 添加与 train_reconstruction 相同的进度追踪逻辑
+
+2. **修复 update_progress 方法**：
+   - 使用 `backend.store_result()` 直接存储进度信息
+   - 将进度数据作为 `result` 参数传递（而不是 `meta`）
+   - 确保数据正确保存到 Redis backend
+
+3. **优化进度追踪逻辑**：
+   - 改进正则表达式匹配，准确提取 tqdm 进度条中的百分比
+   - 添加进度变化检测，避免过于频繁的状态更新
+   - 优化进度映射：训练进度占 10-95%，提取结果占 98%
+   - 在状态信息中包含迭代次数（如 "训练中 28520/30000"）
+
+4. **添加测试脚本**：
+   - 创建 `scripts/testing/test_celery_redis.py` 用于测试 Celery 与 Redis 连接
+   - 验证状态更新和读取是否正常工作
+
+影响文件：
+- csrcqsf/biz/railwayparts/reconstruction_server/tasks.py - 修复两个任务的进度追踪
+- scripts/testing/test_celery_redis.py - 新增测试脚本
+
+## 6. 其他修改
 
 - 更新测试文件，替换为V2接口测试，新增所有任务列表测试
 - 保留 SearchHistory 模型，用于数据统计功能
@@ -93,3 +124,7 @@ V2版本相比旧版本的优势：
 3. 架构优化：业务逻辑与接口层分离更清晰，便于维护和扩展
 4. 数据模型：统一使用 Base 类的时间戳字段命名规范
 5. 任务管理：新增全局任务列表接口，支持分页和状态筛选，便于监控和管理
+
+
+
+[2026-04-16 10:41:50,232: INFO/ForkPoolWorker-30] Task tasks.video_reconstruction[354ba8eb-63a2-4c0f-a329-2e9ab00d997b] succeeded in 0.004054647870361805s: {'status': 'failed', 'error': 'name \'re\' is not defined', 'log_file': '/home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server/logs/354ba8eb-63a2-4c0f-a329-2e9ab00d997b.log'}
