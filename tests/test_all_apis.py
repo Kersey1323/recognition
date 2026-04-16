@@ -95,13 +95,13 @@ def main():
         )
         results.append(("分割记录", success))
     
-    # 5. 检索历史
-    success, _ = test_api(
-        "POST", "/railway/parts/search/history/v2",
-        {"page": 1, "pageSize": 5},
-        "检索历史列表"
-    )
-    results.append(("检索历史", success))
+    # 5. 检索历史 (已删除旧版本接口)
+    # success, _ = test_api(
+    #     "POST", "/railway/parts/search/history/v2",
+    #     {"page": 1, "pageSize": 5},
+    #     "检索历史列表"
+    # )
+    # results.append(("检索历史", success))
     
     # 6. 数据统计
     success, _ = test_api(

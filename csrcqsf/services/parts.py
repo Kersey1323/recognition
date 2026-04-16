@@ -171,68 +171,24 @@ async def item_search(req: ImageSearchReq):
 
 
 # ============================================
-# 算法接口 - 特征索引
+# 算法接口 - 特征索引（已废弃，使用 /v2/index/rebuild）
 # ============================================
 
-@parts_router.post('/index_rebuild',  tags=["算法-特征索引"], summary='重建所有配件的图片索引', responses={
-    200: {
-        'model': str
-    }
-})
-async def rebuild_parts_pic_index():
-    """
-    重建所有配件的图片索引
-    
-    算法流程：
-    1. 标记所有图片为未索引状态
-    2. 获取所有图片
-    3. 使用DINOv2提取特征并重建Milvus向量索引
-    4. 标记所有图片为已索引状态
-    
-    业务逻辑：RailwayPartsManager.rebuild_pic_index() in biz/railwayparts/parts.py:529
-    核心算法：MilvusManager.rebuild_collection() - DINOv2特征提取 + Milvus索引
-    """
-    return await RailwayPartsManager.rebuild_pic_index()
+# 旧的 index_rebuild 接口已删除，请使用 /v2/index/rebuild
 
 
-class SearchReq(BaseModel):
-    images: list[str] = []
-    features: list[str] = []
-    lower_rate: float = 0.8
-    sgo_inquery_id: str | None
-    parent_item_id: str | None = '0'
+# ============================================
+# 算法接口 - 智能检索（已废弃，使用 /v2/search/*）
+# ============================================
+
+# 旧的 search/v2 接口已删除，请使用：
+# - /v2/search/text - 文本检索
+# - /v2/search/image - 图像检索
 
 
-
-
-
-@parts_router.post('/search/v2',  tags=["算法-智能检索"], summary='检索V2版本', responses={
-    200: {
-        'model': SearchRes
-    }
-})
-async def search_v2(req: SearchReq):
-    return await RailwayPartsManager.search(req.images, req.features, lower_rate=req.lower_rate,
-                                            sgo_inquery_id=req.sgo_inquery_id, parent_item_id=int(req.parent_item_id))
-
-
-@parts_router.post('/search/history/v2',  tags=["业务-检索历史"], summary='检索历史列表', responses={
-    200: {
-        'model': ListSearchHistoryRes
-    }
-})
-async def list_search_history_v2(req: ListSearchHistoryReq):
-    return await RailwayPartsManager.list_search_history(req.page, req.per_page)
-
-
-@parts_router.post('/search/history/delete/v2',  tags=["业务-检索历史"], summary='删除检索历史', responses={
-    200: {
-        'model': ListSearchHistoryRes
-    }
-})
-async def delete_search_history_v2(req: DeleteSearchHistoryReq):
-    await RailwayPartsManager.delete_history([int(id) for id in req.history_id_list])
-
+# ============================================
+# 业务接口 - 数据统计
+# ============================================
 
 @parts_router.post('/data/statistics',  tags=["业务-数据统计"], summary='索引统计', responses={
     200: {

@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from bfrcommon.api_models import PageReq, PageRes
 from pydantic import Field
 from csrcqsf.models.sgo import ImageSourceType
-from csrcqsf.models.search_history import SearchHistory, SearchHistoryItem, SearchParameters
+from csrcqsf.models.search_history import SearchParameters
 from enum import Enum
 
 
@@ -217,17 +217,6 @@ class ListIndexedItemImageRes(BaseModel):
 class DeleteImageIndexedReq(BaseModel):
     item_id: str = ''
     image_file_url: list[str] = []
-
-
-class ListSearchHistoryReq(PageReq):
-    pass
-
-class ListSearchHistoryRes(PageRes):
-    datas: list[SearchHistoryItem] = []
-
-
-class DeleteSearchHistoryReq(BaseModel):
-    history_id_list: list[str] = []
 
 
 class SearchItem(BaseModel):
