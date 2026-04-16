@@ -10,9 +10,8 @@ import sys
 import json
 import re
 
-log_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
-if os.path.exists(log_path) == False:
-    os.mkdir(log_path)
+log_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs', 'app')
+os.makedirs(log_path, exist_ok=True)
 
 
 def get_logger_file_path(filename: str) -> str:

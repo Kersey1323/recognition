@@ -136,7 +136,7 @@ class VectorDBConfig:
             os.getenv("INDEXING_CHECKPOINT_FILE", "csrcqsf/biz/railwayparts/vector_db/checkpoint.json")
         )
         self.indexing_log_dir = _resolve_path(
-            os.getenv("INDEXING_LOG_DIR", "csrcqsf/biz/railwayparts/vector_db/logs")
+            os.getenv("INDEXING_LOG_DIR", "logs/vector_db")
         )
         
         # ============================================

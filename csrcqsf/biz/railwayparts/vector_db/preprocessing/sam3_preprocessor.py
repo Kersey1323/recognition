@@ -26,7 +26,7 @@ class SAM3Preprocessor:
         bg_color: str = "white",
         device: str = "cuda",
         save_debug_images: bool = True,
-        debug_output_dir: str = "vector_db/logs/sam3_debug"
+        debug_output_dir: str = "logs/vector_db/sam3_debug"
     ):
         """
         初始化 SAM3 预处理器

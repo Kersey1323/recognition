@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 
 
-def setup_logger(name: str, log_dir: str = "vector_db/logs") -> logging.Logger:
+def setup_logger(name: str, log_dir: str = "logs/vector_db") -> logging.Logger:
     """
     配置日志记录器
 

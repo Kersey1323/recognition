@@ -102,7 +102,7 @@ logger.add(
 
 # 添加文件输出
 logger.add(
-    "logs/app_{time:YYYY-MM-DD}.log",
+    "logs/app/app_{time:YYYY-MM-DD}.log",
     format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {file.name}:{function}:{line} - {message}",
     rotation="00:00",  # 每天轮转
     retention="30 days",  # 保留30天
