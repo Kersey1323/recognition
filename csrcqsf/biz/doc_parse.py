@@ -6,7 +6,7 @@ from csrcqsf.data.pg import SessionLocal
 from csrcqsf.models.files import Files, FileTables
 from bfrcommon.snowflake import get_id
 from anyio.to_thread import run_sync
-from csrcqsf.logger import logger
+from globals_vars import logger
 import io
 from csrcqsf.logger import CodeTimer
 from csrcqsf.settings import temp_dir, minio_bucket

@@ -1,52 +1,42 @@
+"""
+日志工具函数模块
+
+注意：日志配置已统一到 globals_vars.py 中
+本模块仅提供日志相关的工具函数
+"""
 from contextlib import contextmanager
 import time
 from datetime import datetime
 from typing import Dict, Optional
 import uuid
-from bfrcommon.file import tail
 import os
-from loguru import logger
-import sys
 import json
 import re
 
-log_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs', 'app')
-os.makedirs(log_path, exist_ok=True)
+# 从 globals_vars 导入统一的 logger 和路径配置
+from globals_vars import logger, WORK_DIRS
+
+# 日志文件路径
+log_path = str(WORK_DIRS.logs_app)
 
 
 def get_logger_file_path(filename: str) -> str:
+    """获取日志文件完整路径"""
     return os.path.join(log_path, filename)
 
 
 def file_filter(record, tag):
+    """日志过滤器"""
     return record["extra"].get(tag) is not None
 
 
-log_format = "{time:YYYY-MM-DD HH:mm:ss} -- {level} -- {file} -- {line} -- {message} -- {extra}"
-
-
-def patching(record):
-    if record["extra"] is not None:
-        record["extra"] = json.dumps(record["extra"])
-    return record
-
-
-# 把默认的Sink删除掉
-logger.remove()
-
-logger_file = os.path.join(log_path, 'ai.log')
-logger.add(logger_file, level="DEBUG", format=log_format,
-           rotation="500 MB", enqueue=True)
-logger.add(sys.stdout, format=log_format,
-           level="INFO", enqueue=True, colorize=True)
-# logger = logger.patch(patcher=patching)
-
+# 日志正则表达式（用于解析日志文件）
 reg = r"(?P<time>.*) -- (?P<level>.*) -- (?P<file>.*) -- (?P<line>.*) -- (?P<message>.*) -- (?P<extra>.*)"
-
 logger_reg = re.compile(reg)
 
 
 def logger_reg_parse(log_record: str) -> Dict[str, any]:
+    """解析日志记录字符串"""
     record = logger_reg.match(log_record)
     result = {}
     if record is None:
@@ -63,13 +53,33 @@ def logger_reg_parse(log_record: str) -> Dict[str, any]:
 
 
 def cast(groups):
+    """类型转换函数"""
     if "time" in groups:
         groups["time"] = datetime.strptime(groups["time"], "%Y-%m-%d %H:%M:%S")
     if 'extra' in groups:
         groups['extra'] = json.loads(groups['extra'])
 
 
-def seek_logger(logger_file_path: str, python_file: str, line: Optional[int] = 20000, query: Optional[str] = None, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, extra: Optional[Dict[str, str]] = None) -> str:
+def seek_logger(logger_file_path: str, python_file: str, line: Optional[int] = 20000, 
+                query: Optional[str] = None, start_date: Optional[datetime] = None, 
+                end_date: Optional[datetime] = None, extra: Optional[Dict[str, str]] = None) -> str:
+    """
+    搜索日志文件中的特定记录
+    
+    Args:
+        logger_file_path: 日志文件路径
+        python_file: Python 文件名
+        line: 读取的行数
+        query: 搜索关键词
+        start_date: 开始日期
+        end_date: 结束日期
+        extra: 额外字段过滤
+    
+    Returns:
+        匹配的日志记录字符串
+    """
+    from bfrcommon.file import tail
+    
     result = []
     with open(logger_file_path) as file:
         if line == 0:
@@ -104,6 +114,7 @@ def seek_logger(logger_file_path: str, python_file: str, line: Optional[int] = 2
 
 
 def used_time(func):
+    """装饰器：记录函数执行时间"""
     def wrapper(*args, **kwargs):
         start = time.perf_counter()
         result = func(*args, **kwargs)
@@ -114,9 +125,9 @@ def used_time(func):
 
 
 class AsyncTimer:
+    """异步计时器上下文管理器"""
 
     def __init__(self, desc: str | None):
-
         self.desc = desc if desc is not None else "代码块"
 
     async def __aenter__(self):
@@ -128,14 +139,12 @@ class AsyncTimer:
         logger.info(f"{self.desc}耗时: {self.duration:.5f}s")
 
 
-
 @contextmanager
-def CodeTimer(name:str):
-    """简单的计时上下文管理器"""
+def CodeTimer(name: str):
+    """同步计时器上下文管理器"""
     start = time.perf_counter()
     try:
         yield
     finally:
-        end = time.time()
         duration = time.perf_counter() - start
         logger.info(f"{name}的执行时间: {duration:.5f} 秒")

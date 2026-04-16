@@ -13,7 +13,8 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from csrcqsf.settings import ai_settings, APP_ENV, APP_PORT, APP_LOG_LEVEL
-from csrcqsf.logger import logger, log_api_request, log_audit, log_task_start, log_task_complete
+from globals_vars import logger
+from csrcqsf.logger import used_time
 
 
 def test_environment_variables():

@@ -2,7 +2,7 @@
 import requests
 from sqlalchemy import Null, null, select, text
 from csrcqsf.data.pg import SessionLocal
-from csrcqsf.logger import logger
+from globals_vars import logger
 from pydantic import BaseModel
 from urllib3 import PoolManager
 from urllib3.util import create_urllib3_context

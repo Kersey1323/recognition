@@ -1,7 +1,7 @@
 from bfrcommon.minio import Bucket
 from csrcqsf.settings import minio_bucket
 import traceback
-from csrcqsf.logger import logger
+from globals_vars import logger
 from csrcqsf.settings import ai_settings
 
 minio_instance = Bucket(ai_settings.minio_url,

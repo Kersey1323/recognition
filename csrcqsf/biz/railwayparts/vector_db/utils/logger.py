@@ -4,19 +4,24 @@
 import logging
 import os
 from datetime import datetime
+from globals_vars import WORK_DIRS
 
 
-def setup_logger(name: str, log_dir: str = "logs/vector_db") -> logging.Logger:
+def setup_logger(name: str, log_dir: str = None) -> logging.Logger:
     """
     配置日志记录器
 
     Args:
         name: 日志记录器名称
-        log_dir: 日志文件目录
+        log_dir: 日志文件目录（默认使用 WORK_DIRS.logs_vector_db）
 
     Returns:
         配置好的日志记录器
     """
+    # 使用统一的日志目录
+    if log_dir is None:
+        log_dir = str(WORK_DIRS.logs_vector_db)
+    
     # 创建日志目录
     os.makedirs(log_dir, exist_ok=True)
 

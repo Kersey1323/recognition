@@ -16,7 +16,7 @@ from csrcqsf.models.sgo_models import SgoMaterielMasterplate
 from .milvus import MilvusManager, ImageIndex, PartsIndex, FeaturesIndex, ColletionEnum
 from .api_models import *
 from bfrcommon.common import date_to_str
-from csrcqsf.logger import logger
+from globals_vars import logger
 from csrcqsf.models.sgo import ListInqueryItem, SgoItemImages, ImageSourceType
 import numpy as np
 import cv2

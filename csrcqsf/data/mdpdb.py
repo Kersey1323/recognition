@@ -1,6 +1,6 @@
 
 from bfrcommon.db import with_schema
-from csrcqsf.logger import logger
+from globals_vars import logger
 from sqlalchemy import text
 from csrcqsf.settings import ai_settings
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine

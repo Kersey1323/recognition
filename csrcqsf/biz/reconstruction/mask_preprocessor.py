@@ -17,7 +17,8 @@ import shutil
 import cv2
 import numpy as np
 
-from csrcqsf.logger import CodeTimer, logger
+from globals_vars import logger
+from csrcqsf.logger import CodeTimer
 
 
 class MaskPreprocessor:

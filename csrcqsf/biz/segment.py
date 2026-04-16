@@ -14,7 +14,8 @@ import os
 from csrcqsf.data.minio import minio_instance
 from anyio.to_thread import run_sync
 from segment_anything import sam_model_registry, SamPredictor, SamAutomaticMaskGenerator
-from csrcqsf.logger import logger, CodeTimer
+from globals_vars import logger
+from csrcqsf.logger import CodeTimer
 from bfrcommon.snowflake import get_id
 from rapidocr import RapidOCR
 from csrcqsf.biz.railwayparts.parts import RailwayPartsManager

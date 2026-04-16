@@ -19,7 +19,8 @@ import threading
 
 from anyio.to_thread import run_sync
 
-from csrcqsf.logger import CodeTimer, logger
+from globals_vars import logger
+from csrcqsf.logger import CodeTimer
 
 
 class TDGSTrainer:

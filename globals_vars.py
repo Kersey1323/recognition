@@ -56,6 +56,10 @@ class WorkDirectories:
     
     # 日志目录
     logs: Path = PROJECT_ROOT / "logs"
+    logs_app: Path = logs / "app"
+    logs_vector_db: Path = logs / "vector_db"
+    logs_reconstruction: Path = logs / "reconstruction"
+    logs_celery: Path = logs / "celery"
     
     # 模型目录
     models: Path = PROJECT_ROOT / "models"
@@ -63,23 +67,27 @@ class WorkDirectories:
     # 向量数据库目录
     vector_db: Path = PROJECT_ROOT / "vector_db"
     patch_tokens: Path = vector_db / "patch_tokens"
-    vector_logs: Path = vector_db / "logs"
     
     # 文档目录
     docs: Path = PROJECT_ROOT / "docs"
     
     # 测试目录
     tests: Path = PROJECT_ROOT / "tests"
+    
+    # 临时目录
+    temp: Path = PROJECT_ROOT / "temp"
 
     def __post_init__(self):
         """确保所有目录存在"""
         for directory in [
             self.data,
-            self.logs,
+            self.logs, self.logs_app, self.logs_vector_db, 
+            self.logs_reconstruction, self.logs_celery,
             self.models,
-            self.vector_db, self.patch_tokens, self.vector_logs,
+            self.vector_db, self.patch_tokens,
             self.docs,
-            self.tests
+            self.tests,
+            self.temp
         ]:
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -102,7 +110,7 @@ logger.add(
 
 # 添加文件输出
 logger.add(
-    "logs/app/app_{time:YYYY-MM-DD}.log",
+    str(WORK_DIRS.logs_app / "app_{time:YYYY-MM-DD}.log"),
     format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {file.name}:{function}:{line} - {message}",
     rotation="00:00",  # 每天轮转
     retention="30 days",  # 保留30天

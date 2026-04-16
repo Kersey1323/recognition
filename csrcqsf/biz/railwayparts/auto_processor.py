@@ -27,7 +27,8 @@ from csrcqsf.biz.railwayparts.milvus import (
 from csrcqsf.biz.segment import SegmentBiz
 from csrcqsf.data.minio import minio_instance
 from csrcqsf.data.pg import SessionLocal
-from csrcqsf.logger import CodeTimer, logger
+from globals_vars import logger
+from csrcqsf.logger import CodeTimer
 from csrcqsf.models.item import Items, ItemsParent, ItemsVechile
 from csrcqsf.models.sgo import (
     ImageSourceType,

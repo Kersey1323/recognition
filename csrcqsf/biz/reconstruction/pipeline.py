@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
 from csrcqsf.data.minio import minio_instance
-from csrcqsf.logger import logger
+from globals_vars import logger
 from csrcqsf.settings import minio_bucket, temp_dir
 
 from .colmap_processor import ColmapProcessor

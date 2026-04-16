@@ -16,7 +16,7 @@ from timm.data.transforms_factory import create_transform
 
 from csrcqsf.data.milvus import milvus_client
 from csrcqsf.data.minio import minio_instance
-from csrcqsf.logger import logger
+from globals_vars import logger
 from csrcqsf.models.item import *
 from csrcqsf.models.sgo import SgoItemImages
 from csrcqsf.settings import minio_bucket, temp_dir

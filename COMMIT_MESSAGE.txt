@@ -1,6 +1,57 @@
-refactor: 统一日志目录管理和修复训练进度上报
+refactor: 统一日志系统和路径管理、修复训练进度上报
 
-## 1. 统一日志目录管理
+## 1. 统一日志系统和路径管理
+
+### 1.1 统一日志配置
+将项目中的两套日志系统（`csrcqsf/logger.py` 和 `globals_vars.py`）统一为单一日志系统：
+
+**修改内容**：
+- `csrcqsf/logger.py`: 简化为工具函数模块，移除日志配置部分
+  - 保留工具函数：`seek_logger`, `used_time`, `AsyncTimer`, `CodeTimer` 等
+  - 从 `globals_vars` 导入统一的 logger 和路径配置
+  - 移除重复的日志配置代码（logger.add, logger.remove 等）
+
+- `globals_vars.py`: 作为唯一的日志配置源
+  - 配置 loguru logger 的控制台和文件输出
+  - 定义 WorkDirectories 类管理所有工作目录
+  - 提供统一的 PROJECT_ROOT 和 WORK_DIRS
+
+**批量更新 logger 导入**（12个文件）：
+- `from csrcqsf.logger import logger` → `from globals_vars import logger`
+- 影响文件：
+  - csrcqsf/biz/railwayparts/parts.py
+  - csrcqsf/biz/railwayparts/reconstruction_manager.py
+  - csrcqsf/biz/railwayparts/milvus.py
+  - csrcqsf/biz/doc_parse.py
+  - csrcqsf/biz/segment.py
+  - csrcqsf/biz/sgo.py
+  - csrcqsf/biz/reconstruction/pipeline.py
+  - csrcqsf/data/pg.py
+  - csrcqsf/data/mdpdb.py
+  - csrcqsf/data/minio.py
+  - csrcqsf/scheduler.py
+  - scripts/testing/test_config.py
+
+### 1.2 统一路径管理
+移除冗余的 PROJECT_ROOT 定义，统一使用 `globals_vars.py` 中的路径配置：
+
+**修改内容**：
+- `csrcqsf/biz/railwayparts/reconstruction_server/tasks.py`:
+  - 移除 `PROJECT_ROOT = BASE_DIR.parent.parent.parent.parent`
+  - 改为 `from globals_vars import WORK_DIRS, PROJECT_ROOT`
+  - 使用 `LOG_DIR = WORK_DIRS.logs_reconstruction`
+
+- `csrcqsf/biz/railwayparts/reconstruction_server/pipelineManager.py`:
+  - 移除 `PROJECT_ROOT = BASE_DIR.parent.parent.parent.parent`
+  - 改为 `from globals_vars import WORK_DIRS, PROJECT_ROOT`
+  - 使用 `LOG_DIR = WORK_DIRS.logs_reconstruction`
+
+- `csrcqsf/biz/railwayparts/vector_db/utils/logger.py`:
+  - 添加 `from globals_vars import WORK_DIRS`
+  - 默认参数改为 `log_dir: str = None`
+  - 函数内使用 `WORK_DIRS.logs_vector_db` 作为默认值
+
+### 1.3 统一日志目录管理
 
 将分散的日志文件统一到 `logs/` 目录下，按功能分类：
 
@@ -13,20 +64,20 @@ logs/
 ```
 
 修改内容：
-- `csrcqsf/logger.py`: 主日志目录改为 `logs/app/`
-- `globals_vars.py`: 应用日志改为 `logs/app/app_*.log`
-- `csrcqsf/biz/railwayparts/vector_db/utils/logger.py`: 默认日志目录改为 `logs/vector_db/`
+- `globals_vars.py`: 
+  - WorkDirectories 类添加详细的日志子目录配置
+  - 应用日志改为 `logs/app/app_*.log`
 - `csrcqsf/biz/railwayparts/vector_db/config/env_config.py`: INDEXING_LOG_DIR 默认值改为 `logs/vector_db/`
-- `csrcqsf/biz/railwayparts/reconstruction_server/tasks.py`: LOG_DIR 改为 `logs/reconstruction/`
-- `csrcqsf/biz/railwayparts/reconstruction_server/pipelineManager.py`: LOG_DIR 改为 `logs/reconstruction/`
 - `csrcqsf/biz/railwayparts/vector_db/preprocessing/sam3_preprocessor.py`: SAM3 调试日志改为 `logs/vector_db/sam3_debug/`
 - `.env.example`: 更新 INDEXING_LOG_DIR 示例值
 
-优势：
-- 日志集中管理，便于查找和维护
+**优势**：
+- 消除代码冗余，避免多套日志系统导致的混乱
+- 统一路径管理，避免硬编码的相对路径计算
+- 目录结构修改时只需更新 `globals_vars.py` 一处
+- 日志集中管理，便于查找、监控和维护
 - 按功能分类，结构清晰
 - 便于配置日志轮转和清理策略
-- 便于监控和备份
 
 ## 2. 修复训练进度实时上报问题
 
@@ -141,11 +192,17 @@ logs/
 
 ## 影响范围
 
+- globals_vars.py - 统一的日志和路径配置源
+- csrcqsf/logger.py - 简化为工具函数模块
 - csrcqsf/services/parts.py - 删除旧路由，保留V2路由，新增任务列表接口
 - csrcqsf/biz/railwayparts/parts.py - 删除旧业务逻辑
 - csrcqsf/biz/railwayparts/api_models.py - 删除旧API模型
 - csrcqsf/models/reconstruction.py - 修复字段名称，新增查询方法
 - csrcqsf/biz/railwayparts/reconstruction_manager.py - 修复字段名称，新增业务方法
+- csrcqsf/biz/railwayparts/reconstruction_server/tasks.py - 使用统一路径配置
+- csrcqsf/biz/railwayparts/reconstruction_server/pipelineManager.py - 使用统一路径配置
+- csrcqsf/biz/railwayparts/vector_db/utils/logger.py - 使用统一路径配置
+- 12个业务文件 - 更新 logger 导入
 - tests/test_all_apis.py - 更新测试用例为V2接口
 - 所有日志相关配置文件 - 统一日志目录
 
@@ -157,4 +214,23 @@ V2版本相比旧版本的优势：
 3. 架构优化：业务逻辑与接口层分离更清晰，便于维护和扩展
 4. 数据模型：统一使用 Base 类的时间戳字段命名规范
 5. 任务管理：新增全局任务列表接口，支持分页和状态筛选，便于监控和管理
-6. 日志管理：统一日志目录结构，便于运维和监控
+6. 日志管理：统一日志系统和目录结构，消除代码冗余，便于运维和监控
+7. 路径管理：统一路径配置，避免硬编码和冗余定义，提高可维护性
+
+
+
+[INFO] 2026-04-16 11:33:01,833 [RapidOCR] main.py:53: Using /home/ubuntu/project-train/recognition/.venv/lib/python3.10/site-packages/rapidocr/models/ch_PP-OCRv5_rec_mobile_infer.onnx
+Traceback (most recent call last):
+  File "/home/ubuntu/project-train/recognition/main.py", line 2, in <module>
+    from csrcqsf.app import app
+  File "/home/ubuntu/project-train/recognition/csrcqsf/app.py", line 26, in <module>
+    from csrcqsf.services import *
+  File "/home/ubuntu/project-train/recognition/csrcqsf/services/__init__.py", line 4, in <module>
+    from .doc_parse import parts_docs_router
+  File "/home/ubuntu/project-train/recognition/csrcqsf/services/doc_parse.py", line 7, in <module>
+    from csrcqsf.biz.doc_parse import DocBiz
+  File "/home/ubuntu/project-train/recognition/csrcqsf/biz/doc_parse.py", line 18, in <module>
+    from csrcqsf.data.basis_api import grpc_client
+  File "/home/ubuntu/project-train/recognition/csrcqsf/data/basis_api.py", line 13, in <module>
+    from csrcqsf.logger import log_format, logger
+ImportError: cannot import name 'log_format' from 'csrcqsf.logger' (/home/ubuntu/project-train/recognition/csrcqsf/logger.py)

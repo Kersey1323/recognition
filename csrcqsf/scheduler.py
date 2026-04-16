@@ -1,7 +1,7 @@
 from typing import Callable
 from apscheduler.schedulers.background import BackgroundScheduler, BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
-from csrcqsf.logger import logger
+from globals_vars import logger
 from apscheduler.job import Job as apsjob
 from datetime import datetime,timedelta
 

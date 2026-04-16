@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 from celery.result import AsyncResult
-from csrcqsf.logger import logger
+from globals_vars import logger
 from csrcqsf.data.pg import SessionLocal
 from csrcqsf.models.reconstruction import ReconstructionRecord, ReconstructionStatus
 from csrcqsf.models.item import Items
