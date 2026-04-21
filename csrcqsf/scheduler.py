@@ -130,6 +130,7 @@ def sync_reconstruction_tasks_sync():
             result = session.execute(stmt)
             running_tasks = result.scalars().all()
             
+            # 如果没有进行中的任务，直接返回（不输出日志）
             if not running_tasks:
                 return
             
@@ -182,6 +183,7 @@ def sync_reconstruction_tasks_sync():
                     logger.error(f"同步任务 {record.task_id} 状态失败: {e}")
                     session.rollback()
             
+            # 只在有任务被同步时才输出日志
             if synced_count > 0:
                 logger.info(f"成功同步 {synced_count}/{len(running_tasks)} 个重建任务状态")
                 

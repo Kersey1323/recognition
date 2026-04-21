@@ -251,37 +251,6 @@ V2版本相比旧版本的优势：
 7. 路径管理：统一路径配置，避免硬编码和冗余定义，提高可维护性
 
 
-curl -X 'GET' \
-  'http://localhost:65432/railway/parts/v2/reconstruct/tasks?limit=100&offset=0' \
-  -H 'accept: application/json'
-Request URL
-http://localhost:65432/railway/parts/v2/reconstruct/tasks?limit=100&offset=0
-Server response
-Code	Details
-200	
-Response body
-Download
-{
-  "data": {
-    "total": 13,
-    "limit": 100,
-    "offset": 0,
-    "records": [
-      {
-        "task_id": "bcca809b-0bfb-49b3-9ba4-bd508aa47dbc",
-        "item_id": 1980145775897071600,
-        "task_type": "video",
-        "status": "training",
-        "progress": 29,
-        "current_stage": "训练中 2260/10000",
-        "scene_name": "test_part",
-        "error_message": null,
-        "ply_url": null,
-        "obj_url": null,
-        "glb_url": null,
-        "total_frames": null,
-        "filtered_frames": null,
-        "colmap_points": null,
-        "time_created": "2026-04-16T11:44:04.656857",
-        "time_updated": "2026-04-16T03:45:11.166937"
-      },
+
+
+KIRO-3M2L-F3G9-P43K-EQXP
