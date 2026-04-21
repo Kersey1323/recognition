@@ -100,7 +100,116 @@ export SUGAR_REPO_PATH=/opt/SuGaR
 ## 运行
 
 ```bash
-python -m csrcqsf.main
+python main.py
+```
+
+默认启动后服务地址为：`http://localhost:65432`
+
+## Celery 与 Flower 启动
+
+3D 重建 V2 接口依赖 `Redis + Celery Worker + Flower`。如果你要使用以下接口，需要先启动这些后台服务：
+
+- `POST /railway/parts/v2/reconstruct/train`
+- `POST /railway/parts/v2/reconstruct/video`
+- `GET /railway/parts/v2/reconstruct/status/{task_id}`
+
+### 1. 启动 Redis
+
+```bash
+cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
+redis-server redis.conf
+```
+
+后台启动方式：
+
+```bash
+cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
+nohup redis-server redis.conf > logs/redis.log 2>&1 &
+```
+
+验证 Redis：
+
+```bash
+redis-cli -p 6380 ping
+```
+
+如果返回 `PONG`，说明 Redis 正常。
+
+### 2. 启动 Celery Worker
+
+```bash
+cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
+celery -A celery_app worker --loglevel=info -E
+```
+
+后台启动方式：
+
+```bash
+cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
+nohup celery -A celery_app worker --loglevel=info -E > logs/celery_worker.log 2>&1 &
+```
+
+说明：
+
+- `-E` 很重要，它会启用事件上报，Flower 才能看到任务历史和实时状态。
+- `celery_app.py` 默认使用 `localhost:6380` 的 Redis。
+
+查看 Worker 状态：
+
+```bash
+cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
+celery -A celery_app inspect active
+```
+
+### 3. 启动 Flower
+
+```bash
+cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
+celery -A celery_app flower --port=5555
+```
+
+后台启动方式：
+
+```bash
+cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
+nohup celery -A celery_app flower --port=5555 > logs/flower.log 2>&1 &
+```
+
+启动后访问：
+
+```text
+http://localhost:5555
+```
+
+### 4. 启动主服务
+
+```bash
+cd /home/ubuntu/project-train/recognition
+python main.py
+```
+
+后台启动方式：
+
+```bash
+cd /home/ubuntu/project-train/recognition
+nohup python main.py > logs/main_service.log 2>&1 &
+```
+
+### 5. 推荐启动顺序
+
+```bash
+1. Redis
+2. Celery Worker
+3. Flower
+4. FastAPI 主服务
+```
+
+### 6. 常用日志查看
+
+```bash
+tail -f /home/ubuntu/project-train/recognition/logs/main_service.log
+tail -f /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server/logs/celery_worker.log
+tail -f /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server/logs/flower.log
 ```
 
 ## API 文档

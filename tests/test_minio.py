@@ -2,14 +2,23 @@
 """
 测试 MinIO 存储
 """
+import os
 from minio import Minio
 from minio.error import S3Error
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # MinIO 配置
-MINIO_ENDPOINT = "192.168.100.2:9000"
-MINIO_ACCESS_KEY = "root"
-MINIO_SECRET_KEY = "REMOVED_CREDENTIAL"
-MINIO_SECURE = False  # 使用 HTTP 而不是 HTTPS
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "192.168.100.2:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "root")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "REMOVED_CREDENTIAL")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "bfr-ai-files")
+MINIO_RECONSTRUCTION_VIDEO_BUCKET = os.getenv(
+    "MINIO_RECONSTRUCTION_VIDEO_BUCKET",
+    "bfr-3d-videos"
+)
+MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 
 def test_minio():
     """测试 MinIO 连接和数据"""
@@ -41,7 +50,13 @@ def test_minio():
         
         # 检查常用的 bucket
         print("\n[3/4] 检查常用 Bucket 的内容...")
-        common_buckets = ['bfr-ai-files', 'images', 'parts', 'railway-parts']
+        common_buckets = [
+            MINIO_BUCKET,
+            MINIO_RECONSTRUCTION_VIDEO_BUCKET,
+            'images',
+            'parts',
+            'railway-parts',
+        ]
         
         for bucket_name in common_buckets:
             try:

@@ -16,7 +16,7 @@ class ReconstructionTrainReq(BaseModel):
 class ReconstructionVideoReq(BaseModel):
     """从视频重建的请求"""
     item_id: int = Field(..., description='配件ID')
-    video_path: str = Field(..., description='视频文件路径')
+    video_path: str = Field(..., description='视频文件路径，支持服务器本地绝对路径或 MinIO 对象路径（如 bfr-3d-videos/raw-videos/...mp4）')
     name: str = Field(..., description='场景名称')
     iterations: int = Field(default=30000, description='训练迭代次数')
     fps: float = Field(default=3, description='提帧率')
@@ -41,6 +41,17 @@ class ReconstructionTaskRes(BaseModel):
     task_id: str = Field(..., description='任务ID')
     item_id: int = Field(..., description='配件ID')
     mode: str = Field(..., description='模式: train/video')
+    message: str = Field(..., description='消息')
+
+
+class ReconstructionVideoUploadRes(BaseModel):
+    """重建原始视频上传响应"""
+    item_id: int = Field(..., description='配件ID')
+    bucket: str = Field(..., description='MinIO bucket')
+    object_name: str = Field(..., description='MinIO object name')
+    video_path: str = Field(..., description='可直接传给 /v2/reconstruct/video 的视频路径')
+    size: int = Field(..., description='文件大小，单位字节')
+    content_type: str = Field(default='', description='文件类型')
     message: str = Field(..., description='消息')
 
 

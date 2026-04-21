@@ -3,7 +3,7 @@
 职责：定义API接口、参数验证、调用业务逻辑
 注意：此层不包含具体业务实现，仅负责路由和参数处理
 """
-from fastapi import APIRouter, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, UploadFile, File, Form
 from csrcqsf.biz.railwayparts.api_models import *
 from bfrcommon.snowflake import get_id
 from bfrcommon.common import date_to_str
@@ -270,7 +270,8 @@ from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionVideoReq,
     ReconstructionTaskRes,
     ReconstructionStatusRes,
-    ReconstructionListRes
+    ReconstructionListRes,
+    ReconstructionVideoUploadRes
 )
 
 
@@ -300,6 +301,23 @@ async def reconstruct_v2_train(req: ReconstructionTrainReq):
     return ReconstructionTaskRes(**result)
 
 
+@parts_router.post('/v2/reconstruct/video/upload', tags=["算法-3D重建V2"], summary='V2: 上传三维重构原始视频到MinIO')
+async def upload_reconstruct_v2_video(
+    item_id: int = Form(...),
+    file: UploadFile = File(...)
+):
+    """
+    上传三维重构原始视频到独立 MinIO bucket。
+    
+    返回的 `video_path` 可以直接作为 `/v2/reconstruct/video` 的 `video_path` 参数。
+    """
+    result = await ReconstructionManager.upload_source_video(
+        item_id=item_id,
+        file=file
+    )
+    return ReconstructionVideoUploadRes(**result)
+
+
 @parts_router.post('/v2/reconstruct/video', tags=["算法-3D重建V2"], summary='V2: 从视频完整重建')
 async def reconstruct_v2_video(req: ReconstructionVideoReq):
     """
@@ -309,7 +327,7 @@ async def reconstruct_v2_video(req: ReconstructionVideoReq):
     
     参数：
     - item_id: 配件ID
-    - video_path: 视频文件路径（服务器上的绝对路径）
+    - video_path: 视频文件路径（服务器本地绝对路径，或 MinIO 对象路径，如 bfr-3d-videos/raw-videos/...mp4）
     - name: 场景名称
     - iterations: 训练迭代次数
     - sam3_model: SAM3模型路径，为空则跳过分割

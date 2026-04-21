@@ -25,6 +25,7 @@ from csrcqsf.biz.segment import SegmentBiz
 from fastapi import Request
 from csrcqsf.services import *
 from csrcqsf.data.pg import db_migrate
+from csrcqsf.data.minio import create_minio_buckets
 from csrcqsf.biz.sgo import SGOBiz
 from csrcqsf.biz.railwayparts.milvus import MilvusManager
 
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI):
     """
     #await make_sure_models()
     await db_migrate()  # 数据库迁移
+    await create_minio_buckets()  # 初始化对象存储 bucket
     await SegmentBiz.init()  # 初始化SAM模型
     # await MilvusManager.init_collection()  # 初始化Milvus集合
     SGOBiz.init()  # 初始化SGO业务

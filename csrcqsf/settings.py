@@ -12,8 +12,22 @@ from dotenv import load_dotenv
 # 加载环境变量
 load_dotenv()
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 # 从环境变量读取配置
 minio_bucket = os.getenv('MINIO_BUCKET', 'bfr-ai-files')
+minio_reconstruction_video_bucket = os.getenv(
+    'MINIO_RECONSTRUCTION_VIDEO_BUCKET',
+    'bfr-3d-videos'
+)
+minio_endpoint = os.getenv('MINIO_ENDPOINT', '192.168.100.2:9000')
+minio_access_key = os.getenv('MINIO_ACCESS_KEY', 'root')
+minio_secret_key = os.getenv('MINIO_SECRET_KEY', 'REMOVED_CREDENTIAL')
+minio_secure = _env_bool('MINIO_SECURE', False)
 temp_dir = os.getenv('TEMP_DIR', os.path.join(os.path.dirname(os.path.dirname(__file__)), 'temp'))
 brisconfig_url = os.getenv("brisconfig_url") or os.getenv("BASIS_API_GRPC_URL", "10.144.145.6:10001")
 sgo_url = os.getenv('SGO_URL', 'https://sgo.csrcqsf.com/uc/sfsso/authByAccount?tenantId=1463844437338755072')
@@ -120,6 +134,9 @@ settings_path = os.path.join(os.path.dirname(
 ai_settings = AISettings()
 # ai_settings.register_config(
 #     brisconfig_url, settings_path, "zcsf-ai", "zcsf-ai")
+
+# 优先使用 .env 中的 MinIO endpoint，避免依赖硬编码默认值
+ai_settings.minio_url = minio_endpoint
 
 # 修复数据库地址：使用有完整表结构的数据库
 # 192.168.100.126 无法连接

@@ -3,13 +3,20 @@
 直接调用 Celery 任务，支持 Flower 监控
 """
 import os
+import re
 import sys
+from datetime import datetime
 from pathlib import Path
+from anyio.to_thread import run_sync
+from bfrcommon.snowflake import get_id
 from celery.result import AsyncResult
+from fastapi import HTTPException
 from globals_vars import logger
+from csrcqsf.data.minio import ensure_minio_bucket, looks_like_minio_path, minio_instance
 from csrcqsf.data.pg import SessionLocal
 from csrcqsf.models.reconstruction import ReconstructionRecord, ReconstructionStatus
 from csrcqsf.models.item import Items
+from csrcqsf.settings import minio_reconstruction_video_bucket
 
 # 导入 Celery app 和 tasks - 使用延迟导入避免启动时的循环依赖
 _celery_app = None
@@ -41,6 +48,67 @@ DATA_DIR = BASE_DIR / "data"
 
 class ReconstructionManager:
     """三维重构管理器"""
+
+    @classmethod
+    async def _require_item_exists(cls, item_id: int):
+        """确保配件存在，避免重建记录写入时触发外键异常。"""
+        async with SessionLocal() as session:
+            item = await Items.get_item_by_id(session, item_id)
+
+        if item is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"配件不存在，无法创建重建任务: item_id={item_id}"
+            )
+
+        return item
+
+    @staticmethod
+    def _safe_filename(filename: str | None) -> str:
+        raw_name = Path(filename or "source_video.mp4").name
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._")
+        return safe_name or "source_video.mp4"
+
+    @classmethod
+    async def upload_source_video(cls, item_id: int, file) -> dict:
+        """
+        上传三维重构原始视频到独立 MinIO bucket。
+
+        返回的 video_path 可直接传给 submit_video_task / /v2/reconstruct/video。
+        """
+        await cls._require_item_exists(item_id)
+        ensure_minio_bucket(minio_reconstruction_video_bucket)
+
+        safe_name = cls._safe_filename(file.filename)
+        date_dir = datetime.now().strftime("%Y%m%d")
+        object_name = f"raw-videos/{item_id}/{date_dir}/{get_id()}_{safe_name}"
+        content_type = file.content_type or "application/octet-stream"
+
+        def _upload() -> int:
+            file.file.seek(0, os.SEEK_END)
+            size = file.file.tell()
+            file.file.seek(0)
+            minio_instance.client.put_object(
+                minio_reconstruction_video_bucket,
+                object_name,
+                file.file,
+                length=size,
+                content_type=content_type,
+            )
+            return size
+
+        size = await run_sync(_upload)
+        await file.close()
+
+        return {
+            "item_id": item_id,
+            "bucket": minio_reconstruction_video_bucket,
+            "object_name": object_name,
+            "video_path": f"{minio_reconstruction_video_bucket}/{object_name}",
+            "size": size,
+            "content_type": content_type,
+            "message": "原始视频上传成功",
+        }
     
     @classmethod
     async def submit_train_task(
@@ -62,6 +130,8 @@ class ReconstructionManager:
         Returns:
             dict: 包含 task_id 的响应
         """
+        await cls._require_item_exists(item_id)
+
         # 获取 Celery 模块
         _, train_reconstruction, _ = _get_celery_modules()
         
@@ -137,11 +207,13 @@ class ReconstructionManager:
         Returns:
             dict: 包含 task_id 的响应
         """
+        await cls._require_item_exists(item_id)
+
         # 获取 Celery 模块
         _, _, video_reconstruction = _get_celery_modules()
         
-        # 检查视频文件是否存在
-        if not os.path.exists(video_path):
+        # 本地路径直接检查；MinIO 对象路径由 Celery worker 下载后再检查。
+        if not looks_like_minio_path(video_path) and not os.path.exists(video_path):
             raise ValueError(f"视频文件不存在: {video_path}")
         
         # 生成输出名称
