@@ -66,6 +66,7 @@ class Items(Base):
     height: Mapped[float] = mapped_column(DECIMAL, nullable=True)
     long: Mapped[float] = mapped_column(DECIMAL, nullable=True)
     width: Mapped[float] = mapped_column(DECIMAL, nullable=True)
+    weight: Mapped[float] = mapped_column(DECIMAL, nullable=True)
     size_str: Mapped[str] = mapped_column(Text, nullable=True)
     item_type: Mapped[ItemType] = mapped_column(
         String(200), nullable=False, default='real')
@@ -138,8 +139,57 @@ class Items(Base):
     @classmethod
     async def put_item(cls, session: AsyncSession, item_id: int, obj_url: str, item_code: str, length: float,
                        parent_item_id: int,
-                       width: float, height: float, item_name: str):
-        stmt = update(cls).where(cls.id == item_id).values(obj_url=obj_url)
+                       width: float, height: float, item_name: str, weight: float = None):
+        stmt = update(cls).where(cls.id == item_id).values(
+            obj_url=obj_url,
+            item_code=item_code,
+            long=length,
+            width=width,
+            height=height,
+            item_name=item_name,
+            weight=weight,
+        )
+        await session.execute(stmt)
+        await session.flush()
+
+    @classmethod
+    def build_measurement_updates(
+        cls,
+        height: float | None = None,
+        length: float | None = None,
+        width: float | None = None,
+        weight: float | None = None,
+    ) -> dict:
+        values = {}
+        if height is not None:
+            values["height"] = height
+        if length is not None:
+            values["long"] = length
+        if width is not None:
+            values["width"] = width
+        if weight is not None:
+            values["weight"] = weight
+        return values
+
+    @classmethod
+    async def update_measurements(
+        cls,
+        session: AsyncSession,
+        item_id: int,
+        height: float | None = None,
+        length: float | None = None,
+        width: float | None = None,
+        weight: float | None = None,
+    ):
+        values = cls.build_measurement_updates(
+            height=height,
+            length=length,
+            width=width,
+            weight=weight,
+        )
+        if len(values) == 0:
+            return
+        stmt = update(cls).where(cls.id == item_id).values(**values)
         await session.execute(stmt)
         await session.flush()
 

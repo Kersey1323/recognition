@@ -23,6 +23,7 @@ class CreateItemReq(BaseModel):
     height: float | None
     length: float | None
     width: float | None
+    weight: float | None = None
     parent_item_id: str | None
 
 
@@ -54,6 +55,7 @@ class ListItem(BaseModel):
     height: float | None
     length: float | None
     width: float | None
+    weight: float | None
     created_at: str
     features: list[str] = Field(default=[], description='文字特征')
     features_num: int = 0
@@ -77,6 +79,7 @@ class UpdateItemReq(BaseModel):
     height: float | None
     length: float | None
     width: float | None
+    weight: float | None = None
     item_name: str
     item_code: str
     parent_item_id: str | None
@@ -111,6 +114,7 @@ class GetItemDetailRes(BaseModel):
     height: float | None
     length: float | None
     width: float | None
+    weight: float | None
     name: str
     item_code: str
     id: str
@@ -282,5 +286,4 @@ class ListSegmentedImagesRes(BaseModel):
     """分割记录列表响应"""
     item_id: str = ''
     records: list[SegmentedImageItem] = []
-
 

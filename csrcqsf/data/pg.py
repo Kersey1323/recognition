@@ -44,3 +44,8 @@ async def db_migrate():
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "parts"'))
         # 创建所有表
         await conn.run_sync(Base.metadata.create_all)
+        # 为已存在的 item_info 表补齐新增字段
+        await conn.execute(text("""
+            ALTER TABLE parts.item_info
+            ADD COLUMN IF NOT EXISTS weight DECIMAL
+        """))

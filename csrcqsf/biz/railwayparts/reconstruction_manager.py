@@ -70,7 +70,15 @@ class ReconstructionManager:
         return safe_name or "source_video.mp4"
 
     @classmethod
-    async def upload_source_video(cls, item_id: int, file) -> dict:
+    async def upload_source_video(
+        cls,
+        item_id: int,
+        file,
+        height: float | None = None,
+        length: float | None = None,
+        width: float | None = None,
+        weight: float | None = None,
+    ) -> dict:
         """
         上传三维重构原始视频到独立 MinIO bucket。
 
@@ -99,6 +107,17 @@ class ReconstructionManager:
 
         size = await run_sync(_upload)
         await file.close()
+
+        async with SessionLocal() as session:
+            await Items.update_measurements(
+                session=session,
+                item_id=item_id,
+                height=height,
+                length=length,
+                width=width,
+                weight=weight,
+            )
+            await session.commit()
 
         return {
             "item_id": item_id,

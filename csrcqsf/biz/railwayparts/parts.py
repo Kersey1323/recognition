@@ -48,7 +48,16 @@ class RailwayPartsManager:
         pass
 
     @classmethod
-    async def create_item(cls, item_name: str, item_code: str, obj_url: str = None, height: float = None, length: float = None, width: float = None):
+    async def create_item(
+        cls,
+        item_name: str,
+        item_code: str,
+        obj_url: str = None,
+        height: float = None,
+        length: float = None,
+        width: float = None,
+        weight: float = None,
+    ):
         """
         创建配件实体
         
@@ -67,6 +76,7 @@ class RailwayPartsManager:
             height=height,
             long=length,
             width=width,
+            weight=weight,
             id=get_id()
         )
         async with SessionLocal() as session:
@@ -99,7 +109,8 @@ class RailwayPartsManager:
 
     @classmethod
     async def update_item(cls, item_id: int, item_name: str, item_code: str, parent_item_id: int = None,
-                          obj_url: str = None, length: float = None, width: float = None, height: float = None):
+                          obj_url: str = None, length: float = None, width: float = None, height: float = None,
+                          weight: float = None):
         async with SessionLocal() as session:
             item = await Items.get_item_by_id(session=session, item_id=item_id)
             if item is None:
@@ -117,7 +128,8 @@ class RailwayPartsManager:
                     raise Exception(f'id为{item_id}的父配件不存在')
 
             await Items.put_item(session=session, item_id=item_id, item_name=item_name,
-                                 item_code=item_code, parent_item_id=parent_item_id, length=length, width=width, height=height, obj_url=obj_url)
+                                 item_code=item_code, parent_item_id=parent_item_id, length=length, width=width,
+                                 height=height, obj_url=obj_url, weight=weight)
             await session.commit()
 
     @classmethod
@@ -162,6 +174,7 @@ class RailwayPartsManager:
                     height=item.height,
                     width=item.width,
                     length=item.long,
+                    weight=item.weight,
                     id=str(item.id),
                     created_at=date_to_str(item.time_created)
                 )
@@ -243,6 +256,7 @@ class RailwayPartsManager:
                 height=item.height,
                 width=item.width,
                 length=item.long,
+                weight=item.weight,
                 name=item.item_name,
                 item_code=item.item_code,
                 created_at=date_to_str(item.time_created),

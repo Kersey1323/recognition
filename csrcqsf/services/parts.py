@@ -43,7 +43,7 @@ async def create_item(req: CreateItemReq):
     业务逻辑：RailwayPartsManager.create_item() in biz/railwayparts/parts.py
     """
     await RailwayPartsManager.create_item(item_name=req.item_name, item_code=req.item_code, obj_url=req.obj_url,
-                                          height=req.height, length=req.length, width=req.width)
+                                          height=req.height, length=req.length, width=req.width, weight=req.weight)
 
 
 @parts_router.post('/item_delete',  tags=["业务-配件管理"], summary='删除配件实体', responses={
@@ -69,7 +69,7 @@ async def delete_item(req: DeleteItemReq):
 async def put_item(req: UpdateItemReq):
     await RailwayPartsManager.update_item(item_id=int(req.id), item_name=req.item_name, item_code=req.item_code,
                                           parent_item_id=int(req.parent_item_id), obj_url=req.obj_url, length=req.length,
-                                          width=req.width, height=req.height)
+                                          width=req.width, height=req.height, weight=req.weight)
 
 
 @parts_router.post('/item/size_put',  tags=["业务-配件管理"], summary='修改配件3D模型的尺寸描述', responses={
@@ -306,6 +306,10 @@ async def reconstruct_v2_train(req: ReconstructionTrainReq):
 @parts_router.post('/v2/reconstruct/video/upload', tags=["算法-3D重建V2"], summary='V2: 上传三维重构原始视频到MinIO')
 async def upload_reconstruct_v2_video(
     item_id: str = Form(...),
+    height: float | None = Form(None),
+    length: float | None = Form(None),
+    width: float | None = Form(None),
+    weight: float | None = Form(None),
     file: UploadFile = File(...)
 ):
     """
@@ -315,6 +319,10 @@ async def upload_reconstruct_v2_video(
     """
     result = await ReconstructionManager.upload_source_video(
         item_id=int(item_id),
+        height=height,
+        length=length,
+        width=width,
+        weight=weight,
         file=file
     )
     return ReconstructionVideoUploadRes(**result)
