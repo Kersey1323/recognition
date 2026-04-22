@@ -25,7 +25,7 @@ class ReconstructionVideoReq(BaseModel):
     blur_threshold: float = Field(default=0, description='模糊阈值，0=自适应')
     dedup_threshold: int = Field(default=25, description='去重汉明距离')
     min_frames: int = Field(default=30, description='最小帧数')
-    sam3_model: str = Field(default="", description='SAM3模型路径，为空则不分割')
+    is_sam3: bool = Field(default=False, description='是否启用SAM3分割，模型路径由服务端SAM3_MODEL_PATH配置')
     text_prompt: str = Field(default="object", description='SAM3文本提示词')
     mask_dilate: int = Field(default=15, description='Mask膨胀像素')
     camera: str = Field(default="OPENCV", description='相机模型')
@@ -35,6 +35,9 @@ class ReconstructionVideoReq(BaseModel):
     skip_colmap: bool = Field(default=False, description='跳过COLMAP')
     skip_sam3: bool = Field(default=False, description='跳过SAM3')
     output_name: Optional[str] = Field(None, description='输出名称（可选）')
+
+    class Config:
+        extra = "forbid"
 
 
 class ReconstructionTaskRes(BaseModel):
@@ -96,6 +99,17 @@ class ReconstructionSourceVideoListRes(BaseModel):
 class ReconstructionSourceVideoMessageRes(BaseModel):
     """当前原始视频操作消息响应"""
     item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')
+    message: str = Field(..., description='消息')
+
+    @validator("item_id", pre=True)
+    def normalize_item_id(cls, value):
+        return str(value)
+
+
+class ReconstructionResultMessageRes(BaseModel):
+    """当前三维重构结果操作消息响应"""
+    item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')
+    result_path: Optional[str] = Field(None, description='被删除或清理的当前重构结果路径')
     message: str = Field(..., description='消息')
 
     @validator("item_id", pre=True)

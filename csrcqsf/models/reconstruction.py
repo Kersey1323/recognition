@@ -3,7 +3,7 @@
 """
 from __future__ import annotations
 from enum import Enum
-from sqlalchemy import String, Text, INT, BIGINT, Float, select
+from sqlalchemy import String, Text, INT, BIGINT, Float, select, update, or_, and_
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from csrcqsf.data.pg import Base
@@ -193,3 +193,36 @@ class ReconstructionRecord(Base):
             if colmap_points is not None:
                 record.colmap_points = colmap_points
             await session.flush()
+
+    @classmethod
+    def build_clear_current_result_values(cls) -> dict:
+        return {
+            "ply_url": None,
+            "obj_url": None,
+            "glb_url": None,
+        }
+
+    @classmethod
+    async def clear_current_result_by_url(
+        cls,
+        session: AsyncSession,
+        item_id: int,
+        result_url: str,
+    ) -> int:
+        stmt = (
+            update(cls)
+            .where(
+                and_(
+                    cls.item_id == item_id,
+                    or_(
+                        cls.ply_url == result_url,
+                        cls.obj_url == result_url,
+                        cls.glb_url == result_url,
+                    ),
+                )
+            )
+            .values(**cls.build_clear_current_result_values())
+        )
+        result = await session.execute(stmt)
+        await session.flush()
+        return result.rowcount or 0

@@ -55,6 +55,37 @@ def test_reconstruction_video_request_keeps_item_id_as_string():
     assert isinstance(req.item_id, str)
 
 
+def test_reconstruction_video_request_uses_is_sam3_and_omits_sam3_model():
+    req = ReconstructionVideoReq(
+        item_id=str(BIG_ITEM_ID),
+        video_path="bfr-3d-videos/raw-videos/1935558010375340032/demo.mp4",
+        name="demo",
+        is_sam3=True,
+    )
+
+    data = dump_model(req)
+
+    assert req.is_sam3 is True
+    assert data["is_sam3"] is True
+    assert "sam3_model" not in data
+
+
+def test_reconstruction_video_request_rejects_public_sam3_model_path():
+    from pydantic import ValidationError
+
+    try:
+        ReconstructionVideoReq(
+            item_id=str(BIG_ITEM_ID),
+            video_path="bfr-3d-videos/raw-videos/1935558010375340032/demo.mp4",
+            name="demo",
+            sam3_model="/home/ubuntu/CV/models/sam3",
+        )
+    except ValidationError as exc:
+        assert "sam3_model" in str(exc)
+    else:
+        raise AssertionError("sam3_model should not be accepted by the public API model")
+
+
 def test_reconstruction_video_upload_response_serializes_item_id_as_string():
     res = ReconstructionVideoUploadRes(
         item_id=BIG_ITEM_ID,
@@ -230,3 +261,19 @@ def test_reconstruction_source_video_message_response_serializes_item_id_as_stri
 
     assert data["item_id"] == str(BIG_ITEM_ID)
     assert data["message"] == "原始视频删除成功"
+
+
+def test_reconstruction_result_message_response_serializes_item_id_as_string():
+    from csrcqsf.biz.railwayparts.reconstruction_api_models import ReconstructionResultMessageRes
+
+    res = ReconstructionResultMessageRes(
+        item_id=BIG_ITEM_ID,
+        result_path="bfr-reconstruction-files/results/1935558010375340032/task-id/point_cloud.ply",
+        message="三维重构结果删除成功",
+    )
+
+    data = dump_model(res)
+
+    assert data["item_id"] == str(BIG_ITEM_ID)
+    assert isinstance(data["item_id"], str)
+    assert data["result_path"] == "bfr-reconstruction-files/results/1935558010375340032/task-id/point_cloud.ply"

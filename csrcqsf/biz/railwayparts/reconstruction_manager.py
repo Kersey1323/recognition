@@ -17,7 +17,11 @@ from csrcqsf.data.minio import ensure_minio_bucket, looks_like_minio_path, minio
 from csrcqsf.data.pg import SessionLocal
 from csrcqsf.models.reconstruction import ReconstructionRecord, ReconstructionStatus
 from csrcqsf.models.item import Items
-from csrcqsf.settings import minio_reconstruction_video_bucket
+from csrcqsf.settings import (
+    minio_reconstruction_file_bucket,
+    minio_reconstruction_video_bucket,
+    sam3_model_path,
+)
 
 # 导入 Celery app 和 tasks - 使用延迟导入避免启动时的循环依赖
 _celery_app = None
@@ -119,13 +123,17 @@ class ReconstructionManager:
         }
 
     @classmethod
-    async def _delete_minio_object(cls, minio_path: str | None) -> bool:
+    async def _delete_minio_object(
+        cls,
+        minio_path: str | None,
+        default_bucket: str | None = minio_reconstruction_video_bucket,
+    ) -> bool:
         if not minio_path:
             return False
 
         bucket, object_name = parse_minio_path(
             minio_path,
-            default_bucket=minio_reconstruction_video_bucket,
+            default_bucket=default_bucket,
         )
 
         def _delete() -> bool:
@@ -139,6 +147,107 @@ class ReconstructionManager:
                 raise
 
         return await run_sync(_delete)
+
+    @classmethod
+    def _build_result_object_name(cls, item_id: int, task_id: str) -> str:
+        return f"results/{item_id}/{task_id}/point_cloud.ply"
+
+    @classmethod
+    def _format_reconstruction_result_path(cls, object_name: str) -> str:
+        return f"{minio_reconstruction_file_bucket}/{object_name}"
+
+    @classmethod
+    def _resolve_sam3_model_path(
+        cls,
+        is_sam3: bool,
+        configured_path: str | None = None,
+    ) -> str:
+        if not is_sam3:
+            return ""
+
+        model_path = configured_path if configured_path is not None else sam3_model_path
+        if model_path is None or str(model_path).strip() == "":
+            raise HTTPException(status_code=400, detail="启用SAM3时必须配置 SAM3_MODEL_PATH")
+
+        if not Path(model_path).exists():
+            raise HTTPException(status_code=400, detail=f"SAM3_MODEL_PATH不存在: {model_path}")
+
+        return str(model_path)
+
+    @classmethod
+    async def _upload_reconstruction_result_file(
+        cls,
+        item_id: int,
+        task_id: str,
+        ply_path: str,
+    ) -> str | None:
+        if not ply_path:
+            return None
+
+        if not os.path.exists(ply_path):
+            logger.warning(f"重构结果文件不存在，跳过上传: task_id={task_id}, path={ply_path}")
+            return None
+
+        ensure_minio_bucket(minio_reconstruction_file_bucket)
+        object_name = cls._build_result_object_name(item_id=item_id, task_id=task_id)
+
+        def _upload() -> None:
+            minio_instance.client.fput_object(
+                minio_reconstruction_file_bucket,
+                object_name,
+                ply_path,
+                content_type="application/octet-stream",
+            )
+
+        await run_sync(_upload)
+        return cls._format_reconstruction_result_path(object_name)
+
+    @classmethod
+    async def _persist_success_result(
+        cls,
+        session,
+        record: ReconstructionRecord,
+        task_result: dict,
+    ) -> bool:
+        ply_path = task_result.get("ply_path")
+        if not ply_path:
+            return False
+
+        if record.ply_url and looks_like_minio_path(
+            record.ply_url,
+            default_bucket=minio_reconstruction_file_bucket,
+        ):
+            item = await Items.get_item_by_id(session, record.item_id)
+            if item is not None and not item.obj_url:
+                await Items.update_obj_url(
+                    session=session,
+                    item_id=record.item_id,
+                    obj_url=record.ply_url,
+                )
+                return True
+            return False
+
+        result_path = await cls._upload_reconstruction_result_file(
+            item_id=record.item_id,
+            task_id=record.task_id,
+            ply_path=ply_path,
+        )
+        if result_path is None:
+            return False
+
+        await ReconstructionRecord.update_result(
+            session=session,
+            task_id=record.task_id,
+            output_path=task_result.get("output_dir"),
+            ply_url=result_path,
+        )
+        await Items.update_obj_url(
+            session=session,
+            item_id=record.item_id,
+            obj_url=result_path,
+        )
+        record.ply_url = result_path
+        return True
 
     @classmethod
     async def upload_source_video(
@@ -362,7 +471,7 @@ class ReconstructionManager:
         blur_threshold: float = 0,
         dedup_threshold: int = 25,
         min_frames: int = 30,
-        sam3_model: str = "",
+        is_sam3: bool = False,
         text_prompt: str = "object",
         mask_dilate: int = 15,
         camera: str = "OPENCV",
@@ -398,6 +507,8 @@ class ReconstructionManager:
         # 生成输出名称
         if not output_name:
             output_name = f"{name}_{int(os.urandom(4).hex(), 16):08x}"
+
+        sam3_model = cls._resolve_sam3_model_path(is_sam3=is_sam3)
         
         # 提交 Celery 任务
         task = video_reconstruction.apply_async(
@@ -511,6 +622,7 @@ class ReconstructionManager:
             progress = record.progress
             stage = record.current_stage
             error = record.error_message
+            result_changed = False
             
             if result.state == "PROGRESS":
                 info = result.info or {}
@@ -519,21 +631,18 @@ class ReconstructionManager:
             elif result.state == "SUCCESS":
                 progress = 100
                 stage = "完成"
-                # 更新结果信息
                 task_result = result.result or {}
-                if task_result.get("ply_path"):
-                    await ReconstructionRecord.update_result(
-                        session=session,
-                        task_id=task_id,
-                        output_path=task_result.get("output_dir"),
-                        ply_url=task_result.get("ply_path")
-                    )
+                result_changed = await cls._persist_success_result(
+                    session=session,
+                    record=record,
+                    task_result=task_result,
+                )
             elif result.state == "FAILURE":
                 error = str(result.info)
                 stage = "失败"
             
             # 更新数据库状态
-            if new_status != record.status or progress != record.progress:
+            if new_status != record.status or progress != record.progress or result_changed:
                 await ReconstructionRecord.update_status(
                     session=session,
                     task_id=task_id,
@@ -561,6 +670,46 @@ class ReconstructionManager:
                 "time_created": record.time_created.isoformat() if record.time_created else None,
                 "time_updated": record.time_updated.isoformat() if record.time_updated else None
             }
+
+    @classmethod
+    async def delete_reconstruction_result(cls, item_id: int) -> dict:
+        item = await cls._require_item_exists(item_id)
+        result_path = item.obj_url
+        if not result_path:
+            raise HTTPException(status_code=404, detail=f"配件未绑定三维重构结果: item_id={item_id}")
+
+        is_minio_result = looks_like_minio_path(
+            result_path,
+            default_bucket=minio_reconstruction_file_bucket,
+        )
+        deleted = False
+        if is_minio_result:
+            deleted = await cls._delete_minio_object(
+                result_path,
+                default_bucket=minio_reconstruction_file_bucket,
+            )
+        else:
+            logger.info(f"当前重构结果不是MinIO路径，仅清理数据库引用: item_id={item_id}, path={result_path}")
+
+        async with SessionLocal() as session:
+            await Items.update_obj_url(session=session, item_id=item_id, obj_url=None)
+            await ReconstructionRecord.clear_current_result_by_url(
+                session=session,
+                item_id=item_id,
+                result_url=result_path,
+            )
+            await session.commit()
+
+        if is_minio_result:
+            message = "三维重构结果删除成功" if deleted else "三维重构结果对象不存在，元数据已清理"
+        else:
+            message = "旧本地重构结果引用已清理"
+
+        return {
+            "item_id": item_id,
+            "result_path": result_path,
+            "message": message,
+        }
     
     @classmethod
     async def list_item_tasks(cls, item_id: int) -> list[dict]:

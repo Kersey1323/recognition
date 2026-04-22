@@ -274,6 +274,7 @@ from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionSourceVideoRes,
     ReconstructionSourceVideoListRes,
     ReconstructionSourceVideoMessageRes,
+    ReconstructionResultMessageRes,
     ReconstructionAllTasksRes,
     ReconstructionIndexRebuildRes,
 )
@@ -386,7 +387,7 @@ async def reconstruct_v2_video(req: ReconstructionVideoReq):
     - video_path: 视频文件路径（服务器本地绝对路径，或 MinIO 对象路径，如 bfr-3d-videos/raw-videos/...mp4）
     - name: 场景名称
     - iterations: 训练迭代次数
-    - sam3_model: SAM3模型路径，为空则跳过分割
+    - is_sam3: 是否启用SAM3分割，模型路径由服务端SAM3_MODEL_PATH配置
     - skip_*: 跳过已完成的步骤（断点续跑）
     
     返回：
@@ -402,7 +403,7 @@ async def reconstruct_v2_video(req: ReconstructionVideoReq):
         blur_threshold=req.blur_threshold,
         dedup_threshold=req.dedup_threshold,
         min_frames=req.min_frames,
-        sam3_model=req.sam3_model,
+        is_sam3=req.is_sam3,
         text_prompt=req.text_prompt,
         mask_dilate=req.mask_dilate,
         camera=req.camera,
@@ -430,6 +431,21 @@ async def get_reconstruct_v2_status(task_id: str):
     """
     result = await ReconstructionManager.get_task_status(task_id)
     return ReconstructionStatusRes(**result)
+
+
+@parts_router.delete('/v2/reconstruct/result/{item_id}', tags=["算法-3D重建V2"], summary='V2: 删除配件当前三维重构结果')
+async def delete_reconstruct_v2_result(item_id: str):
+    """
+    删除指定配件当前绑定的三维重构结果。
+
+    行为：
+    - 删除当前 `item_info.obj_url` 指向的 MinIO 重构结果对象
+    - 清空 `item_info.obj_url`
+    - 只清空匹配当前 URL 的重构记录结果字段
+    - 保留任务历史和本地 `output_path`
+    """
+    result = await ReconstructionManager.delete_reconstruction_result(int(item_id))
+    return ReconstructionResultMessageRes(**result)
 
 
 @parts_router.get('/v2/reconstruct/item/{item_id}', tags=["算法-3D重建V2"], summary='V2: 列出配件的重建任务')

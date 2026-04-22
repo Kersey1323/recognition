@@ -177,3 +177,15 @@ def test_build_clear_source_video_values_clears_video_and_measurements():
         "width": None,
         "weight": None,
     }
+
+
+def test_build_obj_url_update_sets_and_clears_current_result_url():
+    assert Items.build_obj_url_update(
+        "bfr-reconstruction-files/results/1935558010375340032/task-id/point_cloud.ply"
+    ) == {
+        "obj_url": "bfr-reconstruction-files/results/1935558010375340032/task-id/point_cloud.ply"
+    }
+
+    assert Items.build_obj_url_update(None) == {
+        "obj_url": None
+    }

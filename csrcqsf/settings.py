@@ -24,6 +24,10 @@ minio_reconstruction_video_bucket = os.getenv(
     'MINIO_RECONSTRUCTION_VIDEO_BUCKET',
     'bfr-3d-videos'
 )
+minio_reconstruction_file_bucket = os.getenv(
+    'MINIO_RECONSTRUCTION_FILE_BUCKET',
+    'bfr-reconstruction-files'
+)
 minio_endpoint = os.getenv('MINIO_ENDPOINT', '192.168.100.2:9000')
 minio_access_key = os.getenv('MINIO_ACCESS_KEY', 'root')
 minio_secret_key = os.getenv('MINIO_SECRET_KEY', 'REMOVED_CREDENTIAL')
@@ -32,6 +36,18 @@ temp_dir = os.getenv('TEMP_DIR', os.path.join(os.path.dirname(os.path.dirname(__
 brisconfig_url = os.getenv("brisconfig_url") or os.getenv("BASIS_API_GRPC_URL", "10.144.145.6:10001")
 sgo_url = os.getenv('SGO_URL', 'https://sgo.csrcqsf.com/uc/sfsso/authByAccount?tenantId=1463844437338755072')
 model_dir = os.getenv('MODEL_DIR', '/home/ubuntu/CV/models' if not sys.platform.startswith('win') else 'D:\\models')
+
+
+def _resolve_model_path(path: str | None) -> str:
+    if path is None or path.strip() == "":
+        return ""
+    raw_path = path.strip()
+    if os.path.isabs(raw_path):
+        return raw_path
+    return os.path.join(model_dir, raw_path)
+
+
+sam3_model_path = _resolve_model_path(os.getenv('SAM3_MODEL_PATH', 'sam3'))
 
 
 # mkdir(temp_dir)

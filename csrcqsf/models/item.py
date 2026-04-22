@@ -220,6 +220,16 @@ class Items(Base):
         }
 
     @classmethod
+    def build_obj_url_update(cls, obj_url: str | None) -> dict:
+        return {"obj_url": obj_url}
+
+    @classmethod
+    async def update_obj_url(cls, session: AsyncSession, item_id: int, obj_url: str | None):
+        stmt = update(cls).where(cls.id == item_id).values(**cls.build_obj_url_update(obj_url))
+        await session.execute(stmt)
+        await session.flush()
+
+    @classmethod
     async def update_measurements(
         cls,
         session: AsyncSession,

@@ -6,6 +6,7 @@ from csrcqsf.settings import (
     minio_access_key,
     minio_bucket,
     minio_endpoint,
+    minio_reconstruction_file_bucket,
     minio_reconstruction_video_bucket,
     minio_secret_key,
     minio_secure,
@@ -35,6 +36,7 @@ def create_minio_buckets_sync():
     """同步版本：创建项目需要的所有 bucket。"""
     ensure_minio_bucket(minio_bucket)
     ensure_minio_bucket(minio_reconstruction_video_bucket)
+    ensure_minio_bucket(minio_reconstruction_file_bucket)
 
 
 async def create_minio_bucket():
@@ -76,6 +78,7 @@ def parse_minio_path(path: str, default_bucket: str | None = None) -> tuple[str,
         bucket for bucket in [
             minio_bucket,
             minio_reconstruction_video_bucket,
+            minio_reconstruction_file_bucket,
             default_bucket,
         ] if bucket
     }
