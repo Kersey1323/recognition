@@ -11,8 +11,9 @@ from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
 from celery.result import AsyncResult
 from fastapi import HTTPException
+from minio.error import S3Error
 from globals_vars import logger
-from csrcqsf.data.minio import ensure_minio_bucket, looks_like_minio_path, minio_instance
+from csrcqsf.data.minio import ensure_minio_bucket, looks_like_minio_path, minio_instance, parse_minio_path
 from csrcqsf.data.pg import SessionLocal
 from csrcqsf.models.reconstruction import ReconstructionRecord, ReconstructionStatus
 from csrcqsf.models.item import Items
@@ -58,7 +59,7 @@ class ReconstructionManager:
         if item is None:
             raise HTTPException(
                 status_code=400,
-                detail=f"配件不存在，无法创建重建任务: item_id={item_id}"
+                detail=f"配件不存在: item_id={item_id}"
             )
 
         return item
@@ -70,23 +71,26 @@ class ReconstructionManager:
         return safe_name or "source_video.mp4"
 
     @classmethod
-    async def upload_source_video(
-        cls,
-        item_id: int,
-        file,
-        height: float | None = None,
-        length: float | None = None,
-        width: float | None = None,
-        weight: float | None = None,
-    ) -> dict:
-        """
-        上传三维重构原始视频到独立 MinIO bucket。
+    def _format_source_video_item(cls, item: Items, message: str | None = None) -> dict:
+        return {
+            "item_id": item.id,
+            "item_name": item.item_name,
+            "item_code": item.item_code,
+            "height": item.height,
+            "length": item.long,
+            "width": item.width,
+            "weight": item.weight,
+            "video_path": item.source_video_path,
+            "filename": item.source_video_filename,
+            "size": item.source_video_size,
+            "content_type": item.source_video_content_type,
+            "source_video_updated_at": item.source_video_updated_at.isoformat() if item.source_video_updated_at else None,
+            "message": message,
+        }
 
-        返回的 video_path 可直接传给 submit_video_task / /v2/reconstruct/video。
-        """
-        await cls._require_item_exists(item_id)
+    @classmethod
+    async def _upload_source_video_file(cls, item_id: int, file) -> dict:
         ensure_minio_bucket(minio_reconstruction_video_bucket)
-
         safe_name = cls._safe_filename(file.filename)
         date_dir = datetime.now().strftime("%Y%m%d")
         object_name = f"raw-videos/{item_id}/{date_dir}/{get_id()}_{safe_name}"
@@ -107,26 +111,182 @@ class ReconstructionManager:
 
         size = await run_sync(_upload)
         await file.close()
-
-        async with SessionLocal() as session:
-            await Items.update_measurements(
-                session=session,
-                item_id=item_id,
-                height=height,
-                length=length,
-                width=width,
-                weight=weight,
-            )
-            await session.commit()
-
         return {
-            "item_id": item_id,
-            "bucket": minio_reconstruction_video_bucket,
-            "object_name": object_name,
             "video_path": f"{minio_reconstruction_video_bucket}/{object_name}",
+            "filename": safe_name,
             "size": size,
             "content_type": content_type,
-            "message": "原始视频上传成功",
+        }
+
+    @classmethod
+    async def _delete_minio_object(cls, minio_path: str | None) -> bool:
+        if not minio_path:
+            return False
+
+        bucket, object_name = parse_minio_path(
+            minio_path,
+            default_bucket=minio_reconstruction_video_bucket,
+        )
+
+        def _delete() -> bool:
+            try:
+                minio_instance.client.remove_object(bucket, object_name)
+                return True
+            except S3Error as exc:
+                if exc.code in {"NoSuchKey", "NoSuchBucket"}:
+                    logger.warning(f"MinIO对象不存在，跳过删除: {minio_path}, code={exc.code}")
+                    return False
+                raise
+
+        return await run_sync(_delete)
+
+    @classmethod
+    async def upload_source_video(
+        cls,
+        item_id: int,
+        file,
+        height: float | None = None,
+        length: float | None = None,
+        width: float | None = None,
+        weight: float | None = None,
+    ) -> dict:
+        """
+        上传三维重构原始视频到独立 MinIO bucket。
+
+        返回当前配件绑定的原始视频资产信息。
+        """
+        item = await cls._require_item_exists(item_id)
+        if item.source_video_path:
+            raise HTTPException(
+                status_code=409,
+                detail=f"配件已存在原始视频，请使用更新接口替换: item_id={item_id}"
+            )
+
+        uploaded = await cls._upload_source_video_file(item_id, file)
+        async with SessionLocal() as session:
+            try:
+                await Items.update_source_video(
+                    session=session,
+                    item_id=item_id,
+                    video_path=uploaded["video_path"],
+                    filename=uploaded["filename"],
+                    size=uploaded["size"],
+                    content_type=uploaded["content_type"],
+                    height=height,
+                    length=length,
+                    width=width,
+                    weight=weight,
+                    updated_at=datetime.now(),
+                )
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                await cls._delete_minio_object(uploaded["video_path"])
+                raise
+
+            item = await Items.get_item_by_id(session, item_id)
+
+        return cls._format_source_video_item(item, message="原始视频上传成功")
+
+    @classmethod
+    async def list_source_videos(cls, limit: int = 100, offset: int = 0) -> dict:
+        async with SessionLocal() as session:
+            records, total = await Items.list_source_videos(
+                session=session,
+                limit=limit,
+                offset=offset,
+            )
+            return {
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "records": [cls._format_source_video_item(item) for item in records],
+            }
+
+    @classmethod
+    async def get_source_video(cls, item_id: int) -> dict:
+        item = await cls._require_item_exists(item_id)
+        if not item.source_video_path:
+            raise HTTPException(status_code=404, detail=f"配件未绑定原始视频: item_id={item_id}")
+        return cls._format_source_video_item(item, message="原始视频查询成功")
+
+    @classmethod
+    async def update_source_video(
+        cls,
+        item_id: int,
+        file=None,
+        height: float | None = None,
+        length: float | None = None,
+        width: float | None = None,
+        weight: float | None = None,
+    ) -> dict:
+        item = await cls._require_item_exists(item_id)
+        old_video_path = item.source_video_path
+        if not old_video_path and file is None:
+            raise HTTPException(status_code=404, detail=f"配件未绑定原始视频: item_id={item_id}")
+
+        uploaded = None
+        if file is not None:
+            uploaded = await cls._upload_source_video_file(item_id, file)
+
+        async with SessionLocal() as session:
+            try:
+                if uploaded is not None:
+                    await Items.update_source_video(
+                        session=session,
+                        item_id=item_id,
+                        video_path=uploaded["video_path"],
+                        filename=uploaded["filename"],
+                        size=uploaded["size"],
+                        content_type=uploaded["content_type"],
+                        height=height,
+                        length=length,
+                        width=width,
+                        weight=weight,
+                        updated_at=datetime.now(),
+                    )
+                else:
+                    await Items.update_measurements(
+                        session=session,
+                        item_id=item_id,
+                        height=height,
+                        length=length,
+                        width=width,
+                        weight=weight,
+                    )
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                if uploaded is not None:
+                    await cls._delete_minio_object(uploaded["video_path"])
+                raise
+
+            item = await Items.get_item_by_id(session, item_id)
+
+        if uploaded is not None and old_video_path:
+            try:
+                await cls._delete_minio_object(old_video_path)
+            except Exception as exc:
+                logger.error(f"旧原始视频删除失败: item_id={item_id}, path={old_video_path}, err={exc}")
+
+        return cls._format_source_video_item(item, message="原始视频更新成功")
+
+    @classmethod
+    async def delete_source_video(cls, item_id: int) -> dict:
+        item = await cls._require_item_exists(item_id)
+        old_video_path = item.source_video_path
+        if not old_video_path:
+            raise HTTPException(status_code=404, detail=f"配件未绑定原始视频: item_id={item_id}")
+
+        deleted = await cls._delete_minio_object(old_video_path)
+        async with SessionLocal() as session:
+            await Items.clear_source_video(session=session, item_id=item_id)
+            await session.commit()
+
+        message = "原始视频删除成功" if deleted else "原始视频对象不存在，元数据已清理"
+        return {
+            "item_id": item_id,
+            "message": message,
         }
     
     @classmethod

@@ -68,3 +68,68 @@ def test_build_measurement_updates_maps_length_and_weight():
         "long": 20.0,
         "weight": 40.0,
     }
+
+
+def test_build_source_video_updates_maps_metadata_and_measurements():
+    values = Items.build_source_video_updates(
+        video_path="bfr-3d-videos/raw-videos/1935558010375340032/demo.mp4",
+        filename="demo.mp4",
+        size=1024,
+        content_type="video/mp4",
+        height=10.0,
+        length=20.0,
+        width=30.0,
+        weight=40.0,
+        updated_at="2026-04-22T10:00:00",
+    )
+
+    assert values == {
+        "source_video_path": "bfr-3d-videos/raw-videos/1935558010375340032/demo.mp4",
+        "source_video_filename": "demo.mp4",
+        "source_video_size": 1024,
+        "source_video_content_type": "video/mp4",
+        "source_video_updated_at": "2026-04-22T10:00:00",
+        "height": 10.0,
+        "long": 20.0,
+        "width": 30.0,
+        "weight": 40.0,
+    }
+
+
+def test_build_source_video_updates_omits_unprovided_measurements():
+    values = Items.build_source_video_updates(
+        video_path="bfr-3d-videos/raw-videos/1935558010375340032/demo.mp4",
+        filename="demo.mp4",
+        size=1024,
+        content_type="video/mp4",
+        height=None,
+        length=None,
+        width=30.0,
+        weight=None,
+        updated_at="2026-04-22T10:00:00",
+    )
+
+    assert values == {
+        "source_video_path": "bfr-3d-videos/raw-videos/1935558010375340032/demo.mp4",
+        "source_video_filename": "demo.mp4",
+        "source_video_size": 1024,
+        "source_video_content_type": "video/mp4",
+        "source_video_updated_at": "2026-04-22T10:00:00",
+        "width": 30.0,
+    }
+
+
+def test_build_clear_source_video_values_clears_video_and_measurements():
+    values = Items.build_clear_source_video_values()
+
+    assert values == {
+        "source_video_path": None,
+        "source_video_filename": None,
+        "source_video_size": None,
+        "source_video_content_type": None,
+        "source_video_updated_at": None,
+        "height": None,
+        "long": None,
+        "width": None,
+        "weight": None,
+    }

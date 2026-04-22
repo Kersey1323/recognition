@@ -49,3 +49,11 @@ async def db_migrate():
             ALTER TABLE parts.item_info
             ADD COLUMN IF NOT EXISTS weight DECIMAL
         """))
+        await conn.execute(text("""
+            ALTER TABLE parts.item_info
+            ADD COLUMN IF NOT EXISTS source_video_path VARCHAR(500),
+            ADD COLUMN IF NOT EXISTS source_video_filename VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS source_video_size BIGINT,
+            ADD COLUMN IF NOT EXISTS source_video_content_type VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS source_video_updated_at TIMESTAMP WITHOUT TIME ZONE
+        """))

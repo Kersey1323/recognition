@@ -271,7 +271,9 @@ from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionTaskRes,
     ReconstructionStatusRes,
     ReconstructionListRes,
-    ReconstructionVideoUploadRes,
+    ReconstructionSourceVideoRes,
+    ReconstructionSourceVideoListRes,
+    ReconstructionSourceVideoMessageRes,
     ReconstructionAllTasksRes,
     ReconstructionIndexRebuildRes,
 )
@@ -303,7 +305,7 @@ async def reconstruct_v2_train(req: ReconstructionTrainReq):
     return ReconstructionTaskRes(**result)
 
 
-@parts_router.post('/v2/reconstruct/video/upload', tags=["算法-3D重建V2"], summary='V2: 上传三维重构原始视频到MinIO')
+@parts_router.post('/v2/reconstruct/video', tags=["算法-3D重建V2"], summary='V2: 新增三维重构原始视频')
 async def upload_reconstruct_v2_video(
     item_id: str = Form(...),
     height: float | None = Form(None),
@@ -315,7 +317,7 @@ async def upload_reconstruct_v2_video(
     """
     上传三维重构原始视频到独立 MinIO bucket。
     
-    返回的 `video_path` 可以直接作为 `/v2/reconstruct/video` 的 `video_path` 参数。
+    返回的 `video_path` 可以直接作为 `/v2/reconstruct/tasks/video` 的 `video_path` 参数。
     """
     result = await ReconstructionManager.upload_source_video(
         item_id=int(item_id),
@@ -325,10 +327,54 @@ async def upload_reconstruct_v2_video(
         weight=weight,
         file=file
     )
-    return ReconstructionVideoUploadRes(**result)
+    return ReconstructionSourceVideoRes(**result)
 
 
-@parts_router.post('/v2/reconstruct/video', tags=["算法-3D重建V2"], summary='V2: 从视频完整重建')
+@parts_router.get('/v2/reconstruct/video', tags=["算法-3D重建V2"], summary='V2: 分页列出三维重构原始视频')
+async def list_reconstruct_v2_source_videos(
+    limit: int = 100,
+    offset: int = 0,
+):
+    result = await ReconstructionManager.list_source_videos(
+        limit=limit,
+        offset=offset,
+    )
+    return ReconstructionSourceVideoListRes(**result)
+
+
+@parts_router.get('/v2/reconstruct/video/{item_id}', tags=["算法-3D重建V2"], summary='V2: 查询配件三维重构原始视频')
+async def get_reconstruct_v2_source_video(item_id: str):
+    result = await ReconstructionManager.get_source_video(int(item_id))
+    return ReconstructionSourceVideoRes(**result)
+
+
+@parts_router.put('/v2/reconstruct/video/{item_id}', tags=["算法-3D重建V2"], summary='V2: 更新或替换三维重构原始视频')
+async def update_reconstruct_v2_source_video(
+    item_id: str,
+    height: float | None = Form(None),
+    length: float | None = Form(None),
+    width: float | None = Form(None),
+    weight: float | None = Form(None),
+    file: UploadFile | None = File(None),
+):
+    result = await ReconstructionManager.update_source_video(
+        item_id=int(item_id),
+        file=file,
+        height=height,
+        length=length,
+        width=width,
+        weight=weight,
+    )
+    return ReconstructionSourceVideoRes(**result)
+
+
+@parts_router.delete('/v2/reconstruct/video/{item_id}', tags=["算法-3D重建V2"], summary='V2: 删除三维重构原始视频')
+async def delete_reconstruct_v2_source_video(item_id: str):
+    result = await ReconstructionManager.delete_source_video(int(item_id))
+    return ReconstructionSourceVideoMessageRes(**result)
+
+
+@parts_router.post('/v2/reconstruct/tasks/video', tags=["算法-3D重建V2"], summary='V2: 从视频完整重建')
 async def reconstruct_v2_video(req: ReconstructionVideoReq):
     """
     完整视频重建流程

@@ -64,6 +64,45 @@ class ReconstructionVideoUploadRes(BaseModel):
         return str(value)
 
 
+class ReconstructionSourceVideoRes(BaseModel):
+    """当前原始视频资产响应"""
+    item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')
+    item_name: str = Field(..., description='配件名称')
+    item_code: str = Field(..., description='配件编码')
+    height: Optional[float] = Field(None, description='高度')
+    length: Optional[float] = Field(None, description='长度')
+    width: Optional[float] = Field(None, description='宽度')
+    weight: Optional[float] = Field(None, description='重量')
+    video_path: Optional[str] = Field(None, description='MinIO视频路径，格式为 bucket/object')
+    filename: Optional[str] = Field(None, description='原始文件名')
+    size: Optional[int] = Field(None, description='文件大小，单位字节')
+    content_type: Optional[str] = Field(None, description='文件类型')
+    source_video_updated_at: Optional[str] = Field(None, description='原始视频更新时间')
+    message: Optional[str] = Field(None, description='消息')
+
+    @validator("item_id", pre=True)
+    def normalize_item_id(cls, value):
+        return str(value)
+
+
+class ReconstructionSourceVideoListRes(BaseModel):
+    """当前原始视频分页响应"""
+    total: int = Field(..., description='总数')
+    limit: int = Field(..., description='每页数量')
+    offset: int = Field(..., description='偏移量')
+    records: list[ReconstructionSourceVideoRes] = Field(default_factory=list, description='原始视频记录')
+
+
+class ReconstructionSourceVideoMessageRes(BaseModel):
+    """当前原始视频操作消息响应"""
+    item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')
+    message: str = Field(..., description='消息')
+
+    @validator("item_id", pre=True)
+    def normalize_item_id(cls, value):
+        return str(value)
+
+
 class ReconstructionStatusRes(BaseModel):
     """重建任务状态响应"""
     task_id: str = Field(..., description='任务ID')

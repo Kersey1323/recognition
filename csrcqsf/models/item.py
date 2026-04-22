@@ -1,8 +1,9 @@
 
 from __future__ import annotations
+from datetime import datetime
 from enum import Enum
 from urllib.parse import quote_plus
-from sqlalchemy import String, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL
+from sqlalchemy import String, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL, DateTime
 from sqlalchemy.orm import relationship, Mapped, mapped_column, Session, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from bfrcommon.common import get_pinyin
@@ -67,6 +68,11 @@ class Items(Base):
     long: Mapped[float] = mapped_column(DECIMAL, nullable=True)
     width: Mapped[float] = mapped_column(DECIMAL, nullable=True)
     weight: Mapped[float] = mapped_column(DECIMAL, nullable=True)
+    source_video_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    source_video_filename: Mapped[str] = mapped_column(String(255), nullable=True)
+    source_video_size: Mapped[int] = mapped_column(BIGINT, nullable=True)
+    source_video_content_type: Mapped[str] = mapped_column(String(100), nullable=True)
+    source_video_updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     size_str: Mapped[str] = mapped_column(Text, nullable=True)
     item_type: Mapped[ItemType] = mapped_column(
         String(200), nullable=False, default='real')
@@ -172,6 +178,48 @@ class Items(Base):
         return values
 
     @classmethod
+    def build_source_video_updates(
+        cls,
+        video_path: str,
+        filename: str,
+        size: int,
+        content_type: str,
+        height: float | None = None,
+        length: float | None = None,
+        width: float | None = None,
+        weight: float | None = None,
+        updated_at=None,
+    ) -> dict:
+        values = {
+            "source_video_path": video_path,
+            "source_video_filename": filename,
+            "source_video_size": size,
+            "source_video_content_type": content_type,
+            "source_video_updated_at": updated_at,
+        }
+        values.update(cls.build_measurement_updates(
+            height=height,
+            length=length,
+            width=width,
+            weight=weight,
+        ))
+        return values
+
+    @classmethod
+    def build_clear_source_video_values(cls) -> dict:
+        return {
+            "source_video_path": None,
+            "source_video_filename": None,
+            "source_video_size": None,
+            "source_video_content_type": None,
+            "source_video_updated_at": None,
+            "height": None,
+            "long": None,
+            "width": None,
+            "weight": None,
+        }
+
+    @classmethod
     async def update_measurements(
         cls,
         session: AsyncSession,
@@ -190,6 +238,61 @@ class Items(Base):
         if len(values) == 0:
             return
         stmt = update(cls).where(cls.id == item_id).values(**values)
+        await session.execute(stmt)
+        await session.flush()
+
+    @classmethod
+    async def list_source_videos(
+        cls,
+        session: AsyncSession,
+        limit: int = 100,
+        offset: int = 0,
+    ):
+        count_stmt = select(func.count(cls.id)).where(cls.source_video_path.is_not(None))
+        total = await session.scalar(count_stmt)
+        stmt = (
+            select(cls)
+            .where(cls.source_video_path.is_not(None))
+            .order_by(cls.source_video_updated_at.desc(), cls.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await session.scalars(stmt)
+        return list(result), total or 0
+
+    @classmethod
+    async def update_source_video(
+        cls,
+        session: AsyncSession,
+        item_id: int,
+        video_path: str,
+        filename: str,
+        size: int,
+        content_type: str,
+        height: float | None = None,
+        length: float | None = None,
+        width: float | None = None,
+        weight: float | None = None,
+        updated_at=None,
+    ):
+        values = cls.build_source_video_updates(
+            video_path=video_path,
+            filename=filename,
+            size=size,
+            content_type=content_type,
+            height=height,
+            length=length,
+            width=width,
+            weight=weight,
+            updated_at=updated_at,
+        )
+        stmt = update(cls).where(cls.id == item_id).values(**values)
+        await session.execute(stmt)
+        await session.flush()
+
+    @classmethod
+    async def clear_source_video(cls, session: AsyncSession, item_id: int):
+        stmt = update(cls).where(cls.id == item_id).values(**cls.build_clear_source_video_values())
         await session.execute(stmt)
         await session.flush()
 
