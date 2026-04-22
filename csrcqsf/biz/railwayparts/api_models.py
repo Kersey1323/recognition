@@ -50,7 +50,7 @@ class ListItemReq(PageReq):
 
 class ListItem(BaseModel):
     item_name: str
-    obj_url: str | None
+    ply_url: str | None
     item_code: str
     height: float | None
     length: float | None
@@ -111,7 +111,7 @@ class GetItemDetailReq(BaseModel):
 
 
 class GetItemDetailRes(BaseModel):
-    obj_url: str | None
+    ply_url: str | None
     height: float | None
     length: float | None
     width: float | None

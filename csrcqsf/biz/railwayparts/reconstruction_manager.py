@@ -7,6 +7,7 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
 from celery.result import AsyncResult
@@ -67,6 +68,25 @@ class ReconstructionManager:
             )
 
         return item
+
+    @classmethod
+    def _resolve_video_task_inputs(cls, item: Items) -> tuple[str, str]:
+        """从配件元数据解析视频重构所需的内部输入。"""
+        if not item.source_video_path:
+            raise HTTPException(status_code=400, detail=f"配件未绑定原始视频: item_id={item.id}")
+        return item.source_video_path, item.item_name
+
+    @staticmethod
+    def _build_video_run_name(item_name: str) -> str:
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        safe_name = re.sub(r"[\\\\/:*?\"<>|]+", "_", (item_name or "reconstruction")).strip()
+        safe_name = safe_name or "reconstruction"
+        return f"{timestamp}_{safe_name}"
+
+    @staticmethod
+    def _page_to_limit_offset(page: int, page_size: int) -> tuple[int, int]:
+        current_page = max(page, 1)
+        return page_size, (current_page - 1) * page_size
 
     @staticmethod
     def _safe_filename(filename: str | None) -> str:
@@ -157,6 +177,24 @@ class ReconstructionManager:
         return f"{minio_reconstruction_file_bucket}/{object_name}"
 
     @classmethod
+    def _resolve_record_ply_path(cls, record) -> str | None:
+        if record.ply_url and not looks_like_minio_path(
+            record.ply_url,
+            default_bucket=minio_reconstruction_file_bucket,
+        ):
+            return record.ply_url
+
+        if record.output_path:
+            return str(
+                Path(record.output_path)
+                / "point_cloud"
+                / f"iteration_{record.iterations}"
+                / "point_cloud.ply"
+            )
+
+        return None
+
+    @classmethod
     def _resolve_sam3_model_path(
         cls,
         is_sam3: bool,
@@ -210,6 +248,12 @@ class ReconstructionManager:
         task_result: dict,
     ) -> bool:
         ply_path = task_result.get("ply_path")
+        if task_result.get("output_dir") and not record.output_path:
+            await ReconstructionRecord.update_result(
+                session=session,
+                task_id=record.task_id,
+                output_path=task_result.get("output_dir"),
+            )
         if not ply_path:
             return False
 
@@ -248,6 +292,57 @@ class ReconstructionManager:
         )
         record.ply_url = result_path
         return True
+
+    @classmethod
+    async def persist_task_result_by_task_id(cls, task_id: str, task_result: dict) -> bool:
+        async with SessionLocal() as session:
+            record = await ReconstructionRecord.get_by_task_id(session, task_id)
+            if not record:
+                logger.warning(f"重构结果持久化时未找到任务记录: task_id={task_id}")
+                return False
+
+            changed = await cls._persist_success_result(
+                session=session,
+                record=record,
+                task_result=task_result,
+            )
+
+            await ReconstructionRecord.update_status(
+                session=session,
+                task_id=task_id,
+                status=ReconstructionStatus.SUCCESS,
+                progress=100,
+                current_stage="完成",
+                error_message=None,
+            )
+            await session.commit()
+            return changed
+
+    @classmethod
+    async def ensure_item_result_persisted(cls, item_id: int) -> bool:
+        async with SessionLocal() as session:
+            item = await Items.get_item_by_id(session, item_id)
+            if item is None or item.obj_url:
+                return False
+
+            records = await ReconstructionRecord.get_by_item_id(session, item_id)
+            for record in records:
+                if record.status != ReconstructionStatus.SUCCESS:
+                    continue
+
+                changed = await cls._persist_success_result(
+                    session=session,
+                    record=record,
+                    task_result={
+                        "ply_path": cls._resolve_record_ply_path(record),
+                        "output_dir": record.output_path,
+                    },
+                )
+                if changed:
+                    await session.commit()
+                    return True
+
+            return False
 
     @classmethod
     async def upload_source_video(
@@ -298,7 +393,8 @@ class ReconstructionManager:
         return cls._format_source_video_item(item, message="原始视频上传成功")
 
     @classmethod
-    async def list_source_videos(cls, limit: int = 100, offset: int = 0) -> dict:
+    async def list_source_videos(cls, page: int = 1, page_size: int = 100) -> dict:
+        limit, offset = cls._page_to_limit_offset(page=page, page_size=page_size)
         async with SessionLocal() as session:
             records, total = await Items.list_source_videos(
                 session=session,
@@ -307,8 +403,8 @@ class ReconstructionManager:
             )
             return {
                 "total": total,
-                "limit": limit,
-                "offset": offset,
+                "page": page,
+                "pageSize": page_size,
                 "records": [cls._format_source_video_item(item) for item in records],
             }
 
@@ -463,8 +559,6 @@ class ReconstructionManager:
     async def submit_video_task(
         cls,
         item_id: int,
-        video_path: str,
-        name: str,
         iterations: int = 30000,
         fps: float = 3,
         image_size: int = 1600,
@@ -480,22 +574,20 @@ class ReconstructionManager:
         skip_filter: bool = False,
         skip_colmap: bool = False,
         skip_sam3: bool = False,
-        output_name: str = None
     ) -> dict:
         """
         提交视频重建任务
         
         Args:
             item_id: 配件ID
-            video_path: 视频文件路径
-            name: 场景名称
             iterations: 训练迭代次数
             其他参数见 video_reconstruction task
             
         Returns:
             dict: 包含 task_id 的响应
         """
-        await cls._require_item_exists(item_id)
+        item = await cls._require_item_exists(item_id)
+        video_path, name = cls._resolve_video_task_inputs(item)
 
         # 获取 Celery 模块
         _, _, video_reconstruction = _get_celery_modules()
@@ -503,50 +595,61 @@ class ReconstructionManager:
         # 本地路径直接检查；MinIO 对象路径由 Celery worker 下载后再检查。
         if not looks_like_minio_path(video_path) and not os.path.exists(video_path):
             raise ValueError(f"视频文件不存在: {video_path}")
-        
-        # 生成输出名称
-        if not output_name:
-            output_name = f"{name}_{int(os.urandom(4).hex(), 16):08x}"
+
+        run_name = cls._build_video_run_name(name)
 
         sam3_model = cls._resolve_sam3_model_path(is_sam3=is_sam3)
+        task_id = str(uuid4())
         
-        # 提交 Celery 任务
-        task = video_reconstruction.apply_async(
-            kwargs={
-                "video_path": video_path,
-                "name": name,
-                "iterations": iterations,
-                "output_name": output_name,
-                "fps": fps,
-                "image_size": image_size,
-                "blur_threshold": blur_threshold,
-                "dedup_threshold": dedup_threshold,
-                "min_frames": min_frames,
-                "sam3_model": sam3_model,
-                "text_prompt": text_prompt,
-                "mask_dilate": mask_dilate,
-                "camera": camera,
-                "no_gpu": no_gpu,
-                "skip_extract": skip_extract,
-                "skip_filter": skip_filter,
-                "skip_colmap": skip_colmap,
-                "skip_sam3": skip_sam3,
-            }
-        )
-        task_id = task.id
-        
-        # 创建数据库记录
+        # 先创建数据库记录，避免 worker 很快完成时查不到 task_id。
         async with SessionLocal() as session:
             await ReconstructionRecord.create_record(
                 session=session,
                 item_id=item_id,
                 task_id=task_id,
                 task_type="video",
-                scene_name=name,
+                scene_name=run_name,
                 video_path=video_path,
                 iterations=iterations
             )
             await session.commit()
+
+        try:
+            video_reconstruction.apply_async(
+                kwargs={
+                    "video_path": video_path,
+                    "name": run_name,
+                    "iterations": iterations,
+                    "output_name": run_name,
+                    "fps": fps,
+                    "image_size": image_size,
+                    "blur_threshold": blur_threshold,
+                    "dedup_threshold": dedup_threshold,
+                    "min_frames": min_frames,
+                    "sam3_model": sam3_model,
+                    "text_prompt": text_prompt,
+                    "mask_dilate": mask_dilate,
+                    "camera": camera,
+                    "no_gpu": no_gpu,
+                    "skip_extract": skip_extract,
+                    "skip_filter": skip_filter,
+                    "skip_colmap": skip_colmap,
+                    "skip_sam3": skip_sam3,
+                },
+                task_id=task_id,
+            )
+        except Exception as exc:
+            async with SessionLocal() as session:
+                await ReconstructionRecord.update_status(
+                    session=session,
+                    task_id=task_id,
+                    status=ReconstructionStatus.FAILED,
+                    progress=0,
+                    current_stage="投递失败",
+                    error_message=str(exc),
+                )
+                await session.commit()
+            raise
         
         logger.info(f"视频重建任务已提交: task_id={task_id}, item_id={item_id}, video={video_path}")
         
@@ -662,7 +765,6 @@ class ReconstructionManager:
                 "current_stage": stage,
                 "error_message": error,
                 "ply_url": record.ply_url,
-                "obj_url": record.obj_url,
                 "glb_url": record.glb_url,
                 "total_frames": record.total_frames,
                 "filtered_frames": record.filtered_frames,
@@ -734,7 +836,6 @@ class ReconstructionManager:
                     "current_stage": r.current_stage,
                     "error_message": r.error_message,
                     "ply_url": r.ply_url,
-                    "obj_url": r.obj_url,
                     "glb_url": r.glb_url,
                     "total_frames": r.total_frames,
                     "filtered_frames": r.filtered_frames,
@@ -749,20 +850,21 @@ class ReconstructionManager:
     async def list_all_tasks(
         cls,
         status: str = None,
-        limit: int = 100,
-        offset: int = 0
+        page: int = 1,
+        page_size: int = 100
     ) -> dict:
         """
         列出所有重构任务（支持分页和状态筛选）
         
         Args:
             status: 任务状态筛选（可选）
-            limit: 每页数量
-            offset: 偏移量
+            page: 页码
+            page_size: 每页数量
             
         Returns:
             dict: 包含任务列表和总数
         """
+        limit, offset = cls._page_to_limit_offset(page=page, page_size=page_size)
         async with SessionLocal() as session:
             records, total = await ReconstructionRecord.get_all_tasks(
                 session=session,
@@ -773,8 +875,8 @@ class ReconstructionManager:
             
             return {
                 "total": total,
-                "limit": limit,
-                "offset": offset,
+                "page": page,
+                "pageSize": page_size,
                 "records": [
                     {
                         "task_id": r.task_id,
@@ -786,7 +888,6 @@ class ReconstructionManager:
                         "scene_name": r.scene_name,
                         "error_message": r.error_message,
                         "ply_url": r.ply_url,
-                        "obj_url": r.obj_url,
                         "glb_url": r.glb_url,
                         "total_frames": r.total_frames,
                         "filtered_frames": r.filtered_frames,

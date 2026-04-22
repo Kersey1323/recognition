@@ -3,6 +3,7 @@
 """
 from typing import Optional
 
+from bfrcommon.api_models import PageReq
 from pydantic import BaseModel, Field, validator
 
 
@@ -17,8 +18,6 @@ class ReconstructionTrainReq(BaseModel):
 class ReconstructionVideoReq(BaseModel):
     """从视频重建的请求"""
     item_id: str = Field(..., description='配件ID，建议按字符串传递以避免前端精度丢失')
-    video_path: str = Field(..., description='视频文件路径，支持服务器本地绝对路径或 MinIO 对象路径（如 bfr-3d-videos/raw-videos/...mp4）')
-    name: str = Field(..., description='场景名称')
     iterations: int = Field(default=30000, description='训练迭代次数')
     fps: float = Field(default=3, description='提帧率')
     image_size: int = Field(default=1600, description='图片最大边长')
@@ -34,7 +33,6 @@ class ReconstructionVideoReq(BaseModel):
     skip_filter: bool = Field(default=False, description='跳过帧筛选')
     skip_colmap: bool = Field(default=False, description='跳过COLMAP')
     skip_sam3: bool = Field(default=False, description='跳过SAM3')
-    output_name: Optional[str] = Field(None, description='输出名称（可选）')
 
     class Config:
         extra = "forbid"
@@ -88,11 +86,16 @@ class ReconstructionSourceVideoRes(BaseModel):
         return str(value)
 
 
+class ReconstructionSourceVideoListReq(PageReq):
+    """原始视频分页查询请求"""
+    pass
+
+
 class ReconstructionSourceVideoListRes(BaseModel):
     """当前原始视频分页响应"""
     total: int = Field(..., description='总数')
-    limit: int = Field(..., description='每页数量')
-    offset: int = Field(..., description='偏移量')
+    page: int = Field(..., description='当前页码')
+    pageSize: int = Field(..., description='每页数量')
     records: list[ReconstructionSourceVideoRes] = Field(default_factory=list, description='原始视频记录')
 
 
@@ -128,7 +131,6 @@ class ReconstructionStatusRes(BaseModel):
     
     # 结果
     ply_url: Optional[str] = Field(None, description='PLY文件URL')
-    obj_url: Optional[str] = Field(None, description='OBJ文件URL')
     glb_url: Optional[str] = Field(None, description='GLB文件URL')
     
     # 统计
@@ -137,8 +139,8 @@ class ReconstructionStatusRes(BaseModel):
     colmap_points: Optional[int] = Field(None, description='COLMAP点数')
     
     # 时间
-    created_at: Optional[str] = Field(None, description='创建时间')
-    updated_at: Optional[str] = Field(None, description='更新时间')
+    time_created: Optional[str] = Field(None, description='创建时间')
+    time_updated: Optional[str] = Field(None, description='更新时间')
 
     @validator("item_id", pre=True)
     def normalize_item_id(cls, value):
@@ -161,7 +163,6 @@ class ReconstructionTaskListItem(BaseModel):
     scene_name: Optional[str] = Field(None, description='场景名称')
     error_message: Optional[str] = Field(None, description='错误信息')
     ply_url: Optional[str] = Field(None, description='PLY文件URL')
-    obj_url: Optional[str] = Field(None, description='OBJ文件URL')
     glb_url: Optional[str] = Field(None, description='GLB文件URL')
     total_frames: Optional[int] = Field(None, description='总帧数')
     filtered_frames: Optional[int] = Field(None, description='筛选后帧数')
@@ -174,11 +175,16 @@ class ReconstructionTaskListItem(BaseModel):
         return str(value)
 
 
+class ReconstructionAllTasksReq(PageReq):
+    """重构任务分页查询请求"""
+    status: Optional[str] = Field(None, description='任务状态筛选（可选）')
+
+
 class ReconstructionAllTasksRes(BaseModel):
     """所有重建任务分页响应"""
     total: int = Field(..., description='总任务数')
-    limit: int = Field(..., description='每页数量')
-    offset: int = Field(..., description='偏移量')
+    page: int = Field(..., description='当前页码')
+    pageSize: int = Field(..., description='每页数量')
     records: list[ReconstructionTaskListItem] = Field(default_factory=list, description='任务列表')
 
 

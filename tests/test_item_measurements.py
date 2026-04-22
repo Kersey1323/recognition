@@ -5,7 +5,7 @@ from csrcqsf.models.item import Items
 def test_list_item_supports_weight_field():
     item = ListItem(
         item_name="配件A",
-        obj_url=None,
+        ply_url=None,
         item_code="A001",
         height=10.0,
         length=20.0,
@@ -22,7 +22,7 @@ def test_list_item_supports_weight_field():
 def test_list_item_supports_video_path_field():
     item = ListItem(
         item_name="配件A",
-        obj_url=None,
+        ply_url=None,
         item_code="A001",
         height=10.0,
         length=20.0,
@@ -36,9 +36,26 @@ def test_list_item_supports_video_path_field():
     assert item.video_path == "bfr-3d-videos/raw-videos/1935558010375340032/demo.mp4"
 
 
+def test_list_item_uses_ply_url_field():
+    item = ListItem(
+        item_name="配件A",
+        ply_url="bfr-reconstruction-files/results/1935558010375340032/task-id/point_cloud.ply",
+        item_code="A001",
+        height=10.0,
+        length=20.0,
+        width=30.0,
+        weight=40.0,
+        video_path="bfr-3d-videos/raw-videos/1935558010375340032/demo.mp4",
+        created_at="2026-04-22 10:00:00",
+        id="1935558010375340032",
+    )
+
+    assert item.ply_url.endswith("point_cloud.ply")
+
+
 def test_get_item_detail_supports_weight_field():
     detail = GetItemDetailRes(
-        obj_url=None,
+        ply_url=None,
         height=10.0,
         length=20.0,
         width=30.0,
@@ -63,7 +80,7 @@ def test_get_item_detail_supports_weight_field():
 
 def test_get_item_detail_supports_video_path_field():
     detail = GetItemDetailRes(
-        obj_url=None,
+        ply_url=None,
         height=10.0,
         length=20.0,
         width=30.0,
@@ -84,6 +101,31 @@ def test_get_item_detail_supports_video_path_field():
     )
 
     assert detail.video_path == "bfr-3d-videos/raw-videos/1935558010375340032/demo.mp4"
+
+
+def test_get_item_detail_uses_ply_url_field():
+    detail = GetItemDetailRes(
+        ply_url="bfr-reconstruction-files/results/1935558010375340032/task-id/point_cloud.ply",
+        height=10.0,
+        length=20.0,
+        width=30.0,
+        weight=40.0,
+        video_path="bfr-3d-videos/raw-videos/1935558010375340032/demo.mp4",
+        name="配件A",
+        item_code="A001",
+        id="1935558010375340032",
+        created_at="2026-04-22 10:00:00",
+        updated_at="2026-04-22 10:00:00",
+        images=[],
+        images_index_list=[],
+        parent_item_name=None,
+        parent_item_code=None,
+        parent_item_id=None,
+        size_str=None,
+        features=[],
+    )
+
+    assert detail.ply_url.endswith("point_cloud.ply")
 
 
 def test_build_measurement_updates_only_includes_provided_fields():

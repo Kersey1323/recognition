@@ -272,9 +272,11 @@ from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionStatusRes,
     ReconstructionListRes,
     ReconstructionSourceVideoRes,
+    ReconstructionSourceVideoListReq,
     ReconstructionSourceVideoListRes,
     ReconstructionSourceVideoMessageRes,
     ReconstructionResultMessageRes,
+    ReconstructionAllTasksReq,
     ReconstructionAllTasksRes,
     ReconstructionIndexRebuildRes,
 )
@@ -331,14 +333,11 @@ async def upload_reconstruct_v2_video(
     return ReconstructionSourceVideoRes(**result)
 
 
-@parts_router.get('/v2/reconstruct/video', tags=["算法-3D重建V2"], summary='V2: 分页列出三维重构原始视频')
-async def list_reconstruct_v2_source_videos(
-    limit: int = 100,
-    offset: int = 0,
-):
+@parts_router.post('/v2/reconstruct/video/list', tags=["算法-3D重建V2"], summary='V2: 分页列出三维重构原始视频')
+async def list_reconstruct_v2_source_videos(req: ReconstructionSourceVideoListReq):
     result = await ReconstructionManager.list_source_videos(
-        limit=limit,
-        offset=offset,
+        page=req.page,
+        page_size=req.per_page,
     )
     return ReconstructionSourceVideoListRes(**result)
 
@@ -380,23 +379,23 @@ async def reconstruct_v2_video(req: ReconstructionVideoReq):
     """
     完整视频重建流程
     
-    流程：视频 → 提帧 → 去模糊去重 → COLMAP → SAM3分割 → 3DGS训练
+    流程：已绑定原始视频 → 提帧 → 去模糊去重 → COLMAP → SAM3分割 → 3DGS训练
     
     参数：
     - item_id: 配件ID
-    - video_path: 视频文件路径（服务器本地绝对路径，或 MinIO 对象路径，如 bfr-3d-videos/raw-videos/...mp4）
-    - name: 场景名称
     - iterations: 训练迭代次数
     - is_sam3: 是否启用SAM3分割，模型路径由服务端SAM3_MODEL_PATH配置
     - skip_*: 跳过已完成的步骤（断点续跑）
+
+    说明：
+    - 服务端会根据 `item_id` 自动读取已绑定的 `video_path` 和配件名称
+    - 输出目录默认使用 `时间_item_name` 作为运行名
     
     返回：
     - task_id: 任务ID，用于查询进度
     """
     result = await ReconstructionManager.submit_video_task(
         item_id=int(req.item_id),
-        video_path=req.video_path,
-        name=req.name,
         iterations=req.iterations,
         fps=req.fps,
         image_size=req.image_size,
@@ -412,7 +411,6 @@ async def reconstruct_v2_video(req: ReconstructionVideoReq):
         skip_filter=req.skip_filter,
         skip_colmap=req.skip_colmap,
         skip_sam3=req.skip_sam3,
-        output_name=req.output_name
     )
     
     return ReconstructionTaskRes(**result)
@@ -459,12 +457,8 @@ async def list_item_reconstruct_tasks(item_id: str):
     return ReconstructionListRes(records=records)
 
 
-@parts_router.get('/v2/reconstruct/tasks', tags=["算法-3D重建V2"], summary='V2: 列出所有重建任务')
-async def list_all_reconstruct_tasks(
-    status: str = None,
-    limit: int = 100,
-    offset: int = 0
-):
+@parts_router.post('/v2/reconstruct/tasks/list', tags=["算法-3D重建V2"], summary='V2: 列出所有重建任务')
+async def list_all_reconstruct_tasks(req: ReconstructionAllTasksReq):
     """
     列出所有重建任务（支持分页和状态筛选）
     
@@ -480,19 +474,19 @@ async def list_all_reconstruct_tasks(
         - success: 成功
         - failed: 失败
         - cancelled: 已取消
-    - limit: 每页数量（默认100）
-    - offset: 偏移量（默认0）
+    - page: 页码
+    - pageSize: 每页数量
     
     返回：
     - total: 总任务数
-    - limit: 每页数量
-    - offset: 偏移量
+    - page: 当前页码
+    - pageSize: 每页数量
     - records: 任务列表
     """
     result = await ReconstructionManager.list_all_tasks(
-        status=status,
-        limit=limit,
-        offset=offset
+        status=req.status,
+        page=req.page,
+        page_size=req.per_page,
     )
     return ReconstructionAllTasksRes(**result)
 

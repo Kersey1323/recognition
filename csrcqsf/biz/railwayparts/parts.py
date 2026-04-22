@@ -170,7 +170,7 @@ class RailwayPartsManager:
                 item_desc = ListItem(
                     item_name=item.item_name,
                     item_code=item.item_code,
-                    obj_url=item.obj_url,
+                    ply_url=item.obj_url,
                     height=item.height,
                     width=item.width,
                     length=item.long,
@@ -237,6 +237,9 @@ class RailwayPartsManager:
 
     @classmethod
     async def get_item_detail(cls, item_id: int):
+        from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
+
+        await ReconstructionManager.ensure_item_result_persisted(item_id)
 
         index_detail = await MilvusManager.list_item_index([item_id])
 
@@ -252,7 +255,7 @@ class RailwayPartsManager:
 
             images = SgoItemImages.get_images(session=session, item_id=item_id)
             res = GetItemDetailRes(
-                obj_url=item.obj_url,
+                ply_url=item.obj_url,
                 id=str(item.id),
                 height=item.height,
                 width=item.width,
