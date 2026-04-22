@@ -271,7 +271,9 @@ from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionTaskRes,
     ReconstructionStatusRes,
     ReconstructionListRes,
-    ReconstructionVideoUploadRes
+    ReconstructionVideoUploadRes,
+    ReconstructionAllTasksRes,
+    ReconstructionIndexRebuildRes,
 )
 
 
@@ -292,7 +294,7 @@ async def reconstruct_v2_train(req: ReconstructionTrainReq):
     - task_id: 任务ID，用于查询进度
     """
     result = await ReconstructionManager.submit_train_task(
-        item_id=req.item_id,
+        item_id=int(req.item_id),
         scene=req.scene,
         iterations=req.iterations,
         output_name=req.output_name
@@ -303,7 +305,7 @@ async def reconstruct_v2_train(req: ReconstructionTrainReq):
 
 @parts_router.post('/v2/reconstruct/video/upload', tags=["算法-3D重建V2"], summary='V2: 上传三维重构原始视频到MinIO')
 async def upload_reconstruct_v2_video(
-    item_id: int = Form(...),
+    item_id: str = Form(...),
     file: UploadFile = File(...)
 ):
     """
@@ -312,7 +314,7 @@ async def upload_reconstruct_v2_video(
     返回的 `video_path` 可以直接作为 `/v2/reconstruct/video` 的 `video_path` 参数。
     """
     result = await ReconstructionManager.upload_source_video(
-        item_id=item_id,
+        item_id=int(item_id),
         file=file
     )
     return ReconstructionVideoUploadRes(**result)
@@ -337,7 +339,7 @@ async def reconstruct_v2_video(req: ReconstructionVideoReq):
     - task_id: 任务ID，用于查询进度
     """
     result = await ReconstructionManager.submit_video_task(
-        item_id=req.item_id,
+        item_id=int(req.item_id),
         video_path=req.video_path,
         name=req.name,
         iterations=req.iterations,
@@ -377,13 +379,13 @@ async def get_reconstruct_v2_status(task_id: str):
 
 
 @parts_router.get('/v2/reconstruct/item/{item_id}', tags=["算法-3D重建V2"], summary='V2: 列出配件的重建任务')
-async def list_item_reconstruct_tasks(item_id: int):
+async def list_item_reconstruct_tasks(item_id: str):
     """
     列出指定配件的所有重建任务
     
     返回任务列表，按创建时间倒序排列
     """
-    records = await ReconstructionManager.list_item_tasks(item_id)
+    records = await ReconstructionManager.list_item_tasks(int(item_id))
     return ReconstructionListRes(records=records)
 
 
@@ -422,7 +424,7 @@ async def list_all_reconstruct_tasks(
         limit=limit,
         offset=offset
     )
-    return result
+    return ReconstructionAllTasksRes(**result)
 
 
 @parts_router.delete('/v2/reconstruct/cancel/{task_id}', tags=["算法-3D重建V2"], summary='V2: 取消任务')
@@ -493,7 +495,7 @@ async def init_v2_collections():
 
 @parts_router.post('/v2/index/rebuild', tags=["算法-向量检索V2"], summary='重建V2索引')
 async def rebuild_v2_index(
-    item_id: int = None,
+    item_id: str = None,
     limit: int = None,
     background_tasks: BackgroundTasks = None
 ):
@@ -512,22 +514,24 @@ async def rebuild_v2_index(
     # 判断是否需要后台执行
     should_background = (limit is None or limit > 100) and background_tasks is not None
     
+    int_item_id = int(item_id) if item_id not in (None, "") else None
+
     if should_background:
         # 大批量任务放到后台执行
         background_tasks.add_task(
             RailwayPartsManager.rebuild_v2_index,
-            item_id=item_id,
+            item_id=int_item_id,
             limit=limit
         )
-        return {
-            'message': f'Index rebuild task started in background',
-            'item_id': item_id,
-            'limit': limit or 'all'
-        }
+        return ReconstructionIndexRebuildRes(
+            message='Index rebuild task started in background',
+            item_id=item_id,
+            limit=limit or 'all'
+        )
     else:
         # 小批量任务直接执行
         result = await RailwayPartsManager.rebuild_v2_index(
-            item_id=item_id,
+            item_id=int_item_id,
             limit=limit
         )
         return {

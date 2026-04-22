@@ -1,13 +1,14 @@
 """
 三维重构 API 模型
 """
-from pydantic import BaseModel, Field
 from typing import Optional
+
+from pydantic import BaseModel, Field, validator
 
 
 class ReconstructionTrainReq(BaseModel):
     """从已有场景数据训练的请求"""
-    item_id: int = Field(..., description='配件ID')
+    item_id: str = Field(..., description='配件ID，建议按字符串传递以避免前端精度丢失')
     scene: str = Field(..., description='场景名称（data目录下的文件夹名）')
     iterations: int = Field(default=30000, description='训练迭代次数')
     output_name: Optional[str] = Field(None, description='输出名称（可选）')
@@ -15,7 +16,7 @@ class ReconstructionTrainReq(BaseModel):
 
 class ReconstructionVideoReq(BaseModel):
     """从视频重建的请求"""
-    item_id: int = Field(..., description='配件ID')
+    item_id: str = Field(..., description='配件ID，建议按字符串传递以避免前端精度丢失')
     video_path: str = Field(..., description='视频文件路径，支持服务器本地绝对路径或 MinIO 对象路径（如 bfr-3d-videos/raw-videos/...mp4）')
     name: str = Field(..., description='场景名称')
     iterations: int = Field(default=30000, description='训练迭代次数')
@@ -39,14 +40,18 @@ class ReconstructionVideoReq(BaseModel):
 class ReconstructionTaskRes(BaseModel):
     """重建任务响应"""
     task_id: str = Field(..., description='任务ID')
-    item_id: int = Field(..., description='配件ID')
+    item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')
     mode: str = Field(..., description='模式: train/video')
     message: str = Field(..., description='消息')
+
+    @validator("item_id", pre=True)
+    def normalize_item_id(cls, value):
+        return str(value)
 
 
 class ReconstructionVideoUploadRes(BaseModel):
     """重建原始视频上传响应"""
-    item_id: int = Field(..., description='配件ID')
+    item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')
     bucket: str = Field(..., description='MinIO bucket')
     object_name: str = Field(..., description='MinIO object name')
     video_path: str = Field(..., description='可直接传给 /v2/reconstruct/video 的视频路径')
@@ -54,11 +59,15 @@ class ReconstructionVideoUploadRes(BaseModel):
     content_type: str = Field(default='', description='文件类型')
     message: str = Field(..., description='消息')
 
+    @validator("item_id", pre=True)
+    def normalize_item_id(cls, value):
+        return str(value)
+
 
 class ReconstructionStatusRes(BaseModel):
     """重建任务状态响应"""
     task_id: str = Field(..., description='任务ID')
-    item_id: int = Field(..., description='配件ID')
+    item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')
     status: str = Field(..., description='任务状态')
     progress: int = Field(..., description='进度 0-100')
     current_stage: Optional[str] = Field(None, description='当前阶段')
@@ -78,7 +87,56 @@ class ReconstructionStatusRes(BaseModel):
     created_at: Optional[str] = Field(None, description='创建时间')
     updated_at: Optional[str] = Field(None, description='更新时间')
 
+    @validator("item_id", pre=True)
+    def normalize_item_id(cls, value):
+        return str(value)
+
 
 class ReconstructionListRes(BaseModel):
     """重建记录列表响应"""
     records: list[ReconstructionStatusRes] = Field(default_factory=list, description='记录列表')
+
+
+class ReconstructionTaskListItem(BaseModel):
+    """重建任务列表项"""
+    task_id: str = Field(..., description='任务ID')
+    item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')
+    task_type: str = Field(..., description='任务类型')
+    status: str = Field(..., description='任务状态')
+    progress: int = Field(..., description='进度 0-100')
+    current_stage: Optional[str] = Field(None, description='当前阶段')
+    scene_name: Optional[str] = Field(None, description='场景名称')
+    error_message: Optional[str] = Field(None, description='错误信息')
+    ply_url: Optional[str] = Field(None, description='PLY文件URL')
+    obj_url: Optional[str] = Field(None, description='OBJ文件URL')
+    glb_url: Optional[str] = Field(None, description='GLB文件URL')
+    total_frames: Optional[int] = Field(None, description='总帧数')
+    filtered_frames: Optional[int] = Field(None, description='筛选后帧数')
+    colmap_points: Optional[int] = Field(None, description='COLMAP点数')
+    time_created: Optional[str] = Field(None, description='创建时间')
+    time_updated: Optional[str] = Field(None, description='更新时间')
+
+    @validator("item_id", pre=True)
+    def normalize_item_id(cls, value):
+        return str(value)
+
+
+class ReconstructionAllTasksRes(BaseModel):
+    """所有重建任务分页响应"""
+    total: int = Field(..., description='总任务数')
+    limit: int = Field(..., description='每页数量')
+    offset: int = Field(..., description='偏移量')
+    records: list[ReconstructionTaskListItem] = Field(default_factory=list, description='任务列表')
+
+
+class ReconstructionIndexRebuildRes(BaseModel):
+    """V2 索引重建响应"""
+    message: str = Field(..., description='消息')
+    item_id: Optional[str] = Field(None, description='配件ID，字符串返回以避免前端精度丢失')
+    limit: Optional[str | int] = Field(None, description='处理数量限制')
+
+    @validator("item_id", pre=True)
+    def normalize_item_id(cls, value):
+        if value is None:
+            return None
+        return str(value)
