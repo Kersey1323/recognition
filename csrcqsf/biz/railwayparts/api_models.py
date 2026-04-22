@@ -56,6 +56,7 @@ class ListItem(BaseModel):
     length: float | None
     width: float | None
     weight: float | None
+    video_path: str | None
     created_at: str
     features: list[str] = Field(default=[], description='文字特征')
     features_num: int = 0
@@ -115,6 +116,7 @@ class GetItemDetailRes(BaseModel):
     length: float | None
     width: float | None
     weight: float | None
+    video_path: str | None
     name: str
     item_code: str
     id: str
@@ -286,4 +288,3 @@ class ListSegmentedImagesRes(BaseModel):
     """分割记录列表响应"""
     item_id: str = ''
     records: list[SegmentedImageItem] = []
-

@@ -175,6 +175,7 @@ class RailwayPartsManager:
                     width=item.width,
                     length=item.long,
                     weight=item.weight,
+                    video_path=item.source_video_path,
                     id=str(item.id),
                     created_at=date_to_str(item.time_created)
                 )
@@ -257,6 +258,7 @@ class RailwayPartsManager:
                 width=item.width,
                 length=item.long,
                 weight=item.weight,
+                video_path=item.source_video_path,
                 name=item.item_name,
                 item_code=item.item_code,
                 created_at=date_to_str(item.time_created),
