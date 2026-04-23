@@ -73,6 +73,9 @@ class Items(Base):
     source_video_size: Mapped[int] = mapped_column(BIGINT, nullable=True)
     source_video_content_type: Mapped[str] = mapped_column(String(100), nullable=True)
     source_video_updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    has_v2_index: Mapped[int] = mapped_column(INT, nullable=False, default=0)
+    v2_indexed_image_num: Mapped[int] = mapped_column(INT, nullable=False, default=0)
+    v2_index_updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     size_str: Mapped[str] = mapped_column(Text, nullable=True)
     item_type: Mapped[ItemType] = mapped_column(
         String(200), nullable=False, default='real')
@@ -206,6 +209,61 @@ class Items(Base):
         return values
 
     @classmethod
+    def build_v2_index_updates(
+        cls,
+        *,
+        has_v2_index: bool,
+        v2_indexed_image_num: int,
+        updated_at,
+    ) -> dict:
+        return {
+            "has_v2_index": 1 if has_v2_index else 0,
+            "v2_indexed_image_num": int(v2_indexed_image_num),
+            "v2_index_updated_at": updated_at,
+        }
+
+    @classmethod
+    async def reset_v2_index_state(cls, session: AsyncSession, updated_at):
+        stmt = update(cls).values(
+            has_v2_index=0,
+            v2_indexed_image_num=0,
+            v2_index_updated_at=updated_at,
+        )
+        await session.execute(stmt)
+        await session.flush()
+
+    @classmethod
+    async def update_v2_index_state(
+        cls,
+        session: AsyncSession,
+        item_id: int,
+        *,
+        has_v2_index: bool,
+        v2_indexed_image_num: int,
+        updated_at,
+    ):
+        stmt = update(cls).where(cls.id == item_id).values(
+            **cls.build_v2_index_updates(
+                has_v2_index=has_v2_index,
+                v2_indexed_image_num=v2_indexed_image_num,
+                updated_at=updated_at,
+            )
+        )
+        await session.execute(stmt)
+        await session.flush()
+
+    @classmethod
+    async def bulk_update_v2_index_state(cls, session: AsyncSession, rows: list[dict]):
+        for row in rows:
+            await cls.update_v2_index_state(
+                session=session,
+                item_id=row["item_id"],
+                has_v2_index=bool(row["has_v2_index"]),
+                v2_indexed_image_num=row["v2_indexed_image_num"],
+                updated_at=row["updated_at"],
+            )
+
+    @classmethod
     def build_clear_source_video_values(cls) -> dict:
         return {
             "source_video_path": None,
@@ -314,7 +372,8 @@ class Items(Base):
     @classmethod
     async def list_items(cls, session: AsyncSession, query: str = None, page: int = 0, per_page: int = 20,
                          has_images: bool = False,
-                         item_id_list: list[int] = [], item_code_list: list[str] = [],need_index:bool = False):
+                         item_id_list: list[int] = [], item_code_list: list[str] = [], need_index: bool = False,
+                         need_v2_index: bool = False, has_source_video: int = 0):
         offset = (page-1) * per_page
         stmt = select(cls)
         if len(item_id_list) > 0:
@@ -329,6 +388,12 @@ class Items(Base):
             stmt = stmt.where(cls.item_code.in_(item_code_list))
         if need_index:
             stmt = stmt.where(cls.image_index_num.__gt__(0).__and__(cls.feature_index_num.__gt__(0)))
+        if need_v2_index:
+            stmt = stmt.where(cls.has_v2_index == 1)
+        if has_source_video == 1:
+            stmt = stmt.where(cls.source_video_path.is_not(None))
+        elif has_source_video == 2:
+            stmt = stmt.where(cls.source_video_path.is_(None))
         count = await async_get_count(session, stmt)
         stmt = stmt.order_by(cls.time_created.desc()).order_by(cls.id.desc())
         if page != -1:

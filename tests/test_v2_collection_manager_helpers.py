@@ -9,9 +9,29 @@ class _FakeIterator:
         return iter(self._batches)
 
 
+class _FakeQueryIterator:
+    def __init__(self, batches):
+        self._batches = list(batches)
+        self.closed = False
+
+    def next(self):
+        if len(self._batches) == 0:
+            return []
+        return self._batches.pop(0)
+
+    def close(self):
+        self.closed = True
+
+
 class _FakeClient:
     def __init__(self):
         self.deleted = []
+        self.query_iterator_result = _FakeIterator(
+            [
+                [{"item_id": 101}, {"item_id": 102}],
+                [{"item_id": 102}, {"item_id": 103}],
+            ]
+        )
 
     def has_collection(self, name):
         return name != "missing_collection"
@@ -21,12 +41,7 @@ class _FakeClient:
 
     def query_iterator(self, collection_name, filter, output_fields, batch_size):
         assert output_fields == ["item_id"]
-        return _FakeIterator(
-            [
-                [{"item_id": 101}, {"item_id": 102}],
-                [{"item_id": 102}, {"item_id": 103}],
-            ]
-        )
+        return self.query_iterator_result
 
     def delete(self, collection_name, filter):
         self.deleted.append((collection_name, filter))
@@ -45,6 +60,40 @@ def test_iter_collection_item_ids_deduplicates_values():
     manager.client = _FakeClient()
 
     assert manager.iter_collection_item_ids("siglip_collection") == {101, 102, 103}
+
+
+def test_iter_collection_item_ids_supports_milvus_query_iterator_next_api():
+    manager = CollectionManager.__new__(CollectionManager)
+    client = _FakeClient()
+    client.query_iterator_result = _FakeQueryIterator(
+        [
+            [{"item_id": 201}, {"item_id": 202}],
+            [{"item_id": 202}, {"item_id": 203}],
+        ]
+    )
+    manager.client = client
+
+    assert manager.iter_collection_item_ids("siglip_collection") == {201, 202, 203}
+    assert client.query_iterator_result.closed is True
+
+
+def test_get_collection_item_counts_groups_rows_per_item_id():
+    manager = CollectionManager.__new__(CollectionManager)
+    client = _FakeClient()
+    client.query_iterator_result = _FakeQueryIterator(
+        [
+            [{"item_id": 201}, {"item_id": 201}],
+            [{"item_id": 202}, {"item_id": 203}, {"item_id": 203}],
+        ]
+    )
+    manager.client = client
+
+    assert manager.get_collection_item_counts("siglip_collection") == {
+        201: 2,
+        202: 1,
+        203: 2,
+    }
+    assert client.query_iterator_result.closed is True
 
 
 def test_delete_by_item_id_uses_item_id_filter():

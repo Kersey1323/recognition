@@ -120,6 +120,29 @@ class MilvusManagerV2:
             "dinov2_item_ids": dinov2_item_ids,
         }
 
+    def get_item_index_state_snapshot(self) -> dict[int, dict[str, int]]:
+        """按 item_id 聚合当前 V2 索引状态。"""
+        siglip_counts = self.collection_manager.get_collection_item_counts(self.siglip_collection)
+        dinov2_item_ids = self.collection_manager.iter_collection_item_ids(self.dinov2_collection)
+
+        snapshot: dict[int, dict[str, int]] = {}
+        for item_id, image_count in siglip_counts.items():
+            snapshot[item_id] = {
+                "has_v2_index": 1 if item_id in dinov2_item_ids else 0,
+                "v2_indexed_image_num": image_count if item_id in dinov2_item_ids else 0,
+            }
+
+        for item_id in dinov2_item_ids:
+            snapshot.setdefault(
+                item_id,
+                {
+                    "has_v2_index": 0,
+                    "v2_indexed_image_num": 0,
+                },
+            )
+
+        return snapshot
+
     def delete_item_index(self, item_id: int) -> dict[str, int]:
         """删除指定 item_id 在 V2 collections 中的所有向量记录。"""
         return {

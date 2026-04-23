@@ -33,6 +33,7 @@ class ListItemReq(PageReq):
     only_has_index: int = Field(description='只查看有索引的配件.1 为是 0为否', default=0, example=0)
     has_inquery_code: int = Field(description='只查看有询码记录的配件.1为是 0为否', default=0, example=0)
     has_images: int = Field(description='只查看有图片的配件.1 为是 0为否', default=0, example=0)
+    has_source_video: int = Field(description='原视频筛选.0不筛选 1已上传 2未上传', default=0, example=0)
     
     class Config:
         json_schema_extra = {
@@ -43,7 +44,8 @@ class ListItemReq(PageReq):
                 "parent_item_id": None,
                 "only_has_index": 0,
                 "has_inquery_code": 0,
-                "has_images": 0
+                "has_images": 0,
+                "has_source_video": 0,
             }
         }
 
@@ -58,6 +60,8 @@ class ListItem(BaseModel):
     weight: float | None
     video_path: str | None
     created_at: str
+    has_index: int = Field(default=0, description='为1时表示已具备完整V2索引')
+    has_source_video: int = Field(default=0, description='为1时表示已上传原视频')
     features: list[str] = Field(default=[], description='文字特征')
     features_num: int = 0
     images_total_num: int = Field(description='图片总数', default=0)

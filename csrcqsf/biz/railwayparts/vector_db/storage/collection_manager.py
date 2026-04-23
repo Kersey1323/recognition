@@ -73,13 +73,73 @@ class CollectionManager:
             batch_size=batch_size,
         )
 
-        for batch in iterator:
-            for row in batch:
-                value = row.get("item_id")
-                if value is not None:
-                    item_ids.add(int(value))
+        try:
+            if hasattr(iterator, "next"):
+                while True:
+                    batch = iterator.next()
+                    if len(batch) == 0:
+                        break
+                    for row in batch:
+                        value = row.get("item_id")
+                        if value is not None:
+                            item_ids.add(int(value))
+            else:
+                for batch in iterator:
+                    for row in batch:
+                        value = row.get("item_id")
+                        if value is not None:
+                            item_ids.add(int(value))
+        finally:
+            if hasattr(iterator, "close"):
+                iterator.close()
 
         return item_ids
+
+    def get_collection_item_counts(self, collection_name: str, batch_size: int = 1000) -> dict[int, int]:
+        """
+        统计 collection 中每个 item_id 对应的记录数。
+
+        Args:
+            collection_name: Collection 名称
+            batch_size: 分批查询大小
+
+        Returns:
+            item_id -> 记录数；如果 collection 不存在则返回空字典
+        """
+        if not self.collection_exists(collection_name):
+            return {}
+
+        counts: dict[int, int] = {}
+        iterator = self.client.query_iterator(
+            collection_name=collection_name,
+            filter="item_id >= 0",
+            output_fields=["item_id"],
+            batch_size=batch_size,
+        )
+
+        try:
+            if hasattr(iterator, "next"):
+                while True:
+                    batch = iterator.next()
+                    if len(batch) == 0:
+                        break
+                    for row in batch:
+                        value = row.get("item_id")
+                        if value is not None:
+                            item_id = int(value)
+                            counts[item_id] = counts.get(item_id, 0) + 1
+            else:
+                for batch in iterator:
+                    for row in batch:
+                        value = row.get("item_id")
+                        if value is not None:
+                            item_id = int(value)
+                            counts[item_id] = counts.get(item_id, 0) + 1
+        finally:
+            if hasattr(iterator, "close"):
+                iterator.close()
+
+        return counts
 
     def delete_by_item_id(self, collection_name: str, item_id: int) -> int:
         """

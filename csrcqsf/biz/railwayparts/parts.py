@@ -153,9 +153,18 @@ class RailwayPartsManager:
                     item_id_list.append(d.item_id)  
             has_index_flag = True if req.only_has_index == 1 else False
             images_has = True if req.has_images == 1 else False
-            items = await Items.list_items(session=session,  query=req.query, page=req.page, per_page=req.per_page,
-                                           has_images=images_has,
-                                           item_id_list=item_id_list, item_code_list=item_code_list,need_index=has_index_flag)
+            items = await Items.list_items(
+                session=session,
+                query=req.query,
+                page=req.page,
+                per_page=req.per_page,
+                has_images=images_has,
+                item_id_list=item_id_list,
+                item_code_list=item_code_list,
+                need_index=False,
+                need_v2_index=has_index_flag,
+                has_source_video=req.has_source_video,
+            )
 
             index_dict = await MilvusManager.list_item_index([item.id for item in items.data])
 
@@ -180,6 +189,9 @@ class RailwayPartsManager:
                     length=item.long,
                     weight=item.weight,
                     video_path=item.source_video_path,
+                    has_index=1 if item.has_v2_index == 1 else 0,
+                    has_source_video=1 if item.source_video_path else 0,
+                    images_total_indexed_num=item.v2_indexed_image_num,
                     id=str(item.id),
                     created_at=date_to_str(item.time_created)
                 )
@@ -188,7 +200,6 @@ class RailwayPartsManager:
 
                 index = index_dict.get(item.id)
                 if index is not None:
-                    item_desc.images_total_indexed_num = len(index.images)
                     item_desc.features = [f.feature for f in index.features]
                     item_desc.features_num = len(index.features)
                 res.items.append(item_desc)
@@ -689,6 +700,7 @@ class RailwayPartsManager:
                     images_result = await SgoItemImages.list_item_images_by_item_id(session, item.id)
                     # 将 ScalarResult 转换为列表
                     images = list(images_result) if images_result else []
+                    item_success_count = 0
                     
                     if len(images) == 0:
                         logger.warning(f"配件 {item.id} 没有图片，跳过")
@@ -723,6 +735,7 @@ class RailwayPartsManager:
                             
                             if siglip_ok and dinov2_ok:
                                 success_count += 1
+                                item_success_count += 1
                                 logger.info(f"索引成功: item={item.id}, image={img.id}")
                             else:
                                 fail_count += 1
@@ -735,6 +748,10 @@ class RailwayPartsManager:
                 except Exception as e:
                     fail_count += 1
                     logger.error(f"处理配件失败: item={item.id}, error={e}")
+                    continue
+
+                if item_success_count > 0:
+                    await cls.sync_item_v2_index_state(item.id)
             
             logger.info(f"V2 索引重建完成: 成功={success_count}, 失败={fail_count}")
             
@@ -752,12 +769,61 @@ class RailwayPartsManager:
                 raise Exception(f'配件不存在: {item_id}')
 
         delete_result = MilvusManagerV2().delete_item_index(item_id)
+        async with SessionLocal() as session:
+            await Items.update_v2_index_state(
+                session=session,
+                item_id=item_id,
+                has_v2_index=False,
+                v2_indexed_image_num=0,
+                updated_at=datetime.now(),
+            )
+            await session.commit()
         return {
             "item_id": item_id,
             "siglip_deleted": int(delete_result.get("siglip_deleted", 0) or 0),
             "dinov2_deleted": int(delete_result.get("dinov2_deleted", 0) or 0),
             "message": "V2索引删除成功",
         }
+
+    @classmethod
+    async def sync_all_v2_index_state(cls) -> dict:
+        snapshot = MilvusManagerV2().get_item_index_state_snapshot()
+        updated_at = datetime.now()
+        rows = [
+            {
+                "item_id": item_id,
+                "has_v2_index": state["has_v2_index"],
+                "v2_indexed_image_num": state["v2_indexed_image_num"],
+                "updated_at": updated_at,
+            }
+            for item_id, state in snapshot.items()
+        ]
+
+        async with SessionLocal() as session:
+            await Items.reset_v2_index_state(session=session, updated_at=updated_at)
+            if len(rows) > 0:
+                await Items.bulk_update_v2_index_state(session=session, rows=rows)
+            await session.commit()
+
+        return {
+            "indexed_item_count": len(rows),
+            "updated_at": date_to_str(updated_at),
+        }
+
+    @classmethod
+    async def sync_item_v2_index_state(cls, item_id: int):
+        snapshot = MilvusManagerV2().get_item_index_state_snapshot()
+        state = snapshot.get(item_id, {"has_v2_index": 0, "v2_indexed_image_num": 0})
+        updated_at = datetime.now()
+        async with SessionLocal() as session:
+            await Items.update_v2_index_state(
+                session=session,
+                item_id=item_id,
+                has_v2_index=bool(state["has_v2_index"]),
+                v2_indexed_image_num=state["v2_indexed_image_num"],
+                updated_at=updated_at,
+            )
+            await session.commit()
 
     @classmethod
     async def _persist_v2_search_history(
