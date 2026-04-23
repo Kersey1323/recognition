@@ -10,7 +10,12 @@ from bfrcommon.snowflake import get_id
 from csrcqsf.data.pg import SessionLocal
 from csrcqsf.data.mdpdb import sgo_sessionLocal
 from csrcqsf.data.minio import minio_instance
-from csrcqsf.models.search_history import SearchParameters, SearchHistory
+from csrcqsf.models.search_history import (
+    SearchHistory,
+    SearchParameters,
+    SearchResultItem,
+    SearchResults,
+)
 from csrcqsf.models.sgo_models import SgoMaterielMasterplate
 # 导入Milvus向量检索管理器
 from .milvus import MilvusManager, ImageIndex, PartsIndex, FeaturesIndex, ColletionEnum
@@ -26,7 +31,6 @@ from pymilvus import Function, FunctionType
 from pymilvus import AnnSearchRequest
 from pymilvus.client.embedding_list import EmbeddingList
 from csrcqsf.settings import ai_settings,minio_bucket
-from sqlalchemy import func
 from .vector_db.storage.milvus_manager import MilvusManagerV2
 
 class RailwayPartsManager:
@@ -579,28 +583,21 @@ class RailwayPartsManager:
 
     @classmethod
     async def statistics(cls):
-        
         res = IndexStatisticsRes()
         async with SessionLocal() as session:
-            stmt = select(Items)
-            res.total_item_num = await async_get_count(session, stmt)
+            res.total_item_num = await async_get_count(session, select(Items))
 
-            stmt = select(Items).where(Items.feature_index_num.__gt__(0).__and__(Items.image_index_num.__gt__(0)))
-            res.total_indexed_item_num = await async_get_count(session,stmt)
+        snapshot = MilvusManagerV2().get_statistics_snapshot()
+        siglip_item_ids = snapshot.get("siglip_item_ids", set())
+        dinov2_item_ids = snapshot.get("dinov2_item_ids", set())
 
-            stmt = select(func.sum(Items.image_index_num),func.sum(Items.feature_index_num)).where(Items.feature_index_num.__gt__(0).__and__(Items.image_index_num.__gt__(0)))
-            indexed_num_res = await session.execute(stmt)
-            data = indexed_num_res.first()
-            res.total_feature_index = data[1]
-            res.total_image_index = data[0]
-            res.total_index = res.total_feature_index + res.total_image_index
-            stmt = select(SearchHistory)
-            res.recognition_number = await async_get_count(session, stmt)
-            stmt = select(SearchHistory).where(SearchHistory.correct_item_code == SearchHistory.search_result_item_code)
-            res.corrrect_recognition_number = await async_get_count(session, stmt)
-            if res.recognition_number != 0:
-                res.recognition_ration = res.corrrect_recognition_number/res.recognition_number
-            
+        res.total_image_index = int(snapshot.get("siglip_count", 0) or 0)
+        res.total_feature_index = int(snapshot.get("dinov2_count", 0) or 0)
+        res.total_index = res.total_image_index + res.total_feature_index
+        res.total_indexed_item_num = len(siglip_item_ids & dinov2_item_ids)
+        res.recognition_number = 0
+        res.corrrect_recognition_number = 0
+        res.recognition_ration = 0
         return res
 
     @classmethod
@@ -746,6 +743,102 @@ class RailwayPartsManager:
                 'fail_count': fail_count,
                 'total': success_count + fail_count
             }
+
+    @classmethod
+    async def delete_v2_index(cls, item_id: int) -> dict:
+        async with SessionLocal() as session:
+            item = await Items.get_item_by_id(session=session, item_id=item_id)
+            if item is None:
+                raise Exception(f'配件不存在: {item_id}')
+
+        delete_result = MilvusManagerV2().delete_item_index(item_id)
+        return {
+            "item_id": item_id,
+            "siglip_deleted": int(delete_result.get("siglip_deleted", 0) or 0),
+            "dinov2_deleted": int(delete_result.get("dinov2_deleted", 0) or 0),
+            "message": "V2索引删除成功",
+        }
+
+    @classmethod
+    async def _persist_v2_search_history(
+        cls,
+        *,
+        query_text: str | None,
+        upload_filename: str | None,
+        search_items: list[SearchItem],
+    ) -> None:
+        top1 = search_items[0] if search_items else None
+        parameters = SearchParameters(
+            features=[query_text] if query_text else [],
+            images=[f"upload:{upload_filename}"] if upload_filename else [],
+            vechile="",
+            parent_item_id=0,
+            lower_rate=0,
+        )
+        search_results = SearchResults(
+            items=[
+                SearchResultItem(
+                    item_id=int(item.item_id),
+                    item_code=item.item_code,
+                    similar=item.rate,
+                )
+                for item in search_items
+            ]
+        )
+
+        try:
+            async with SessionLocal() as session:
+                session.add(
+                    SearchHistory(
+                        inquery_id=None,
+                        inquery_num=None,
+                        search_result_item_name=top1.item_name if top1 else None,
+                        search_result_item_code=top1.item_code if top1 else "",
+                        search_parameter=parameters,
+                        correct_item_name=None,
+                        correct_item_code=None,
+                        search_results=search_results,
+                    )
+                )
+                await session.commit()
+        except Exception:
+            logger.exception("V2检索历史写入失败")
+
+    @classmethod
+    async def list_v2_search_history(cls, req: SearchHistoryListReq):
+        async with SessionLocal() as session:
+            page_result = await SearchHistory.list_search_history(
+                session=session,
+                page=req.page,
+                per_page=req.per_page,
+            )
+
+        items = []
+        for row in page_result.data:
+            params = row.search_parameter
+            search_type = "image" if params and params.images else "text"
+            items.append(
+                SearchHistoryListItem(
+                    history_id=row.id,
+                    search_type=search_type,
+                    time_created=date_to_str(row.time_created),
+                    parameters=row.search_parameter,
+                    result=row.search_results,
+                    inquery_id=row.inquery_id,
+                    inquery_num=row.inquery_num,
+                    search_item_name=row.search_result_item_name,
+                    search_item_code=row.search_result_item_code,
+                    correct_item_name=row.correct_item_name,
+                    correct_item_code=row.correct_item_code,
+                )
+            )
+
+        return SearchHistoryListRes(
+            total=page_result.total,
+            page=req.page,
+            pageSize=req.per_page,
+            items=items,
+        )
     
     @classmethod
     async def search_v2_by_text(cls, query_text: str, top_k: int = 10):
@@ -783,7 +876,11 @@ class RailwayPartsManager:
                         image_url=image_url,
                         rate=result['distance']
                     ))
-        
+        await cls._persist_v2_search_history(
+            query_text=query_text,
+            upload_filename=None,
+            search_items=search_items,
+        )
         return SearchRes(data=search_items)
  
     @classmethod
@@ -806,6 +903,7 @@ class RailwayPartsManager:
         """
         from PIL import Image
         import io
+        upload_filename = getattr(file, "filename", "") or ""
         
         # 读取上传的文件
         contents = await file.read()
@@ -845,5 +943,9 @@ class RailwayPartsManager:
                     image_url=image_url,
                     rate=result['distance']
                 ))
-        
+        await cls._persist_v2_search_history(
+            query_text=None,
+            upload_filename=upload_filename,
+            search_items=search_items,
+        )
         return SearchRes(data=search_items)

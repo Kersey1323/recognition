@@ -107,6 +107,26 @@ class MilvusManagerV2:
         logger.info(f"  - DINOv2 Collection: {self.dinov2_collection}")
         logger.info(f"  - SAM3 Enabled: {self.sam3_preprocessor is not None}")
 
+    def get_statistics_snapshot(self) -> dict[str, object]:
+        """获取 V2 collection 的统计快照。"""
+        siglip_count = self.collection_manager.get_collection_entity_count(self.siglip_collection)
+        dinov2_count = self.collection_manager.get_collection_entity_count(self.dinov2_collection)
+        siglip_item_ids = self.collection_manager.iter_collection_item_ids(self.siglip_collection)
+        dinov2_item_ids = self.collection_manager.iter_collection_item_ids(self.dinov2_collection)
+        return {
+            "siglip_count": siglip_count,
+            "dinov2_count": dinov2_count,
+            "siglip_item_ids": siglip_item_ids,
+            "dinov2_item_ids": dinov2_item_ids,
+        }
+
+    def delete_item_index(self, item_id: int) -> dict[str, int]:
+        """删除指定 item_id 在 V2 collections 中的所有向量记录。"""
+        return {
+            "siglip_deleted": self.collection_manager.delete_by_item_id(self.siglip_collection, item_id),
+            "dinov2_deleted": self.collection_manager.delete_by_item_id(self.dinov2_collection, item_id),
+        }
+
     # ==================== 建库功能 ====================
 
     def create_collections(self):

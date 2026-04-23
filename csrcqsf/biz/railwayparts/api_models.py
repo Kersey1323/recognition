@@ -1,8 +1,8 @@
 from pydantic import BaseModel
 from bfrcommon.api_models import PageReq, PageRes
-from pydantic import Field
+from pydantic import Field, validator
 from csrcqsf.models.sgo import ImageSourceType
-from csrcqsf.models.search_history import SearchParameters
+from csrcqsf.models.search_history import SearchParameters, SearchResults
 from enum import Enum
 
 
@@ -237,16 +237,56 @@ class SearchRes(BaseModel):
     message: str | None 
 
 
+class SearchHistoryListReq(PageReq):
+    pass
+
+
+class SearchHistoryListItem(BaseModel):
+    history_id: str
+    search_type: str
+    time_created: str
+    parameters: SearchParameters | None
+    result: SearchResults | None
+    inquery_id: str | None
+    inquery_num: str | None
+    search_item_name: str | None
+    search_item_code: str | None
+    correct_item_name: str | None
+    correct_item_code: str | None
+
+    @validator("history_id", pre=True, allow_reuse=True)
+    def normalize_history_id(cls, value):
+        return str(value)
+
+
+class SearchHistoryListRes(BaseModel):
+    total: int = Field(..., description="总数")
+    page: int = Field(..., description="当前页码")
+    pageSize: int = Field(..., description="每页数量")
+    items: list[SearchHistoryListItem] = Field(default_factory=list)
+
+
+class V2IndexDeleteRes(BaseModel):
+    item_id: str = Field(..., description="配件ID，字符串返回以避免前端精度丢失")
+    siglip_deleted: int = Field(default=0, description="删除的 SigLIP 记录数")
+    dinov2_deleted: int = Field(default=0, description="删除的 DINOv2 记录数")
+    message: str = Field(..., description="消息")
+
+    @validator("item_id", pre=True, allow_reuse=True)
+    def normalize_item_id(cls, value):
+        return str(value)
+
+
 
 class IndexStatisticsRes(BaseModel):
-    total_item_num: int = Field(default=0,description='配件总数')
-    total_indexed_item_num: int = Field(default=0,description='已做索引的配件')
-    total_index: int = Field(default=0,description='索引总数')
-    total_image_index: int = Field(default=0,description='图片索引')
-    total_feature_index: int = Field(default=0,description='文字特征总数')
-    recognition_number: int = Field(default=0,description='识别测试总数')
-    corrrect_recognition_number: int = Field(default=0,description='识别测试总数')
-    recognition_ration: float = Field(default=0,description='识别率')
+    total_item_num: int = Field(default=0, description='配件总数')
+    total_indexed_item_num: int = Field(default=0, description='V2中同时存在SigLIP和DINOv2索引的配件数')
+    total_index: int = Field(default=0, description='V2索引总数')
+    total_image_index: int = Field(default=0, description='SigLIP collection记录数')
+    total_feature_index: int = Field(default=0, description='DINOv2 collection记录数')
+    recognition_number: int = Field(default=0, description='已废弃字段，固定返回0')
+    corrrect_recognition_number: int = Field(default=0, description='已废弃字段，固定返回0')
+    recognition_ration: float = Field(default=0, description='已废弃字段，固定返回0')
 
 
 class IndexStatisticsReq(BaseModel):

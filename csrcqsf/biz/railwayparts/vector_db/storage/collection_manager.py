@@ -35,6 +35,72 @@ class CollectionManager:
         """
         return self.client.has_collection(collection_name)
 
+    def get_collection_entity_count(self, collection_name: str) -> int:
+        """
+        获取 collection 中的实体总数。
+
+        Args:
+            collection_name: Collection 名称
+
+        Returns:
+            实体总数；如果 collection 不存在则返回 0
+        """
+        if not self.collection_exists(collection_name):
+            return 0
+
+        stats = self.client.get_collection_stats(collection_name=collection_name)
+        return int(stats.get("row_count", 0))
+
+    def iter_collection_item_ids(self, collection_name: str, batch_size: int = 1000) -> set[int]:
+        """
+        遍历 collection 中所有去重后的 item_id。
+
+        Args:
+            collection_name: Collection 名称
+            batch_size: 分批查询大小
+
+        Returns:
+            item_id 集合；如果 collection 不存在则返回空集合
+        """
+        if not self.collection_exists(collection_name):
+            return set()
+
+        item_ids: set[int] = set()
+        iterator = self.client.query_iterator(
+            collection_name=collection_name,
+            filter="item_id >= 0",
+            output_fields=["item_id"],
+            batch_size=batch_size,
+        )
+
+        for batch in iterator:
+            for row in batch:
+                value = row.get("item_id")
+                if value is not None:
+                    item_ids.add(int(value))
+
+        return item_ids
+
+    def delete_by_item_id(self, collection_name: str, item_id: int) -> int:
+        """
+        删除指定 item_id 在 collection 中的全部记录。
+
+        Args:
+            collection_name: Collection 名称
+            item_id: 配件 ID
+
+        Returns:
+            删除记录数；如果 collection 不存在则返回 0
+        """
+        if not self.collection_exists(collection_name):
+            return 0
+
+        result = self.client.delete(
+            collection_name=collection_name,
+            filter=f"item_id == {int(item_id)}",
+        )
+        return int(result.get("delete_count", 0))
+
     def drop_collection(self, collection_name: str):
         """
         删除 Collection（谨慎使用）

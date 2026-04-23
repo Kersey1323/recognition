@@ -100,7 +100,7 @@ async def create_item_image(req: CreateItemImagesReq):
     await RailwayPartsManager.create_item_image(int(req.item_id), image_url_list=req.images_url)
 
 
-@parts_router.post('/item_image_indexed',  tags=["算法-特征索引"], summary='为配件建立索引,可以是原图，也可以是裁剪后的照片', responses={
+@parts_router.post('/item_image_indexed',  tags=["算法-特征索引"], summary='为配件建立索引,可以是原图，也可以是裁剪后的照片', deprecated=True, responses={
     200: {
         'model': str
     }
@@ -118,7 +118,7 @@ async def get_item_image_detail(req: GetItemDetailReq):
     return await RailwayPartsManager.get_item_detail(int(req.item_id))
 
 
-@parts_router.post('/update_item_features',  tags=["业务-特征管理"], summary='修改配件文字特征', responses={
+@parts_router.post('/update_item_features',  tags=["业务-特征管理"], summary='修改配件文字特征', deprecated=True, responses={
     200: {
         'model': str
     }
@@ -127,7 +127,7 @@ async def update_item_features(req: UpdateFeatureReq):
     await RailwayPartsManager.update_item_features(req)
 
 
-@parts_router.post('/delete_item_features',  tags=["业务-特征管理"], summary='删除配件文字特征', responses={
+@parts_router.post('/delete_item_features',  tags=["业务-特征管理"], summary='删除配件文字特征', deprecated=True, responses={
     200: {
         'model': str
     }
@@ -136,7 +136,7 @@ async def delete_item_features(req: DeleteFeaturesReq):
     await RailwayPartsManager.delete_item_features(req)
 
 
-@parts_router.post('/delete_item_image_index',  tags=["业务-图片管理"], summary='删除配件图片索引', responses={
+@parts_router.post('/delete_item_image_index',  tags=["业务-图片管理"], summary='删除配件图片索引', deprecated=True, responses={
     200: {
         'model': str
     }
@@ -145,7 +145,7 @@ async def delete_item_image_index(req: DeleteImageIndexedReq):
     await RailwayPartsManager.delete_item_image_index(int(req.item_id), req.image_file_url)
 
 
-@parts_router.post('/list_item_features',  tags=["业务-特征管理"], summary='列出当前配件的features', responses={
+@parts_router.post('/list_item_features',  tags=["业务-特征管理"], summary='列出当前配件的features', deprecated=True, responses={
     200: {
         'model': ListFeautresRes
     }
@@ -160,7 +160,7 @@ async def list_item_features(req: ListFeaturesReq):
     return res
 
 
-@parts_router.post('/image_search',  tags=["算法-智能检索"], summary='根据图片查询配件', responses={
+@parts_router.post('/image_search',  tags=["算法-智能检索"], summary='根据图片查询配件', deprecated=True, responses={
     200: {
         'model': ImageSearchRes
     }
@@ -604,6 +604,15 @@ async def rebuild_v2_index(
         }
 
 
+@parts_router.delete('/v2/index/{item_id}', tags=["算法-向量检索V2"], summary='删除指定配件的V2索引', responses={
+    200: {
+        'model': V2IndexDeleteRes
+    }
+})
+async def delete_v2_index(item_id: str):
+    result = await RailwayPartsManager.delete_v2_index(int(item_id))
+    return V2IndexDeleteRes(**result)
+
 
 @parts_router.post('/v2/search/text', tags=["算法-向量检索V2"], summary='V2文本检索')
 async def search_v2_by_text(
@@ -667,6 +676,11 @@ async def search_v2_by_image(
         search_mode=search_mode
     )
     return result
+
+
+@parts_router.post('/v2/search/history/list', tags=["算法-向量检索V2"], summary='V2检索历史分页查询')
+async def list_v2_search_history(req: SearchHistoryListReq):
+    return await RailwayPartsManager.list_v2_search_history(req)
 
 
 @parts_router.get('/v2/search/modes', tags=["算法-向量检索V2"], summary='获取V2检索模式说明')
