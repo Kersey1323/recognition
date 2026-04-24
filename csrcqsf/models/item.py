@@ -57,6 +57,23 @@ class ItemsParent(Base):
         res = await session.scalars(stmt)
         return res
 
+    @classmethod
+    async def replace_parent_relations(
+        cls,
+        session: AsyncSession,
+        item_id: int,
+        parent_item_id: int | None,
+    ):
+        stmt = delete(cls).where(cls.item_id == item_id)
+        await session.execute(stmt)
+        await session.flush()
+
+        if parent_item_id is None:
+            return
+
+        session.add(cls(item_id=item_id, parent_item_id=parent_item_id))
+        await session.flush()
+
 
 class Items(Base):
     __tablename__ = 'item_info'
@@ -284,6 +301,41 @@ class Items(Base):
     @classmethod
     async def update_obj_url(cls, session: AsyncSession, item_id: int, obj_url: str | None):
         stmt = update(cls).where(cls.id == item_id).values(**cls.build_obj_url_update(obj_url))
+        await session.execute(stmt)
+        await session.flush()
+
+    @classmethod
+    def build_item_updates(
+        cls,
+        *,
+        fields: set[str],
+        item_name: str | None = None,
+        item_code: str | None = None,
+        height: float | None = None,
+        length: float | None = None,
+        width: float | None = None,
+        weight: float | None = None,
+    ) -> dict:
+        values = {}
+        if "item_name" in fields:
+            values["item_name"] = item_name
+        if "item_code" in fields:
+            values["item_code"] = item_code
+        if "height" in fields:
+            values["height"] = height
+        if "length" in fields:
+            values["long"] = length
+        if "width" in fields:
+            values["width"] = width
+        if "weight" in fields:
+            values["weight"] = weight
+        return values
+
+    @classmethod
+    async def update_item_fields(cls, session: AsyncSession, item_id: int, values: dict):
+        if not values:
+            return
+        stmt = update(cls).where(cls.id == item_id).values(**values)
         await session.execute(stmt)
         await session.flush()
 

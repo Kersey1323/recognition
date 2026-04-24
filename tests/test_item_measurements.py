@@ -1,6 +1,11 @@
 from csrcqsf.biz.railwayparts.api_models import GetItemDetailRes, ListItem
 from csrcqsf.models.item import Items
 
+import asyncio
+import sys
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
 
 def test_list_item_supports_weight_field():
     item = ListItem(
@@ -231,3 +236,152 @@ def test_build_obj_url_update_sets_and_clears_current_result_url():
     assert Items.build_obj_url_update(None) == {
         "obj_url": None
     }
+
+
+def test_build_item_updates_keeps_zero_values_and_only_selected_fields():
+    values = Items.build_item_updates(
+        fields={"height", "length", "width", "weight"},
+        height=0,
+        length=0,
+        width=0,
+        weight=0,
+    )
+
+    assert values == {
+        "height": 0,
+        "long": 0,
+        "width": 0,
+        "weight": 0,
+    }
+
+
+def test_build_item_updates_ignores_unselected_fields():
+    values = Items.build_item_updates(
+        fields={"item_name"},
+        item_name="橡胶套",
+        item_code="A001",
+        height=10,
+    )
+
+    assert values == {
+        "item_name": "橡胶套",
+    }
+
+
+def _fake_v1_milvus_module():
+    return SimpleNamespace(
+        MilvusManager=lambda: MagicMock(),
+        ImageIndex=object,
+        PartsIndex=object,
+        FeaturesIndex=object,
+        ColletionEnum=object,
+    )
+
+
+def _fake_minio_module():
+    def _parse_minio_path(path: str, default_bucket: str | None = None):
+        bucket, object_name = path.split("/", 1)
+        return bucket, object_name
+
+    return SimpleNamespace(
+        minio_instance=SimpleNamespace(client=SimpleNamespace()),
+        ensure_minio_bucket=MagicMock(),
+        parse_minio_path=_parse_minio_path,
+    )
+
+
+def _import_railway_parts_manager():
+    cached = getattr(_import_railway_parts_manager, "_cached", None)
+    if cached is not None:
+        return cached
+
+    with patch.dict(
+        sys.modules,
+        {
+            "csrcqsf.data.milvus": SimpleNamespace(milvus_client=MagicMock()),
+            "csrcqsf.data.mdpdb": SimpleNamespace(sgo_sessionLocal=MagicMock()),
+            "csrcqsf.data.minio": _fake_minio_module(),
+            "csrcqsf.biz.railwayparts.milvus": _fake_v1_milvus_module(),
+            "csrcqsf.biz.railwayparts.vector_db.storage.milvus_manager": SimpleNamespace(MilvusManagerV2=lambda *args, **kwargs: MagicMock()),
+            "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager": SimpleNamespace(MilvusStateManagerV2=MagicMock()),
+            "cv2": MagicMock(),
+        },
+    ):
+        import csrcqsf.biz.railwayparts.parts as parts_module
+
+    _import_railway_parts_manager._cached = parts_module
+    return parts_module
+
+
+def test_update_item_uses_partial_fields_and_skips_blank_parent():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    fake_item = SimpleNamespace(id=101, item_code="A001")
+
+    class _AsyncSessionContext:
+        def __init__(self, session):
+            self.session = session
+
+        async def __aenter__(self):
+            return self.session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
+         patch.object(parts_module.Items, "update_item_fields", AsyncMock()) as update_mock, \
+         patch.object(parts_module.ItemsParent, "replace_parent_relations", AsyncMock()) as replace_parent_mock:
+        asyncio.run(
+            parts_module.RailwayPartsManager.update_item(
+                item_id=101,
+                update_fields={"height", "length", "width", "weight"},
+                height=0,
+                length=0,
+                width=0,
+                weight=0,
+                parent_item_id=None,
+            )
+        )
+
+    kwargs = update_mock.await_args.kwargs
+    assert kwargs["values"] == {"height": 0, "long": 0, "width": 0, "weight": 0}
+    replace_parent_mock.assert_not_awaited()
+    session.commit.assert_awaited()
+
+
+def test_update_item_updates_parent_relation_when_selected():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    fake_item = SimpleNamespace(id=101, item_code="A001")
+    fake_parent = SimpleNamespace(id=2023080809420000002)
+
+    class _AsyncSessionContext:
+        def __init__(self, session):
+            self.session = session
+
+        async def __aenter__(self):
+            return self.session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(side_effect=[fake_item, fake_parent])), \
+         patch.object(parts_module.Items, "update_item_fields", AsyncMock()) as update_mock, \
+         patch.object(parts_module.ItemsParent, "replace_parent_relations", AsyncMock()) as replace_parent_mock:
+        asyncio.run(
+            parts_module.RailwayPartsManager.update_item(
+                item_id=101,
+                update_fields={"parent_item_id", "item_name"},
+                item_name="橡胶套",
+                parent_item_id=2023080809420000002,
+            )
+        )
+
+    update_mock.assert_awaited_once()
+    replace_parent_mock.assert_awaited_once_with(
+        session=session,
+        item_id=101,
+        parent_item_id=2023080809420000002,
+    )

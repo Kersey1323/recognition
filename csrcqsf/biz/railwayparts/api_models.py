@@ -80,15 +80,23 @@ class DeleteItemReq(BaseModel):
 
 
 class UpdateItemReq(BaseModel):
-    obj_url: str | None
-    height: float | None
-    length: float | None
-    width: float | None
-    weight: float | None = None
-    item_name: str
-    item_code: str
-    parent_item_id: str | None
     id: str
+    height: float | None = None
+    length: float | None = None
+    width: float | None = None
+    weight: float | None = None
+    item_name: str | None = None
+    item_code: str | None = None
+    parent_item_id: str | None = None
+
+    @validator("parent_item_id", pre=True)
+    def normalize_parent_item_id(cls, value):
+        if value in ("", None):
+            return None
+        return str(value)
+
+    class Config:
+        extra = "forbid"
 
 
 class ItemImageIndexInfo(BaseModel):
@@ -137,7 +145,28 @@ class GetItemDetailRes(BaseModel):
 
 class CreateItemImagesReq(BaseModel):
     item_id: str
-    images_url: list[str] = []
+    images_url: list[str] = Field(default_factory=list)
+
+
+class CreateItemImageRecord(BaseModel):
+    image_id: str
+    image_url: str
+    filename: str
+
+    @validator("image_id", pre=True)
+    def normalize_image_id(cls, value):
+        return str(value)
+
+
+class CreateItemImagesRes(BaseModel):
+    item_id: str
+    uploaded_count: int = 0
+    records: list[CreateItemImageRecord] = Field(default_factory=list)
+    message: str
+
+    @validator("item_id", pre=True)
+    def normalize_item_id(cls, value):
+        return str(value)
 
 
 class CreateItemImagesIndexItem(BaseModel):

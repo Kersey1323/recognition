@@ -3,7 +3,7 @@
 职责：定义API接口、参数验证、调用业务逻辑
 注意：此层不包含具体业务实现，仅负责路由和参数处理
 """
-from fastapi import APIRouter, BackgroundTasks, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, UploadFile, File, Form, Request
 from csrcqsf.biz.railwayparts.api_models import *
 from bfrcommon.snowflake import get_id
 from bfrcommon.common import date_to_str
@@ -70,9 +70,22 @@ async def delete_item(req: DeleteItemReq):
     }
 })
 async def put_item(req: UpdateItemReq):
-    await RailwayPartsManager.update_item(item_id=int(req.id), item_name=req.item_name, item_code=req.item_code,
-                                          parent_item_id=int(req.parent_item_id), obj_url=req.obj_url, length=req.length,
-                                          width=req.width, height=req.height, weight=req.weight)
+    update_fields = set(req.__fields_set__)
+    update_fields.discard("id")
+    if "parent_item_id" in update_fields and req.parent_item_id is None:
+        update_fields.remove("parent_item_id")
+
+    await RailwayPartsManager.update_item(
+        item_id=int(req.id),
+        update_fields=update_fields,
+        item_name=req.item_name,
+        item_code=req.item_code,
+        parent_item_id=int(req.parent_item_id) if req.parent_item_id is not None else None,
+        length=req.length,
+        width=req.width,
+        height=req.height,
+        weight=req.weight,
+    )
 
 
 @parts_router.post('/item/size_put',  tags=["业务-配件管理"], summary='修改配件3D模型的尺寸描述', responses={
@@ -96,11 +109,26 @@ async def list_items(req: ListItemReq):
 
 @parts_router.post('/create_item_image',  tags=["业务-图片管理"], summary='为配件上传图片', responses={
     200: {
-        'model': str
+        'model': CreateItemImagesRes
     }
 })
-async def create_item_image(req: CreateItemImagesReq):
-    await RailwayPartsManager.create_item_image(int(req.item_id), image_url_list=req.images_url)
+async def create_item_image(
+    request: Request,
+    item_id: str | None = Form(None),
+    files: list[UploadFile] | None = File(None),
+):
+    content_type = request.headers.get("content-type", "")
+
+    if "multipart/form-data" in content_type:
+        if item_id is None:
+            raise Exception("item_id不能为空")
+        result = await RailwayPartsManager.create_item_image_files(int(item_id), files or [])
+        return CreateItemImagesRes(**result)
+
+    payload = await request.json()
+    req = CreateItemImagesReq(**payload)
+    result = await RailwayPartsManager.create_item_image(int(req.item_id), image_url_list=req.images_url)
+    return CreateItemImagesRes(**result)
 
 
 @parts_router.post('/item_image_indexed',  tags=["算法-特征索引"], summary='为配件建立索引,可以是原图，也可以是裁剪后的照片', deprecated=True, responses={
@@ -279,6 +307,7 @@ from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionSourceVideoListRes,
     ReconstructionSourceVideoMessageRes,
     ReconstructionResultMessageRes,
+    ReconstructionResultUploadRes,
     ReconstructionAllTasksReq,
     ReconstructionAllTasksRes,
     ReconstructionIndexRebuildRes,
@@ -447,6 +476,15 @@ async def delete_reconstruct_v2_result(item_id: str):
     """
     result = await ReconstructionManager.delete_reconstruction_result(int(item_id))
     return ReconstructionResultMessageRes(**result)
+
+
+@parts_router.post('/v2/reconstruct/result/{item_id}', tags=["算法-3D重建V2"], summary='V2: 上传线下已有三维重构结果')
+async def upload_reconstruct_v2_result(
+    item_id: str,
+    file: UploadFile = File(...),
+):
+    result = await ReconstructionManager.upload_reconstruction_result(int(item_id), file)
+    return ReconstructionResultUploadRes(**result)
 
 
 @parts_router.get('/v2/reconstruct/item/{item_id}', tags=["算法-3D重建V2"], summary='V2: 列出配件的重建任务')

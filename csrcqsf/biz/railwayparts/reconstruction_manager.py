@@ -183,6 +183,12 @@ class ReconstructionManager:
     def _format_reconstruction_result_path(cls, object_name: str) -> str:
         return f"{minio_reconstruction_file_bucket}/{object_name}"
 
+    @staticmethod
+    def _safe_result_filename(filename: str | None) -> str:
+        raw_name = Path(filename or "point_cloud.ply").name
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._")
+        return safe_name or "point_cloud.ply"
+
     @classmethod
     def _resolve_record_ply_path(cls, record) -> str | None:
         if record.ply_url and not looks_like_minio_path(
@@ -246,6 +252,35 @@ class ReconstructionManager:
 
         await run_sync(_upload)
         return cls._format_reconstruction_result_path(object_name)
+
+    @classmethod
+    async def _upload_manual_reconstruction_result_file(cls, item_id: int, file) -> dict:
+        ensure_minio_bucket(minio_reconstruction_file_bucket)
+        safe_name = cls._safe_result_filename(file.filename)
+        object_name = f"results/manual/{item_id}/{get_id()}_{safe_name}"
+        content_type = file.content_type or "application/octet-stream"
+
+        def _upload() -> int:
+            file.file.seek(0, os.SEEK_END)
+            size = file.file.tell()
+            file.file.seek(0)
+            minio_instance.client.put_object(
+                minio_reconstruction_file_bucket,
+                object_name,
+                file.file,
+                length=size,
+                content_type=content_type,
+            )
+            return size
+
+        size = await run_sync(_upload)
+        await file.close()
+        return {
+            "ply_url": cls._format_reconstruction_result_path(object_name),
+            "filename": safe_name,
+            "size": size,
+            "content_type": content_type,
+        }
 
     @classmethod
     async def _persist_success_result(
@@ -776,6 +811,41 @@ class ReconstructionManager:
                 "time_created": record.time_created.isoformat() if record.time_created else None,
                 "time_updated": record.time_updated.isoformat() if record.time_updated else None
             }
+
+    @classmethod
+    async def upload_reconstruction_result(cls, item_id: int, file) -> dict:
+        item = await cls._require_item_exists(item_id)
+        if item.obj_url:
+            raise ReconstructionBusinessError("已经存在重构模型，请先删除后再上传")
+        if not str(file.filename or "").lower().endswith(".ply"):
+            raise ReconstructionBusinessError("仅支持上传 .ply 文件")
+
+        uploaded = await cls._upload_manual_reconstruction_result_file(item_id, file)
+
+        async with SessionLocal() as session:
+            try:
+                await Items.update_obj_url(
+                    session=session,
+                    item_id=item_id,
+                    obj_url=uploaded["ply_url"],
+                )
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                await cls._delete_minio_object(
+                    uploaded["ply_url"],
+                    default_bucket=minio_reconstruction_file_bucket,
+                )
+                raise
+
+        return {
+            "item_id": item_id,
+            "ply_url": uploaded["ply_url"],
+            "filename": uploaded["filename"],
+            "size": uploaded["size"],
+            "content_type": uploaded["content_type"],
+            "message": "重构模型上传成功",
+        }
 
     @classmethod
     async def delete_reconstruction_result(cls, item_id: int) -> dict:

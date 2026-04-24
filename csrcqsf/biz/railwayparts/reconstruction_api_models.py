@@ -120,6 +120,20 @@ class ReconstructionResultMessageRes(BaseModel):
         return str(value)
 
 
+class ReconstructionResultUploadRes(BaseModel):
+    """线下三维重构结果上传响应"""
+    item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')
+    ply_url: str = Field(..., description='PLY 文件 MinIO 路径')
+    filename: str = Field(..., description='原始文件名')
+    size: int = Field(..., description='文件大小，单位字节')
+    content_type: str = Field(default='', description='文件类型')
+    message: str = Field(..., description='消息')
+
+    @validator("item_id", pre=True)
+    def normalize_item_id(cls, value):
+        return str(value)
+
+
 class ReconstructionStatusRes(BaseModel):
     """重建任务状态响应"""
     task_id: str = Field(..., description='任务ID')

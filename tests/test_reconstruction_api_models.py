@@ -1,6 +1,7 @@
 from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionAllTasksRes,
     ReconstructionIndexRebuildRes,
+    ReconstructionResultUploadRes,
     ReconstructionSourceVideoListReq,
     ReconstructionStatusRes,
     ReconstructionTrainReq,
@@ -114,6 +115,23 @@ def test_reconstruction_video_upload_response_serializes_item_id_as_string():
 
     assert data["item_id"] == str(BIG_ITEM_ID)
     assert isinstance(data["item_id"], str)
+
+
+def test_reconstruction_result_upload_response_serializes_item_id_as_string():
+    res = ReconstructionResultUploadRes(
+        item_id=BIG_ITEM_ID,
+        ply_url="bfr-reconstruction-files/results/manual/1935558010375340032/demo.ply",
+        filename="demo.ply",
+        size=1024,
+        content_type="application/octet-stream",
+        message="重构模型上传成功",
+    )
+
+    data = dump_model(res)
+
+    assert data["item_id"] == str(BIG_ITEM_ID)
+    assert isinstance(data["item_id"], str)
+    assert data["ply_url"].endswith("demo.ply")
 
 
 def test_reconstruction_status_response_serializes_item_id_as_string():

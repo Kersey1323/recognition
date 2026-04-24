@@ -1,8 +1,9 @@
 import asyncio
 import json
+import io
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from bfrcommon.middlewares.response import catch_exceptions_middleware
 from starlette.requests import Request
@@ -201,3 +202,76 @@ def test_build_video_run_name_uses_timestamp_and_item_name():
 
     assert run_name.endswith("_橡胶套")
     assert len(run_name.split("_", 1)[0]) == 14
+
+
+def _fake_upload_file(filename: str, content_type: str = "application/octet-stream", body: bytes = b"ply"):
+    return SimpleNamespace(
+        filename=filename,
+        content_type=content_type,
+        file=io.BytesIO(body),
+        close=AsyncMock(),
+    )
+
+
+def test_upload_reconstruction_result_rejects_duplicate_binding():
+    item = SimpleNamespace(
+        id=2023080809420000001,
+        obj_url="bfr-reconstruction-files/results/manual/2023080809420000001/demo.ply",
+    )
+
+    with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=item)):
+        try:
+            asyncio.run(
+                ReconstructionManager.upload_reconstruction_result(
+                    item_id=item.id,
+                    file=_fake_upload_file("demo.ply"),
+                )
+            )
+        except ReconstructionBusinessError as exc:
+            assert "已经存在重构模型" in str(exc)
+        else:
+            raise AssertionError("duplicate reconstruction result should raise ReconstructionBusinessError")
+
+
+def test_upload_reconstruction_result_rejects_non_ply_file():
+    item = SimpleNamespace(id=2023080809420000001, obj_url=None)
+
+    with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=item)):
+        try:
+            asyncio.run(
+                ReconstructionManager.upload_reconstruction_result(
+                    item_id=item.id,
+                    file=_fake_upload_file("demo.glb"),
+                )
+            )
+        except ReconstructionBusinessError as exc:
+            assert ".ply" in str(exc)
+        else:
+            raise AssertionError("non-ply upload should raise ReconstructionBusinessError")
+
+
+def test_upload_reconstruction_result_rolls_back_minio_when_pg_update_fails():
+    item = SimpleNamespace(id=2023080809420000001, obj_url=None)
+    session = AsyncMock()
+
+    with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=item)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ensure_minio_bucket"), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.run_sync", AsyncMock(side_effect=lambda func, *args, **kwargs: func(*args, **kwargs))), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.update_obj_url", AsyncMock(side_effect=RuntimeError("pg failed"))), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.minio_instance.client.put_object", MagicMock()), \
+         patch.object(ReconstructionManager, "_delete_minio_object", AsyncMock()) as delete_mock:
+        try:
+            asyncio.run(
+                ReconstructionManager.upload_reconstruction_result(
+                    item_id=item.id,
+                    file=_fake_upload_file("demo.ply"),
+                )
+            )
+        except RuntimeError as exc:
+            assert "pg failed" in str(exc)
+        else:
+            raise AssertionError("PG failure should bubble up")
+
+    session.rollback.assert_awaited()
+    delete_mock.assert_awaited()

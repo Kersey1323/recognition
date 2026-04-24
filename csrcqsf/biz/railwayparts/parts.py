@@ -5,11 +5,14 @@
 """
 from datetime import datetime
 import json
+import os
+from pathlib import Path
+import re
 from csrcqsf.models.item import *
 from bfrcommon.snowflake import get_id
 from csrcqsf.data.pg import SessionLocal
 from csrcqsf.data.mdpdb import sgo_sessionLocal
-from csrcqsf.data.minio import minio_instance
+from csrcqsf.data.minio import ensure_minio_bucket, minio_instance, parse_minio_path
 from csrcqsf.models.search_history import (
     SearchHistory,
     SearchParameters,
@@ -113,28 +116,55 @@ class RailwayPartsManager:
             await session.commit()
 
     @classmethod
-    async def update_item(cls, item_id: int, item_name: str, item_code: str, parent_item_id: int = None,
-                          obj_url: str = None, length: float = None, width: float = None, height: float = None,
-                          weight: float = None):
+    async def update_item(
+        cls,
+        item_id: int,
+        update_fields: set[str],
+        item_name: str | None = None,
+        item_code: str | None = None,
+        parent_item_id: int | None = None,
+        length: float | None = None,
+        width: float | None = None,
+        height: float | None = None,
+        weight: float | None = None,
+    ):
         async with SessionLocal() as session:
             item = await Items.get_item_by_id(session=session, item_id=item_id)
             if item is None:
                 raise Exception(f'id为{item_id}的配件不存在')
 
-            if item.item_code != item_code:
-                # item_code 修改
-                item_by_code = Items.get_item_by_item_code(item_code=item_code)
+            if "item_name" in update_fields and (item_name is None or str(item_name).strip() == ""):
+                raise Exception("配件名称不能为空")
+
+            if "item_code" in update_fields and (item_code is None or str(item_code).strip() == ""):
+                raise Exception("物料编码不能为空")
+
+            if "item_code" in update_fields and item.item_code != item_code:
+                item_by_code = await Items.get_item_by_item_code(session=session, item_code=item_code)
                 if item_by_code is not None:
                     raise Exception(f"物料编码:{item_code}已经存在了")
 
-            if parent_item_id is not None:
-                item = await Items.get_item_by_id(session=session, item_id=parent_item_id)
-                if item is None:
-                    raise Exception(f'id为{item_id}的父配件不存在')
+            if "parent_item_id" in update_fields:
+                parent_item = await Items.get_item_by_id(session=session, item_id=parent_item_id)
+                if parent_item is None:
+                    raise Exception(f'id为{parent_item_id}的父配件不存在')
 
-            await Items.put_item(session=session, item_id=item_id, item_name=item_name,
-                                 item_code=item_code, parent_item_id=parent_item_id, length=length, width=width,
-                                 height=height, obj_url=obj_url, weight=weight)
+            values = Items.build_item_updates(
+                fields=update_fields,
+                item_name=item_name,
+                item_code=item_code,
+                height=height,
+                length=length,
+                width=width,
+                weight=weight,
+            )
+            await Items.update_item_fields(session=session, item_id=item_id, values=values)
+            if "parent_item_id" in update_fields:
+                await ItemsParent.replace_parent_relations(
+                    session=session,
+                    item_id=item_id,
+                    parent_item_id=parent_item_id,
+                )
             await session.commit()
 
     @classmethod
@@ -343,11 +373,115 @@ class RailwayPartsManager:
                 )
                 image_list.append(image)
 
-            if len(image_list) == 0:
-                return
+            if len(image_list) > 0:
+                await SgoItemImages.create_item_images(session, image_list)
+                await session.commit()
 
-            await SgoItemImages.create_item_images(session, image_list)
-            await session.commit()
+        return {
+            "item_id": item_id,
+            "uploaded_count": len(image_list),
+            "records": [
+                {
+                    "image_id": image.id,
+                    "image_url": image.image_url,
+                    "filename": Path(image.image_url).name,
+                }
+                for image in image_list
+            ],
+            "message": "配件图片登记成功",
+        }
+
+    @classmethod
+    def _safe_upload_filename(cls, filename: str | None, fallback: str = "image.bin") -> str:
+        raw_name = Path(filename or fallback).name
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._")
+        return safe_name or fallback
+
+    @classmethod
+    async def _delete_minio_object(cls, object_path: str) -> None:
+        bucket, object_name = parse_minio_path(object_path, default_bucket=minio_bucket)
+
+        def _delete():
+            minio_instance.client.remove_object(bucket, object_name)
+
+        await run_sync(_delete)
+
+    @classmethod
+    async def create_item_image_files(cls, item_id: int, files: list) -> dict:
+        if len(files) == 0:
+            raise Exception("未上传图片文件")
+
+        ensure_minio_bucket(minio_bucket)
+
+        async with SessionLocal() as session:
+            item = await Items.get_item_by_id(session, item_id)
+            if item is None:
+                raise Exception("配件不存在")
+
+            uploaded_paths: list[str] = []
+            image_rows: list[SgoItemImages] = []
+            uploaded_filenames: list[str] = []
+
+            try:
+                for file in files:
+                    safe_name = cls._safe_upload_filename(file.filename, fallback="image.jpg")
+                    date_dir = datetime.now().strftime("%Y%m%d")
+                    object_name = f"manual-upload/{item_id}/{date_dir}/{get_id()}_{safe_name}"
+                    content_type = file.content_type or "application/octet-stream"
+
+                    def _upload() -> int:
+                        file.file.seek(0, os.SEEK_END)
+                        size = file.file.tell()
+                        file.file.seek(0)
+                        minio_instance.client.put_object(
+                            minio_bucket,
+                            object_name,
+                            file.file,
+                            length=size,
+                            content_type=content_type,
+                        )
+                        return size
+
+                    await run_sync(_upload)
+                    await file.close()
+
+                    image_url = f"{minio_bucket}/{object_name}"
+                    uploaded_paths.append(image_url)
+                    uploaded_filenames.append(safe_name)
+                    image_rows.append(
+                        SgoItemImages(
+                            item_id=item_id,
+                            image_url=image_url,
+                            raw_url=None,
+                            image_source=ImageSourceType.CREATEBYSELF,
+                            is_indexed=1,
+                        )
+                    )
+
+                await SgoItemImages.create_item_images(session, image_rows)
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                for image_url in uploaded_paths:
+                    try:
+                        await cls._delete_minio_object(image_url)
+                    except Exception:
+                        pass
+                raise
+
+        return {
+            "item_id": item_id,
+            "uploaded_count": len(image_rows),
+            "records": [
+                {
+                    "image_id": image.id,
+                    "image_url": image.image_url,
+                    "filename": filename,
+                }
+                for image, filename in zip(image_rows, uploaded_filenames)
+            ],
+            "message": "配件图片上传成功",
+        }
 
     @classmethod
     async def get_image_from_oss(cls, image_url: str):
