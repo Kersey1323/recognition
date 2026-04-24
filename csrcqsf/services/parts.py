@@ -14,6 +14,9 @@ from csrcqsf.settings import ai_settings
 # 导入业务逻辑层
 from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
 from csrcqsf.biz.railwayparts.milvus import MilvusManager
+from csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager import (
+    MilvusStateManagerV2,
+)
 from anyio.to_thread import run_sync
 
 # 配件管理路由器
@@ -524,9 +527,7 @@ async def drop_v2_collections():
     
     删除后需要重新调用 /v2/collections/init 创建集合
     """
-    from csrcqsf.biz.railwayparts.vector_db.storage.milvus_manager import MilvusManagerV2
-    
-    manager = MilvusManagerV2()
+    manager = MilvusStateManagerV2()
     await run_sync(manager.drop_collections)
     
     return {

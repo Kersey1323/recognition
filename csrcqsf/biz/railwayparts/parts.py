@@ -32,6 +32,7 @@ from pymilvus import AnnSearchRequest
 from pymilvus.client.embedding_list import EmbeddingList
 from csrcqsf.settings import ai_settings,minio_bucket
 from .vector_db.storage.milvus_manager import MilvusManagerV2
+from .vector_db.storage.milvus_state_manager import MilvusStateManagerV2
 
 class RailwayPartsManager:
     """
@@ -598,7 +599,7 @@ class RailwayPartsManager:
         async with SessionLocal() as session:
             res.total_item_num = await async_get_count(session, select(Items))
 
-        snapshot = MilvusManagerV2().get_statistics_snapshot()
+        snapshot = MilvusStateManagerV2().get_statistics_snapshot()
         siglip_item_ids = snapshot.get("siglip_item_ids", set())
         dinov2_item_ids = snapshot.get("dinov2_item_ids", set())
 
@@ -649,7 +650,7 @@ class RailwayPartsManager:
         Args:
             drop_existing: 是否删除已存在的集合（默认 False）
         """
-        manager = MilvusManagerV2()
+        manager = MilvusStateManagerV2()
         
         if drop_existing:
             logger.warning("删除已存在的集合...")
@@ -672,6 +673,7 @@ class RailwayPartsManager:
         """
         
         manager = MilvusManagerV2()
+        state_manager = MilvusStateManagerV2()
         
         async with SessionLocal() as session:
             # 获取需要建库的配件
@@ -751,7 +753,9 @@ class RailwayPartsManager:
                     continue
 
                 if item_success_count > 0:
-                    await cls.sync_item_v2_index_state(item.id)
+                    await cls.sync_item_v2_index_state(
+                        item.id, state_manager=state_manager
+                    )
             
             logger.info(f"V2 索引重建完成: 成功={success_count}, 失败={fail_count}")
             
@@ -768,7 +772,7 @@ class RailwayPartsManager:
             if item is None:
                 raise Exception(f'配件不存在: {item_id}')
 
-        delete_result = MilvusManagerV2().delete_item_index(item_id)
+        delete_result = MilvusStateManagerV2().delete_item_index(item_id)
         async with SessionLocal() as session:
             await Items.update_v2_index_state(
                 session=session,
@@ -787,7 +791,7 @@ class RailwayPartsManager:
 
     @classmethod
     async def sync_all_v2_index_state(cls) -> dict:
-        snapshot = MilvusManagerV2().get_item_index_state_snapshot()
+        snapshot = MilvusStateManagerV2().get_item_index_state_snapshot()
         updated_at = datetime.now()
         rows = [
             {
@@ -811,8 +815,13 @@ class RailwayPartsManager:
         }
 
     @classmethod
-    async def sync_item_v2_index_state(cls, item_id: int):
-        snapshot = MilvusManagerV2().get_item_index_state_snapshot()
+    async def sync_item_v2_index_state(
+        cls,
+        item_id: int,
+        state_manager: MilvusStateManagerV2 | None = None,
+    ):
+        manager = state_manager or MilvusStateManagerV2()
+        snapshot = manager.get_item_index_state_snapshot()
         state = snapshot.get(item_id, {"has_v2_index": 0, "v2_indexed_image_num": 0})
         updated_at = datetime.now()
         async with SessionLocal() as session:

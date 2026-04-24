@@ -64,7 +64,7 @@ def test_sync_all_v2_index_state_resets_and_bulk_updates_snapshot():
     }
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "MilvusStateManagerV2") as manager_cls, \
          patch.object(parts_module.Items, "reset_v2_index_state", AsyncMock()) as reset_mock, \
          patch.object(parts_module.Items, "bulk_update_v2_index_state", AsyncMock()) as bulk_mock:
         manager_cls.return_value.get_item_index_state_snapshot.return_value = fake_snapshot
@@ -81,10 +81,31 @@ def test_sync_single_item_v2_index_state_clears_missing_item():
     session = AsyncMock()
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "MilvusStateManagerV2") as manager_cls, \
          patch.object(parts_module.Items, "update_v2_index_state", AsyncMock()) as update_mock:
         manager_cls.return_value.get_item_index_state_snapshot.return_value = {}
         asyncio.run(parts_module.RailwayPartsManager.sync_item_v2_index_state(303))
 
     update_mock.assert_awaited()
+    session.commit.assert_awaited()
+
+
+def test_sync_single_item_v2_index_state_uses_injected_state_manager_when_provided():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    fake_state_manager = MagicMock()
+    fake_state_manager.get_item_index_state_snapshot.return_value = {
+        303: {"has_v2_index": 1, "v2_indexed_image_num": 4}
+    }
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "update_v2_index_state", AsyncMock()) as update_mock:
+        asyncio.run(
+            parts_module.RailwayPartsManager.sync_item_v2_index_state(
+                303, state_manager=fake_state_manager
+            )
+        )
+
+    update_mock.assert_awaited()
+    fake_state_manager.get_item_index_state_snapshot.assert_called_once_with()
     session.commit.assert_awaited()

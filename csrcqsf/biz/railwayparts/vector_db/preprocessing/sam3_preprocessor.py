@@ -88,13 +88,25 @@ class SAM3Preprocessor:
             英文:"""
 
             message = client.chat.completions.create(
-                model="qwen2.5:7b",
-                max_tokens=50,
-                messages=[{"role": "user", "content": prompt}]
+                model="qwen3:8b",
+                max_tokens=128,
+                temperature=0.7,
+                top_p=0.8,
+                reasoning_effort="none",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a translation helper. Reply with only one lowercase English noun. No explanation."
+                    },
+                    {
+                        "role": "user",
+                        "content": f"/no_think\n{prompt}"
+                    },
+                ],
             )
-
             english = message.choices[0].message.content.strip().lower()
             logger.debug(f"LLM translation: '{text}' -> '{english}'")
+            logger.info(english)
             return english
 
         except Exception as e:
@@ -143,7 +155,9 @@ class SAM3Preprocessor:
         Returns:
             英文提示词
         """
+        logger.info(f"item_name:{item_name}")
         if self.has_chinese(item_name):
+           
             return self.translate_prompt(item_name)
         return "object"
 

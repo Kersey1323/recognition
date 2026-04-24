@@ -71,8 +71,8 @@ def test_statistics_reads_v2_snapshot_and_zeroes_legacy_recognition_fields():
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module, "async_get_count", AsyncMock(return_value=99)), \
-         patch.object(parts_module, "MilvusManagerV2") as manager_cls:
-        manager_cls.return_value.get_statistics_snapshot.return_value = fake_snapshot
+         patch.object(parts_module, "MilvusStateManagerV2") as state_cls:
+        state_cls.return_value.get_statistics_snapshot.return_value = fake_snapshot
         res = asyncio.run(parts_module.RailwayPartsManager.statistics())
 
     assert res.total_item_num == 99
@@ -93,8 +93,8 @@ def test_delete_v2_index_is_idempotent_for_existing_item_without_vectors():
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
-         patch.object(parts_module, "MilvusManagerV2") as manager_cls:
-        manager_cls.return_value.delete_item_index.return_value = {
+         patch.object(parts_module, "MilvusStateManagerV2") as state_cls:
+        state_cls.return_value.delete_item_index.return_value = {
             "siglip_deleted": 0,
             "dinov2_deleted": 0,
         }
@@ -115,8 +115,8 @@ def test_delete_v2_index_clears_pg_cache_state():
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
          patch.object(parts_module.Items, "update_v2_index_state", AsyncMock()) as update_mock, \
-         patch.object(parts_module, "MilvusManagerV2") as manager_cls:
-        manager_cls.return_value.delete_item_index.return_value = {
+         patch.object(parts_module, "MilvusStateManagerV2") as state_cls:
+        state_cls.return_value.delete_item_index.return_value = {
             "siglip_deleted": 0,
             "dinov2_deleted": 0,
         }
@@ -133,6 +133,7 @@ def test_rebuild_v2_index_syncs_single_item_state_after_success():
     fake_item = SimpleNamespace(id=101, item_name="橡胶套", item_code="40000543491")
     fake_image = SimpleNamespace(id=9001, image_url="bfr-ai-files/demo.jpg")
     fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
+    fake_state_manager = MagicMock()
     fake_cv2 = SimpleNamespace(
         COLOR_BGR2RGB=1,
         cvtColor=lambda image, _code: image,
@@ -144,8 +145,10 @@ def test_rebuild_v2_index_syncs_single_item_state_after_success():
          patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock(return_value=[fake_image])), \
          patch.object(parts_module.RailwayPartsManager, "get_image_from_oss", AsyncMock(return_value=fake_image_array)), \
          patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()) as sync_mock, \
-         patch.object(parts_module, "MilvusManagerV2") as manager_cls:
+         patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager) as state_cls:
         manager_cls.return_value.index_image = AsyncMock(return_value=(True, True))
         asyncio.run(parts_module.RailwayPartsManager.rebuild_v2_index(item_id=101, limit=1))
 
-    sync_mock.assert_awaited_with(101)
+    state_cls.assert_called_once_with()
+    sync_mock.assert_awaited_once_with(101, state_manager=fake_state_manager)
