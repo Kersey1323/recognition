@@ -11,7 +11,6 @@ from uuid import uuid4
 from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
 from celery.result import AsyncResult
-from fastapi import HTTPException
 from minio.error import S3Error
 from globals_vars import logger
 from csrcqsf.data.minio import ensure_minio_bucket, looks_like_minio_path, minio_instance, parse_minio_path
@@ -52,6 +51,17 @@ BASE_DIR = Path(__file__).parent / "reconstruction_server"
 DATA_DIR = BASE_DIR / "data"
 
 
+class ReconstructionBusinessError(Exception):
+    """三维重构相关业务异常，统一交给响应中间件包装为 200/fail。"""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+    def __str__(self) -> str:
+        return self.message
+
+
 class ReconstructionManager:
     """三维重构管理器"""
 
@@ -62,10 +72,7 @@ class ReconstructionManager:
             item = await Items.get_item_by_id(session, item_id)
 
         if item is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"配件不存在: item_id={item_id}"
-            )
+            raise ReconstructionBusinessError(f"配件不存在: item_id={item_id}")
 
         return item
 
@@ -73,7 +80,7 @@ class ReconstructionManager:
     def _resolve_video_task_inputs(cls, item: Items) -> tuple[str, str]:
         """从配件元数据解析视频重构所需的内部输入。"""
         if not item.source_video_path:
-            raise HTTPException(status_code=400, detail=f"配件未绑定原始视频: item_id={item.id}")
+            raise ReconstructionBusinessError(f"配件未绑定原始视频: item_id={item.id}")
         return item.source_video_path, item.item_name
 
     @staticmethod
@@ -205,10 +212,10 @@ class ReconstructionManager:
 
         model_path = configured_path if configured_path is not None else sam3_model_path
         if model_path is None or str(model_path).strip() == "":
-            raise HTTPException(status_code=400, detail="启用SAM3时必须配置 SAM3_MODEL_PATH")
+            raise ReconstructionBusinessError("启用SAM3时必须配置 SAM3_MODEL_PATH")
 
         if not Path(model_path).exists():
-            raise HTTPException(status_code=400, detail=f"SAM3_MODEL_PATH不存在: {model_path}")
+            raise ReconstructionBusinessError(f"SAM3_MODEL_PATH不存在: {model_path}")
 
         return str(model_path)
 
@@ -361,10 +368,7 @@ class ReconstructionManager:
         """
         item = await cls._require_item_exists(item_id)
         if item.source_video_path:
-            raise HTTPException(
-                status_code=409,
-                detail=f"配件已存在原始视频，请使用更新接口替换: item_id={item_id}"
-            )
+            raise ReconstructionBusinessError(f"配件已存在原始视频，请使用更新接口替换: item_id={item_id}")
 
         uploaded = await cls._upload_source_video_file(item_id, file)
         async with SessionLocal() as session:
@@ -412,7 +416,7 @@ class ReconstructionManager:
     async def get_source_video(cls, item_id: int) -> dict:
         item = await cls._require_item_exists(item_id)
         if not item.source_video_path:
-            raise HTTPException(status_code=404, detail=f"配件未绑定原始视频: item_id={item_id}")
+            raise ReconstructionBusinessError(f"配件未绑定原始视频: item_id={item_id}")
         return cls._format_source_video_item(item, message="原始视频查询成功")
 
     @classmethod
@@ -428,7 +432,7 @@ class ReconstructionManager:
         item = await cls._require_item_exists(item_id)
         old_video_path = item.source_video_path
         if not old_video_path and file is None:
-            raise HTTPException(status_code=404, detail=f"配件未绑定原始视频: item_id={item_id}")
+            raise ReconstructionBusinessError(f"配件未绑定原始视频: item_id={item_id}")
 
         uploaded = None
         if file is not None:
@@ -481,7 +485,7 @@ class ReconstructionManager:
         item = await cls._require_item_exists(item_id)
         old_video_path = item.source_video_path
         if not old_video_path:
-            raise HTTPException(status_code=404, detail=f"配件未绑定原始视频: item_id={item_id}")
+            raise ReconstructionBusinessError(f"配件未绑定原始视频: item_id={item_id}")
 
         deleted = await cls._delete_minio_object(old_video_path)
         async with SessionLocal() as session:
@@ -778,7 +782,7 @@ class ReconstructionManager:
         item = await cls._require_item_exists(item_id)
         result_path = item.obj_url
         if not result_path:
-            raise HTTPException(status_code=404, detail=f"配件未绑定三维重构结果: item_id={item_id}")
+            raise ReconstructionBusinessError(f"配件未绑定三维重构结果: item_id={item_id}")
 
         is_minio_result = looks_like_minio_path(
             result_path,

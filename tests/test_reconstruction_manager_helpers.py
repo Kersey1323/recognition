@@ -1,9 +1,27 @@
+import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
-from fastapi import HTTPException
+from bfrcommon.middlewares.response import catch_exceptions_middleware
+from starlette.requests import Request
 
-from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
+from csrcqsf.biz.railwayparts.reconstruction_manager import (
+    ReconstructionBusinessError,
+    ReconstructionManager,
+)
+
+
+class _AsyncSessionContext:
+    def __init__(self, session):
+        self.session = session
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
 
 
 def test_build_result_object_name_uses_item_id_and_task_id():
@@ -45,11 +63,10 @@ def test_resolve_sam3_model_path_rejects_missing_path_when_enabled():
             is_sam3=True,
             configured_path="/path/that/does/not/exist",
         )
-    except HTTPException as exc:
-        assert exc.status_code == 400
-        assert "SAM3_MODEL_PATH" in str(exc.detail)
+    except ReconstructionBusinessError as exc:
+        assert "SAM3_MODEL_PATH" in str(exc)
     else:
-        raise AssertionError("missing SAM3_MODEL_PATH should raise HTTPException")
+        raise AssertionError("missing SAM3_MODEL_PATH should raise ReconstructionBusinessError")
 
 
 def test_resolve_record_ply_path_prefers_local_ply_url():
@@ -94,11 +111,84 @@ def test_resolve_video_task_inputs_rejects_missing_source_video():
 
     try:
         ReconstructionManager._resolve_video_task_inputs(record)
-    except HTTPException as exc:
-        assert exc.status_code == 400
-        assert "原始视频" in str(exc.detail)
+    except ReconstructionBusinessError as exc:
+        assert "原始视频" in str(exc)
     else:
-        raise AssertionError("missing source video should raise HTTPException")
+        raise AssertionError("missing source video should raise ReconstructionBusinessError")
+
+
+def test_require_item_exists_rejects_missing_item_with_business_error():
+    session = AsyncMock()
+
+    with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id", AsyncMock(return_value=None)):
+        try:
+            asyncio.run(ReconstructionManager._require_item_exists(1935558010375340032))
+        except ReconstructionBusinessError as exc:
+            assert "配件不存在" in str(exc)
+        else:
+            raise AssertionError("missing item should raise ReconstructionBusinessError")
+
+
+def test_upload_source_video_rejects_duplicate_binding_with_business_error():
+    item = SimpleNamespace(
+        id=2023080809420000001,
+        source_video_path="bfr-3d-videos/raw-videos/2023080809420000001/demo.mp4",
+    )
+
+    with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=item)):
+        try:
+            asyncio.run(
+                ReconstructionManager.upload_source_video(
+                    item_id=item.id,
+                    file=SimpleNamespace(),
+                )
+            )
+        except ReconstructionBusinessError as exc:
+            assert "请使用更新接口替换" in str(exc)
+        else:
+            raise AssertionError("duplicate source video should raise ReconstructionBusinessError")
+
+
+def test_delete_reconstruction_result_rejects_missing_result_with_business_error():
+    item = SimpleNamespace(
+        id=2023080809420000001,
+        obj_url=None,
+    )
+
+    with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=item)):
+        try:
+            asyncio.run(ReconstructionManager.delete_reconstruction_result(item.id))
+        except ReconstructionBusinessError as exc:
+            assert "三维重构结果" in str(exc)
+        else:
+            raise AssertionError("missing reconstruction result should raise ReconstructionBusinessError")
+
+
+def test_reconstruction_business_error_is_wrapped_as_fail_response_with_http_200():
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/business-error",
+            "headers": [],
+            "query_string": b"",
+            "client": ("testclient", 123),
+            "server": ("testserver", 80),
+            "scheme": "http",
+        }
+    )
+    middleware = catch_exceptions_middleware()
+
+    async def _raise_business_error(_request):
+        raise ReconstructionBusinessError("配件已存在原始视频，请使用更新接口替换")
+
+    response = asyncio.run(middleware(request, _raise_business_error))
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["status"] == "fail"
+    assert payload["message"] == "配件已存在原始视频，请使用更新接口替换"
 
 
 def test_page_to_limit_offset_converts_page_and_page_size():
