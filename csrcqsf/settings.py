@@ -28,6 +28,10 @@ minio_reconstruction_file_bucket = os.getenv(
     'MINIO_RECONSTRUCTION_FILE_BUCKET',
     'bfr-reconstruction-files'
 )
+minio_search_history_bucket = os.getenv(
+    'MINIO_SEARCH_HISTORY_BUCKET',
+    'bfr-search-history-files'
+)
 minio_endpoint = os.getenv('MINIO_ENDPOINT', '192.168.100.2:9000')
 minio_access_key = os.getenv('MINIO_ACCESS_KEY', 'root')
 minio_secret_key = os.getenv('MINIO_SECRET_KEY', 'REMOVED_CREDENTIAL')

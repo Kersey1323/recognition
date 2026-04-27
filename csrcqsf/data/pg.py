@@ -72,3 +72,8 @@ async def db_migrate():
             ADD COLUMN IF NOT EXISTS source_video_content_type VARCHAR(100),
             ADD COLUMN IF NOT EXISTS source_video_updated_at TIMESTAMP WITHOUT TIME ZONE
         """))
+        await conn.execute(text("""
+            ALTER TABLE parts.search_history
+            ADD COLUMN IF NOT EXISTS query_text VARCHAR(1000),
+            ADD COLUMN IF NOT EXISTS query_image VARCHAR(1000)
+        """))

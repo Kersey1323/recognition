@@ -54,6 +54,8 @@ class SearchHistory(Base):
     search_result_item_code: Mapped[str] = mapped_column(String(200))
     search_parameter: Mapped[SearchParameters] = mapped_column(
         PydanticType(SearchParameters), nullable=True)
+    query_text: Mapped[str] = mapped_column(String(1000), nullable=True)
+    query_image: Mapped[str] = mapped_column(String(1000), nullable=True)
     correct_item_name: Mapped[str] = mapped_column(String(200), nullable=True)
     correct_item_code: Mapped[str] = mapped_column(String(200), nullable=True)
     search_results: Mapped[SearchResults] = mapped_column(

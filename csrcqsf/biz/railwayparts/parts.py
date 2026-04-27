@@ -4,6 +4,7 @@
 注意：此层包含核心业务实现，调用数据层和算法模块
 """
 from datetime import datetime
+import io
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,6 @@ from csrcqsf.data.mdpdb import sgo_sessionLocal
 from csrcqsf.data.minio import ensure_minio_bucket, minio_instance, parse_minio_path
 from csrcqsf.models.search_history import (
     SearchHistory,
-    SearchParameters,
     SearchResultItem,
     SearchResults,
 )
@@ -39,7 +39,7 @@ from csrcqsf.data.milvus import milvus_client
 from pymilvus import Function, FunctionType
 from pymilvus import AnnSearchRequest
 from pymilvus.client.embedding_list import EmbeddingList
-from csrcqsf.settings import ai_settings,minio_bucket,temp_dir
+from csrcqsf.settings import ai_settings,minio_bucket,minio_search_history_bucket,temp_dir
 from .vector_db.storage.milvus_manager import MilvusManagerV2
 from .vector_db.storage.milvus_state_manager import MilvusStateManagerV2
 
@@ -310,6 +310,29 @@ class RailwayPartsManager:
         finally:
             if os.path.exists(local_path):
                 os.remove(local_path)
+
+    @classmethod
+    async def _upload_v2_search_query_image(
+        cls,
+        history_id: int,
+        filename: str,
+        content_bytes: bytes,
+    ) -> str:
+        ensure_minio_bucket(minio_search_history_bucket)
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", (filename or "query.jpg").strip())
+        if not safe_name:
+            safe_name = "query.jpg"
+
+        date_prefix = datetime.now().strftime("%Y%m%d")
+        object_name = f"query-images/{date_prefix}/{history_id}_{safe_name}"
+        await run_sync(
+            minio_instance.client.put_object,
+            minio_search_history_bucket,
+            object_name,
+            io.BytesIO(content_bytes),
+            len(content_bytes),
+        )
+        return f"{minio_search_history_bucket}/{object_name}"
 
     @classmethod
     async def update_item_size(cls, item_id: int, item_size_str: str):
@@ -1123,18 +1146,12 @@ class RailwayPartsManager:
     async def _persist_v2_search_history(
         cls,
         *,
+        history_id: int,
         query_text: str | None,
-        upload_filename: str | None,
+        query_image: str | None,
         search_items: list[SearchItem],
     ) -> None:
         top1 = search_items[0] if search_items else None
-        parameters = SearchParameters(
-            features=[query_text] if query_text else [],
-            images=[f"upload:{upload_filename}"] if upload_filename else [],
-            vechile="",
-            parent_item_id=0,
-            lower_rate=0,
-        )
         search_results = SearchResults(
             items=[
                 SearchResultItem(
@@ -1150,11 +1167,14 @@ class RailwayPartsManager:
             async with SessionLocal() as session:
                 session.add(
                     SearchHistory(
+                        id=history_id,
                         inquery_id=None,
                         inquery_num=None,
                         search_result_item_name=top1.item_name if top1 else None,
                         search_result_item_code=top1.item_code if top1 else "",
-                        search_parameter=parameters,
+                        search_parameter=None,
+                        query_text=query_text,
+                        query_image=query_image,
                         correct_item_name=None,
                         correct_item_code=None,
                         search_results=search_results,
@@ -1175,14 +1195,19 @@ class RailwayPartsManager:
 
         items = []
         for row in page_result.data:
-            params = row.search_parameter
-            search_type = "image" if params and params.images else "text"
+            if row.query_image:
+                search_type = "image"
+            elif row.query_text:
+                search_type = "text"
+            else:
+                search_type = "unknown"
             items.append(
                 SearchHistoryListItem(
                     history_id=row.id,
                     search_type=search_type,
                     time_created=date_to_str(row.time_created),
-                    parameters=row.search_parameter,
+                    query_text=row.query_text,
+                    query_image=row.query_image,
                     result=row.search_results,
                     inquery_id=row.inquery_id,
                     inquery_num=row.inquery_num,
@@ -1212,7 +1237,7 @@ class RailwayPartsManager:
         Returns:
             检索结果列表
         """
-       
+        history_id = get_id()
         
         manager = MilvusManagerV2()
         results = await manager.search_by_text(
@@ -1237,8 +1262,9 @@ class RailwayPartsManager:
                         rate=result['distance']
                     ))
         await cls._persist_v2_search_history(
+            history_id=history_id,
             query_text=query_text,
-            upload_filename=None,
+            query_image=None,
             search_items=search_items,
         )
         return SearchRes(data=search_items)
@@ -1262,11 +1288,24 @@ class RailwayPartsManager:
             检索结果列表
         """
         from PIL import Image
-        import io
+        history_id = get_id()
         upload_filename = getattr(file, "filename", "") or ""
         
         # 读取上传的文件
         contents = await file.read()
+        query_image = None
+        try:
+            query_image = await cls._upload_v2_search_query_image(
+                history_id=history_id,
+                filename=upload_filename,
+                content_bytes=contents,
+            )
+        except Exception as exc:
+            logger.warning(
+                "保存V2检索查询图失败: filename=%s, error=%s",
+                upload_filename,
+                exc,
+            )
         
         # 将字节流转换为 PIL Image
         pil_image = Image.open(io.BytesIO(contents)).convert('RGB')
@@ -1304,8 +1343,9 @@ class RailwayPartsManager:
                     rate=result['distance']
                 ))
         await cls._persist_v2_search_history(
+            history_id=history_id,
             query_text=None,
-            upload_filename=upload_filename,
+            query_image=query_image,
             search_items=search_items,
         )
         return SearchRes(data=search_items)

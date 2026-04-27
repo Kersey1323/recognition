@@ -278,7 +278,8 @@ class SearchHistoryListItem(BaseModel):
     history_id: str
     search_type: str
     time_created: str
-    parameters: SearchParameters | None
+    query_text: str | None = None
+    query_image: str | None = None
     result: SearchResults | None
     inquery_id: str | None
     inquery_num: str | None

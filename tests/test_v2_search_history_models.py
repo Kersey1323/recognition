@@ -21,22 +21,17 @@ def test_search_history_list_request_accepts_page_size_alias():
     assert req.per_page == 20
 
 
-def test_search_history_list_item_serializes_history_id_as_string():
+def test_search_history_list_item_serializes_explicit_query_fields():
     item = SearchHistoryListItem(
         history_id=BIG_ITEM_ID,
         search_type="text",
         time_created="2026-04-23 10:00:00",
+        query_text="螺栓",
+        query_image=None,
         search_item_name="螺栓M8X22",
         search_item_code="11010150131",
         correct_item_name=None,
         correct_item_code=None,
-        parameters={
-            "features": ["螺栓"],
-            "images": [],
-            "vechile": "",
-            "parent_item_id": 0,
-            "lower_rate": 0,
-        },
         result={
             "items": [
                 {
@@ -53,8 +48,10 @@ def test_search_history_list_item_serializes_history_id_as_string():
 
     assert data["history_id"] == str(BIG_ITEM_ID)
     assert data["search_type"] == "text"
+    assert data["query_text"] == "螺栓"
+    assert data["query_image"] is None
+    assert "parameters" not in data
     assert data["result"]["items"][0]["item_id"] == str(BIG_ITEM_ID)
-    assert isinstance(data["result"]["items"][0]["item_id"], str)
 
 
 def test_v2_index_delete_response_serializes_item_id_as_string():
