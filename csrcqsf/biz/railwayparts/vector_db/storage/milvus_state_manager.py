@@ -26,49 +26,39 @@ class MilvusStateManagerV2:
 
     def get_statistics_snapshot(self) -> dict[str, object]:
         """获取 V2 collection 的统计快照。"""
-        siglip_count = self.collection_manager.get_collection_entity_count(
+        siglip_item_images = self.collection_manager.get_collection_item_image_ids(
             self.siglip_collection
         )
-        dinov2_count = self.collection_manager.get_collection_entity_count(
-            self.dinov2_collection
-        )
-        siglip_item_ids = self.collection_manager.iter_collection_item_ids(
-            self.siglip_collection
-        )
-        dinov2_item_ids = self.collection_manager.iter_collection_item_ids(
+        dinov2_item_images = self.collection_manager.get_collection_item_image_ids(
             self.dinov2_collection
         )
         return {
-            "siglip_count": siglip_count,
-            "dinov2_count": dinov2_count,
-            "siglip_item_ids": siglip_item_ids,
-            "dinov2_item_ids": dinov2_item_ids,
+            "siglip_count": sum(len(image_ids) for image_ids in siglip_item_images.values()),
+            "dinov2_count": sum(len(image_ids) for image_ids in dinov2_item_images.values()),
+            "siglip_item_ids": set(siglip_item_images.keys()),
+            "dinov2_item_ids": set(dinov2_item_images.keys()),
         }
 
     def get_item_index_state_snapshot(self) -> dict[int, dict[str, int]]:
         """按 item_id 聚合当前 V2 索引状态。"""
-        siglip_counts = self.collection_manager.get_collection_item_counts(
+        siglip_item_images = self.collection_manager.get_collection_item_image_ids(
             self.siglip_collection
         )
-        dinov2_item_ids = self.collection_manager.iter_collection_item_ids(
+        dinov2_item_images = self.collection_manager.get_collection_item_image_ids(
             self.dinov2_collection
         )
 
         snapshot: dict[int, dict[str, int]] = {}
-        for item_id, image_count in siglip_counts.items():
-            snapshot[item_id] = {
-                "has_v2_index": 1 if item_id in dinov2_item_ids else 0,
-                "v2_indexed_image_num": image_count if item_id in dinov2_item_ids else 0,
-            }
-
-        for item_id in dinov2_item_ids:
-            snapshot.setdefault(
+        item_ids = set(siglip_item_images.keys()) | set(dinov2_item_images.keys())
+        for item_id in item_ids:
+            indexed_images = siglip_item_images.get(item_id, set()) & dinov2_item_images.get(
                 item_id,
-                {
-                    "has_v2_index": 0,
-                    "v2_indexed_image_num": 0,
-                },
+                set(),
             )
+            snapshot[item_id] = {
+                "has_v2_index": 1 if len(indexed_images) > 0 else 0,
+                "v2_indexed_image_num": len(indexed_images),
+            }
 
         return snapshot
 

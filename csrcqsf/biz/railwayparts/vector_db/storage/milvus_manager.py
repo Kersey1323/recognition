@@ -18,6 +18,9 @@ from csrcqsf.biz.railwayparts.vector_db.config.env_config import get_config
 
 logger = setup_logger(__name__)
 
+IMAGE_VARIANT_ORIGINAL = "original"
+IMAGE_VARIANT_SAM3_SEGMENTED = "sam3_segmented"
+
 
 class MilvusManagerV2:
     """Milvus 统一管理器"""
@@ -90,6 +93,8 @@ class MilvusManagerV2:
             host=env_config.milvus_host,
             port=env_config.milvus_port
         )
+        self.image_variant_supported = self._detect_image_variant_support()
+        self.last_preprocess_outcome = None
 
         # 初始化图像加载器
         logger.info(f"Initializing image loader with MinIO endpoint: {env_config.minio_endpoint}")
@@ -106,6 +111,7 @@ class MilvusManagerV2:
         logger.info(f"  - SigLIP Collection: {self.siglip_collection}")
         logger.info(f"  - DINOv2 Collection: {self.dinov2_collection}")
         logger.info(f"  - SAM3 Enabled: {self.sam3_preprocessor is not None}")
+        logger.info(f"  - Image Variant Supported: {self.image_variant_supported}")
 
     def get_statistics_snapshot(self) -> dict[str, object]:
         """获取 V2 collection 的统计快照。"""
@@ -149,6 +155,67 @@ class MilvusManagerV2:
             "siglip_deleted": self.collection_manager.delete_by_item_id(self.siglip_collection, item_id),
             "dinov2_deleted": self.collection_manager.delete_by_item_id(self.dinov2_collection, item_id),
         }
+
+    def _dedupe_hits_by_image_id(self, hits: List[Dict]) -> List[Dict]:
+        """按源 image_id 去重，保留分数更高的一条变体命中。"""
+        best_by_image_id: dict[int, Dict] = {}
+        for hit in hits:
+            entity = hit.get("entity", {})
+            image_id = entity.get("image_id")
+            if image_id is None:
+                continue
+
+            image_id_int = int(image_id)
+            current = best_by_image_id.get(image_id_int)
+            current_score = float(current.get("distance", float("-inf"))) if current else float("-inf")
+            hit_score = float(hit.get("distance", float("-inf")))
+            if current is None or hit_score > current_score:
+                best_by_image_id[image_id_int] = hit
+
+        return sorted(
+            best_by_image_id.values(),
+            key=lambda item: float(item.get("distance", float("-inf"))),
+            reverse=True,
+        )
+
+    def _detect_image_variant_support(self) -> bool:
+        """检测当前两个 V2 collection 是否都支持 image_variant 字段。"""
+        checker = getattr(self.collection_manager, "collection_has_field", None)
+        if checker is None:
+            return True
+
+        try:
+            siglip_supported = checker(self.siglip_collection, "image_variant")
+            dinov2_supported = checker(self.dinov2_collection, "image_variant")
+            supported = bool(siglip_supported and dinov2_supported)
+            if not supported:
+                logger.warning(
+                    "Milvus collections do not support image_variant; "
+                    "falling back to legacy single-representation mode. "
+                    "Recreate V2 collections to enable original+segmented dual-write."
+                )
+            return supported
+        except Exception as e:
+            logger.warning(
+                f"Failed to inspect Milvus schema for image_variant support: {e}; "
+                "falling back to legacy single-representation mode."
+            )
+            return False
+
+    def _supports_image_variant(self) -> bool:
+        supported = getattr(self, "image_variant_supported", None)
+        if supported is not None:
+            return bool(supported)
+        return self._detect_image_variant_support()
+
+    def _build_search_output_fields(self, include_patch_tokens_path: bool = False) -> list[str]:
+        fields = ["item_id", "item_name", "item_code", "image_id"]
+        if self._supports_image_variant():
+            fields.append("image_variant")
+        fields.append("image_url")
+        if include_patch_tokens_path:
+            fields.append("patch_tokens_path")
+        return fields
 
     # ==================== 建库功能 ====================
 
@@ -210,39 +277,63 @@ class MilvusManagerV2:
         siglip_success = False
         dinov2_success = False
 
-        # SAM3 预处理（如果启用）
-        processed_image = image
+        preprocess_outcome = None
         if self.sam3_preprocessor is not None:
             try:
-                preprocessed = self.sam3_preprocessor.preprocess_image(image, item_name, image_id)
-                if preprocessed is not None:
-                    processed_image = preprocessed
+                preprocess_outcome = self.sam3_preprocessor.preprocess_image_with_metadata(
+                    image=image,
+                    item_name=item_name,
+                    image_id=image_id,
+                )
+                if preprocess_outcome.result_image is not None:
                     logger.debug(f"SAM3 preprocessing applied for image {image_id}")
                 else:
                     logger.warning(f"SAM3 preprocessing failed for {image_id}, using original image")
             except Exception as e:
                 logger.error(f"SAM3 preprocessing error for {image_id}: {e}")
+        self.last_preprocess_outcome = preprocess_outcome
+
+        variant_supported = self._supports_image_variant()
+        if variant_supported:
+            image_variants: list[tuple[Optional[str], Image.Image]] = [
+                (IMAGE_VARIANT_ORIGINAL, image),
+            ]
+            if preprocess_outcome is not None and preprocess_outcome.result_image is not None:
+                image_variants.append(
+                    (IMAGE_VARIANT_SAM3_SEGMENTED, preprocess_outcome.result_image)
+                )
+        else:
+            legacy_image = (
+                preprocess_outcome.result_image
+                if preprocess_outcome is not None and preprocess_outcome.result_image is not None
+                else image
+            )
+            image_variants = [(None, legacy_image)]
 
         # SigLIP 索引
         try:
-            image_vector = self.siglip_extractor.extract_image_features(processed_image)
             text_vector = self.siglip_extractor.extract_text_features(description or item_name)
-
-            siglip_record = {
-                "item_id": item_id,
-                "item_name": item_name,
-                "item_code": item_code,
-                "image_id": image_id,
-                "image_url": image_url,
-                "description": description,
-                "image_vector": image_vector.tolist(),
-                "text_vector": text_vector.tolist(),
-                "created_at": created_at
-            }
+            siglip_records = []
+            for image_variant, variant_image in image_variants:
+                image_vector = self.siglip_extractor.extract_image_features(variant_image)
+                record = {
+                    "item_id": item_id,
+                    "item_name": item_name,
+                    "item_code": item_code,
+                    "image_id": image_id,
+                    "image_url": image_url,
+                    "description": description,
+                    "image_vector": image_vector.tolist(),
+                    "text_vector": text_vector.tolist(),
+                    "created_at": created_at,
+                }
+                if variant_supported and image_variant is not None:
+                    record["image_variant"] = image_variant
+                siglip_records.append(record)
 
             self.collection_manager.insert_siglip_records(
                 self.siglip_collection,
-                [siglip_record]
+                siglip_records
             )
             siglip_success = True
 
@@ -251,32 +342,38 @@ class MilvusManagerV2:
 
         # DINOv2 索引
         try:
-            global_vector = self.dinov2_extractor.extract_global_vector(processed_image)
-            patch_tokens = self.dinov2_extractor.extract_patch_tokens(processed_image)
-            patch_mean = np.mean(patch_tokens, axis=0)
+            dinov2_records = []
+            for image_variant, variant_image in image_variants:
+                global_vector = self.dinov2_extractor.extract_global_vector(variant_image)
+                patch_tokens = self.dinov2_extractor.extract_patch_tokens(variant_image)
+                patch_mean = np.mean(patch_tokens, axis=0)
 
-            # 保存 patch tokens
-            patch_tokens_path = os.path.join(
-                self.patch_tokens_dir,
-                f"item_{item_id}_img_{image_id}.npy"
-            )
-            self.dinov2_extractor.save_patch_tokens(patch_tokens, patch_tokens_path)
+                patch_filename = (
+                    f"item_{item_id}_img_{image_id}_{image_variant}.npy"
+                    if variant_supported and image_variant is not None
+                    else f"item_{item_id}_img_{image_id}.npy"
+                )
+                patch_tokens_path = os.path.join(self.patch_tokens_dir, patch_filename)
+                self.dinov2_extractor.save_patch_tokens(patch_tokens, patch_tokens_path)
 
-            dinov2_record = {
-                "item_id": item_id,
-                "item_name": item_name,
-                "item_code": item_code,
-                "image_id": image_id,
-                "image_url": image_url,
-                "global_vector": global_vector.tolist(),
-                "patch_tokens": patch_mean.tolist(),
-                "patch_tokens_path": patch_tokens_path,
-                "created_at": created_at
-            }
+                record = {
+                    "item_id": item_id,
+                    "item_name": item_name,
+                    "item_code": item_code,
+                    "image_id": image_id,
+                    "image_url": image_url,
+                    "global_vector": global_vector.tolist(),
+                    "patch_tokens": patch_mean.tolist(),
+                    "patch_tokens_path": patch_tokens_path,
+                    "created_at": created_at,
+                }
+                if variant_supported and image_variant is not None:
+                    record["image_variant"] = image_variant
+                dinov2_records.append(record)
 
             self.collection_manager.insert_dinov2_records(
                 self.dinov2_collection,
-                [dinov2_record]
+                dinov2_records
             )
             dinov2_success = True
 
@@ -313,11 +410,11 @@ class MilvusManagerV2:
             collection_name=self.siglip_collection,
             data=[text_vector.tolist()],
             anns_field="text_vector",
-            limit=top_k,
-            output_fields=["item_id", "item_name", "item_code", "image_id", "image_url"]
+            limit=top_k * 3,
+            output_fields=self._build_search_output_fields()
         )[0]
 
-        return results
+        return self._dedupe_hits_by_image_id(results)[:top_k]
 
     async def search_by_image(
         self,
@@ -380,11 +477,11 @@ class MilvusManagerV2:
             collection_name=self.siglip_collection,
             data=[image_vector.tolist()],
             anns_field="image_vector",
-            limit=top_k,
-            output_fields=["item_id", "item_name", "item_code", "image_id", "image_url"]
+            limit=top_k * 3,
+            output_fields=self._build_search_output_fields()
         )[0]
 
-        return results
+        return self._dedupe_hits_by_image_id(results)[:top_k]
 
     def _search_by_image_dinov2(
         self,
@@ -416,9 +513,10 @@ class MilvusManagerV2:
             collection_name=self.dinov2_collection,
             data=[query_global.tolist()],
             anns_field="global_vector",
-            limit=coarse_top_k,
-            output_fields=["item_id", "item_name", "item_code", "image_id", "image_url", "patch_tokens_path"]
+            limit=coarse_top_k * 3,
+            output_fields=self._build_search_output_fields(include_patch_tokens_path=True)
         )[0]
+        coarse_results = self._dedupe_hits_by_image_id(coarse_results)
 
         # 阶段2: 精排
         logger.info("  Stage 2: Fine ranking...")
@@ -449,7 +547,7 @@ class MilvusManagerV2:
 
         # 按精排分数排序
         fine_results.sort(key=lambda x: x['distance'], reverse=True)
-        return fine_results[:fine_top_k]
+        return self._dedupe_hits_by_image_id(fine_results)[:fine_top_k]
 
     def _search_by_image_hybrid(
         self,
@@ -486,7 +584,7 @@ class MilvusManagerV2:
             data=[siglip_vector.tolist()],
             anns_field="image_vector",
             limit=coarse_top_k * 2,
-            output_fields=["item_id", "item_name", "item_code", "image_id", "image_url"]
+            output_fields=self._build_search_output_fields()
         )[0]
 
         # DINOv2 检索
@@ -495,12 +593,17 @@ class MilvusManagerV2:
             data=[dinov2_global.tolist()],
             anns_field="global_vector",
             limit=coarse_top_k * 2,
-            output_fields=["item_id", "item_name", "item_code", "image_id", "image_url", "patch_tokens_path"]
+            output_fields=self._build_search_output_fields(include_patch_tokens_path=True)
         )[0]
 
         # RRF 融合
         fused_results = self._rrf_fusion([siglip_results, dinov2_results])
         coarse_candidates = fused_results[:coarse_top_k]
+
+        dinov2_best_by_image_id = {
+            int(result["entity"]["image_id"]): result
+            for result in self._dedupe_hits_by_image_id(dinov2_results)
+        }
 
         # 阶段2: Patch Token 精排
         logger.info("  Stage 2: Patch token fine ranking...")
@@ -508,13 +611,8 @@ class MilvusManagerV2:
 
         for candidate in coarse_candidates:
             image_id = candidate['entity']['image_id']
-
-            # 从 DINOv2 结果中获取 patch_tokens_path
-            patch_tokens_path = None
-            for dinov2_result in dinov2_results:
-                if dinov2_result['entity']['image_id'] == image_id:
-                    patch_tokens_path = dinov2_result['entity']['patch_tokens_path']
-                    break
+            dinov2_result = dinov2_best_by_image_id.get(int(image_id))
+            patch_tokens_path = None if dinov2_result is None else dinov2_result['entity']['patch_tokens_path']
 
             if patch_tokens_path is None or not os.path.exists(patch_tokens_path):
                 logger.warning(f"Patch tokens not found for image_id: {image_id}")
@@ -563,7 +661,8 @@ class MilvusManagerV2:
         rrf_scores = {}
 
         for results in results_list:
-            for rank, result in enumerate(results, start=1):
+            deduped_results = self._dedupe_hits_by_image_id(results)
+            for rank, result in enumerate(deduped_results, start=1):
                 image_id = result['entity']['image_id']
                 rrf_score = 1.0 / (k + rank)
 

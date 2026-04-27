@@ -38,13 +38,12 @@ def test_state_manager_init_only_builds_collection_manager():
 
 def test_state_manager_builds_statistics_and_item_snapshot_from_collection_manager():
     fake_collection_manager = MagicMock()
-    fake_collection_manager.get_collection_entity_count.side_effect = [8, 6]
-    fake_collection_manager.iter_collection_item_ids.side_effect = [
-        {101, 102, 103},
-        {102, 103, 104},
-        {102, 103, 104},
+    fake_collection_manager.get_collection_item_image_ids.side_effect = [
+        {101: {9001, 9002}, 102: {9101}, 999: {9901, 9902}},
+        {102: {9101}, 103: {9301}, 104: {9401}},
+        {101: {9001, 9002}, 102: {9101}, 999: {9901, 9902}},
+        {102: {9101}, 103: {9301}, 104: {9401}},
     ]
-    fake_collection_manager.get_collection_item_counts.return_value = {101: 2, 102: 1, 999: 4}
 
     with patch(
         "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.get_config",
@@ -58,9 +57,9 @@ def test_state_manager_builds_statistics_and_item_snapshot_from_collection_manag
         state = manager.get_item_index_state_snapshot()
 
     assert stats == {
-        "siglip_count": 8,
-        "dinov2_count": 6,
-        "siglip_item_ids": {101, 102, 103},
+        "siglip_count": 5,
+        "dinov2_count": 3,
+        "siglip_item_ids": {101, 102, 999},
         "dinov2_item_ids": {102, 103, 104},
     }
     assert state == {
@@ -121,3 +120,29 @@ def test_state_manager_get_indexed_images_by_item_id_uses_intersection_of_two_co
     assert indexed_images == {
         9002: "bfr-ai-files/b.jpg",
     }
+
+
+def test_state_manager_snapshot_counts_unique_source_images_instead_of_variant_rows():
+    fake_collection_manager = MagicMock()
+    fake_collection_manager.get_collection_item_image_ids.side_effect = [
+        {101: {9001, 9002}, 102: {9101}},
+        {101: {9002}, 102: {9101, 9102}},
+        {101: {9001, 9002}, 102: {9101}},
+        {101: {9002}, 102: {9101, 9102}},
+    ]
+
+    with patch(
+        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.get_config",
+        return_value=_fake_env(),
+    ), patch(
+        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.CollectionManager",
+        return_value=fake_collection_manager,
+    ):
+        manager = MilvusStateManagerV2()
+        stats = manager.get_statistics_snapshot()
+        snapshot = manager.get_item_index_state_snapshot()
+
+    assert stats["siglip_count"] == 3
+    assert stats["dinov2_count"] == 3
+    assert snapshot[101] == {"has_v2_index": 1, "v2_indexed_image_num": 1}
+    assert snapshot[102] == {"has_v2_index": 1, "v2_indexed_image_num": 1}

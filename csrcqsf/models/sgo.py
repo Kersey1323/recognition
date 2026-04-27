@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Iterator, List
 from bfrcommon.db import PageQueryResult, get_abbr_fn, get_count, async_get_count
 from pydantic import BaseModel, Field
 from bfrcommon.db import PydanticType
-from csrcqsf.data.pg import Base
+from csrcqsf.data.pg import Base, PlainBase
 
 
 class ListInqueryItem(BaseModel):
@@ -53,7 +53,7 @@ class SegmentStatus(str, Enum):
     SKIPPED = "skipped"     # 跳过
 
 
-class SegmentedImage(Base):
+class SegmentedImage(PlainBase):
     """自动分割后的图片记录"""
     __tablename__ = 'segmented_image_info'
     
@@ -74,6 +74,7 @@ class SegmentedImage(Base):
     is_indexed: Mapped[int] = mapped_column(INT, default=0)  # 0=未索引 1=已索引
     
     error_message: Mapped[str] = mapped_column(Text, nullable=True)  # 错误信息
+    id: Mapped[int] = mapped_column(BIGINT, primary_key=True)
     
     @classmethod
     async def create_record(cls, session: AsyncSession, record: 'SegmentedImage'):
@@ -89,7 +90,7 @@ class SegmentedImage(Base):
     
     @classmethod
     async def list_by_item_id(cls, session: AsyncSession, item_id: int):
-        stmt = select(cls).where(cls.item_id == item_id).order_by(cls.time_created.desc())
+        stmt = select(cls).where(cls.item_id == item_id).order_by(cls.id.desc())
         return await session.scalars(stmt)
     
     @classmethod

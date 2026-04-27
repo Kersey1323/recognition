@@ -51,6 +51,27 @@ class CollectionManager:
         stats = self.client.get_collection_stats(collection_name=collection_name)
         return int(stats.get("row_count", 0))
 
+    def collection_has_field(self, collection_name: str, field_name: str) -> bool:
+        """
+        检查 collection schema 是否包含指定字段。
+
+        Args:
+            collection_name: Collection 名称
+            field_name: 字段名
+
+        Returns:
+            是否包含该字段；collection 不存在时返回 False
+        """
+        if not self.collection_exists(collection_name):
+            return False
+
+        description = self.client.describe_collection(collection_name=collection_name)
+        for field in description.get("fields", []):
+            name = field.get("name") or field.get("field_name")
+            if name == field_name:
+                return True
+        return False
+
     def iter_collection_item_ids(self, collection_name: str, batch_size: int = 1000) -> set[int]:
         """
         遍历 collection 中所有去重后的 item_id。
@@ -140,6 +161,53 @@ class CollectionManager:
                 iterator.close()
 
         return counts
+
+    def get_collection_item_image_ids(
+        self,
+        collection_name: str,
+        batch_size: int = 1000,
+    ) -> dict[int, set[int]]:
+        """
+        按 item_id 汇总 collection 中的源 image_id 集合。
+
+        同一张源图即使存在多个 image_variant，也只保留一个 image_id。
+        """
+        if not self.collection_exists(collection_name):
+            return {}
+
+        item_images: dict[int, set[int]] = {}
+        iterator = self.client.query_iterator(
+            collection_name=collection_name,
+            filter="item_id >= 0",
+            output_fields=["item_id", "image_id"],
+            batch_size=batch_size,
+        )
+
+        try:
+            if hasattr(iterator, "next"):
+                while True:
+                    batch = iterator.next()
+                    if len(batch) == 0:
+                        break
+                    for row in batch:
+                        item_id = row.get("item_id")
+                        image_id = row.get("image_id")
+                        if item_id is None or image_id is None:
+                            continue
+                        item_images.setdefault(int(item_id), set()).add(int(image_id))
+            else:
+                for batch in iterator:
+                    for row in batch:
+                        item_id = row.get("item_id")
+                        image_id = row.get("image_id")
+                        if item_id is None or image_id is None:
+                            continue
+                        item_images.setdefault(int(item_id), set()).add(int(image_id))
+        finally:
+            if hasattr(iterator, "close"):
+                iterator.close()
+
+        return item_images
 
     def get_collection_image_records(
         self,
@@ -256,6 +324,7 @@ class CollectionManager:
         schema.add_field(field_name="item_name", datatype=DataType.VARCHAR, max_length=200)
         schema.add_field(field_name="item_code", datatype=DataType.VARCHAR, max_length=100)
         schema.add_field(field_name="image_id", datatype=DataType.INT64)
+        schema.add_field(field_name="image_variant", datatype=DataType.VARCHAR, max_length=32)
         schema.add_field(field_name="image_url", datatype=DataType.VARCHAR, max_length=500)
         schema.add_field(field_name="description", datatype=DataType.VARCHAR, max_length=1000)
         schema.add_field(field_name="image_vector", datatype=DataType.FLOAT_VECTOR, dim=vector_dim)
@@ -319,6 +388,7 @@ class CollectionManager:
         schema.add_field(field_name="item_name", datatype=DataType.VARCHAR, max_length=200)
         schema.add_field(field_name="item_code", datatype=DataType.VARCHAR, max_length=100)
         schema.add_field(field_name="image_id", datatype=DataType.INT64)
+        schema.add_field(field_name="image_variant", datatype=DataType.VARCHAR, max_length=32)
         schema.add_field(field_name="image_url", datatype=DataType.VARCHAR, max_length=500)
         schema.add_field(field_name="global_vector", datatype=DataType.FLOAT_VECTOR, dim=vector_dim)
         schema.add_field(field_name="patch_tokens", datatype=DataType.FLOAT_VECTOR, dim=vector_dim)

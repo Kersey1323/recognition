@@ -6,10 +6,11 @@
 
 from bfrcommon.db import with_schema
 from globals_vars import logger
-from sqlalchemy import text
+from sqlalchemy import MetaData, text
 from csrcqsf.settings import ai_settings
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from anyio import to_thread
+from sqlalchemy.orm import DeclarativeBase
 
 # 创建异步数据库引擎
 # 使用 asyncpg 驱动连接 PostgreSQL
@@ -30,6 +31,19 @@ SessionLocal = async_sessionmaker(expire_on_commit=False,
 Base = with_schema(schema_name='parts')
 
 
+def with_schema_only(schema_name: str):
+    metadata_obj = MetaData(schema=schema_name)
+
+    class PlainBase(DeclarativeBase):
+        metadata = metadata_obj
+
+    return PlainBase
+
+
+# 仅绑定 schema，不自动追加审计字段。
+PlainBase = with_schema_only(schema_name='parts')
+
+
 async def db_migrate():
     """
     数据库迁移：创建Schema和表
@@ -44,6 +58,7 @@ async def db_migrate():
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "parts"'))
         # 创建所有表
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(PlainBase.metadata.create_all)
         # 为已存在的 item_info 表补齐新增字段
         await conn.execute(text("""
             ALTER TABLE parts.item_info

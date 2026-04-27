@@ -25,7 +25,13 @@ from .milvus import MilvusManager, ImageIndex, PartsIndex, FeaturesIndex, Collet
 from .api_models import *
 from bfrcommon.common import date_to_str
 from globals_vars import logger
-from csrcqsf.models.sgo import ListInqueryItem, SgoItemImages, ImageSourceType
+from csrcqsf.models.sgo import (
+    ListInqueryItem,
+    SgoItemImages,
+    ImageSourceType,
+    SegmentedImage,
+    SegmentStatus,
+)
 import numpy as np
 import cv2
 from anyio.to_thread import run_sync
@@ -33,7 +39,7 @@ from csrcqsf.data.milvus import milvus_client
 from pymilvus import Function, FunctionType
 from pymilvus import AnnSearchRequest
 from pymilvus.client.embedding_list import EmbeddingList
-from csrcqsf.settings import ai_settings,minio_bucket
+from csrcqsf.settings import ai_settings,minio_bucket,temp_dir
 from .vector_db.storage.milvus_manager import MilvusManagerV2
 from .vector_db.storage.milvus_state_manager import MilvusStateManagerV2
 
@@ -276,6 +282,36 @@ class RailwayPartsManager:
                 await session.commit()
 
     @classmethod
+    async def _upload_v2_segmented_image(
+        cls,
+        image,
+        item_id: int,
+        source_image_id: int,
+    ) -> str:
+        """上传 V2 索引流程生成的分割图到 MinIO。"""
+        ensure_minio_bucket(minio_bucket)
+        Path(temp_dir).mkdir(parents=True, exist_ok=True)
+
+        token = get_id()
+        object_name = f"v2-segmented/{item_id}/{source_image_id}_{token}.jpg"
+        local_path = os.path.join(temp_dir, f"v2_segmented_{token}.jpg")
+
+        try:
+            rgb_image = image.convert("RGB")
+            await run_sync(rgb_image.save, local_path, "JPEG")
+            await run_sync(
+                minio_instance.upload_file,
+                minio_bucket,
+                object_name,
+                local_path,
+                "image/jpeg",
+            )
+            return f"{minio_bucket}/{object_name}"
+        finally:
+            if os.path.exists(local_path):
+                os.remove(local_path)
+
+    @classmethod
     async def update_item_size(cls, item_id: int, item_size_str: str):
         async with SessionLocal() as session:
             await Items.put_item_size_desc(session=session, item_id=item_id, size_desc=item_size_str)
@@ -301,6 +337,16 @@ class RailwayPartsManager:
             #         raise Exception(f'父节点信息找不到')
 
             images = SgoItemImages.get_images(session=session, item_id=item_id)
+            segmented_records = list(await SegmentedImage.list_by_item_id(session, item_id))
+            segmented_image_dict: dict[int, str | None] = {}
+            for record in segmented_records:
+                source_image_id = int(record.source_image_id)
+                if source_image_id in segmented_image_dict:
+                    continue
+                if record.status == SegmentStatus.SUCCESS and record.segmented_image_url:
+                    segmented_image_dict[source_image_id] = record.segmented_image_url
+                else:
+                    segmented_image_dict[source_image_id] = None
             res = GetItemDetailRes(
                 ply_url=item.obj_url,
                 id=str(item.id),
@@ -326,7 +372,7 @@ class RailwayPartsManager:
                 res.images_index_list.append(
                     ItemImageIndexInfo(
                         image_id=str(image_id),
-                        image_url=image_url
+                        image_url=segmented_image_dict.get(image_id) or image_url
                     )
                 )
             async for image in images:
@@ -725,14 +771,18 @@ class RailwayPartsManager:
         async with SessionLocal() as session:
             res.total_item_num = await async_get_count(session, select(Items))
 
-        snapshot = MilvusStateManagerV2().get_statistics_snapshot()
-        siglip_item_ids = snapshot.get("siglip_item_ids", set())
-        dinov2_item_ids = snapshot.get("dinov2_item_ids", set())
+        state_manager = MilvusStateManagerV2()
+        snapshot = state_manager.get_statistics_snapshot()
+        item_state_snapshot = state_manager.get_item_index_state_snapshot()
 
         res.total_image_index = int(snapshot.get("siglip_count", 0) or 0)
         res.total_feature_index = int(snapshot.get("dinov2_count", 0) or 0)
         res.total_index = res.total_image_index + res.total_feature_index
-        res.total_indexed_item_num = len(siglip_item_ids & dinov2_item_ids)
+        res.total_indexed_item_num = sum(
+            1
+            for item_state in item_state_snapshot.values()
+            if int(item_state.get("has_v2_index", 0) or 0) == 1
+        )
         res.recognition_number = 0
         res.corrrect_recognition_number = 0
         res.recognition_ration = 0
@@ -845,6 +895,7 @@ class RailwayPartsManager:
                     images = list(images_result) if images_result else []
                     item_success_count = 0
                     success_image_ids: list[int] = []
+                    segmented_records_to_create: list[SegmentedImage] = []
                     deleted_existing = False
                     image_status_changed = False
                     
@@ -858,6 +909,7 @@ class RailwayPartsManager:
                             session=session,
                             image_id_list=[img.id for img in images],
                         )
+                        await SegmentedImage.delete_by_item_id(session, item.id)
                         deleted_existing = True
                         image_status_changed = True
                         logger.info(
@@ -895,6 +947,61 @@ class RailwayPartsManager:
                                 image_url=img.image_url,
                                 description=item.item_name
                             )
+
+                            preprocess_outcome = getattr(
+                                manager,
+                                "last_preprocess_outcome",
+                                None,
+                            )
+                            if preprocess_outcome is not None:
+                                if preprocess_outcome.result_image is not None:
+                                    try:
+                                        segmented_url = await cls._upload_v2_segmented_image(
+                                            preprocess_outcome.result_image,
+                                            item.id,
+                                            img.id,
+                                        )
+                                        segmented_records_to_create.append(
+                                            SegmentedImage(
+                                                id=get_id(),
+                                                item_id=item.id,
+                                                source_image_id=img.id,
+                                                source_image_url=img.image_url,
+                                                segmented_image_url=segmented_url,
+                                                status=SegmentStatus.SUCCESS,
+                                                is_indexed=1 if siglip_ok and dinov2_ok else 0,
+                                            )
+                                        )
+                                    except Exception as e:
+                                        logger.warning(
+                                            "保存分割图失败: item=%s, image=%s, error=%s",
+                                            item.id,
+                                            img.id,
+                                            e,
+                                        )
+                                        segmented_records_to_create.append(
+                                            SegmentedImage(
+                                                id=get_id(),
+                                                item_id=item.id,
+                                                source_image_id=img.id,
+                                                source_image_url=img.image_url,
+                                                status=SegmentStatus.FAILED,
+                                                is_indexed=0,
+                                                error_message=str(e),
+                                            )
+                                        )
+                                else:
+                                    segmented_records_to_create.append(
+                                        SegmentedImage(
+                                            id=get_id(),
+                                            item_id=item.id,
+                                            source_image_id=img.id,
+                                            source_image_url=img.image_url,
+                                            status=SegmentStatus.FAILED,
+                                            is_indexed=0,
+                                            error_message="SAM3 preprocessing returned no segmented image",
+                                        )
+                                    )
                             
                             if siglip_ok and dinov2_ok:
                                 success_count += 1
@@ -919,6 +1026,10 @@ class RailwayPartsManager:
                         session=session,
                         image_id_list=success_image_ids,
                     )
+                    image_status_changed = True
+
+                if len(segmented_records_to_create) > 0:
+                    await SegmentedImage.batch_create(session, segmented_records_to_create)
                     image_status_changed = True
 
                 if image_status_changed:
