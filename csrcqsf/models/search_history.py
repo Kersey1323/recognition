@@ -26,6 +26,7 @@ class SearchResultItem(BaseModel):
     item_id: str
     item_code: str
     similar: float
+    image_url: str | None = None
 
 
 class SearchResults(BaseModel):

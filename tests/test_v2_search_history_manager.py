@@ -104,6 +104,7 @@ def test_search_v2_by_text_persists_query_text_after_success():
     assert session.added.query_image is None
     assert session.added.search_parameter is None
     assert session.added.search_results.items[0].item_id == str(fake_item.id)
+    assert session.added.search_results.items[0].image_url == "bfr-ai-files/bolt.jpg"
     session.commit.assert_awaited()
 
 
@@ -143,6 +144,7 @@ def test_search_v2_by_image_uploads_query_image_and_persists_path():
     assert result.data[0].item_code == "11010150131"
     assert session.added.query_text is None
     assert session.added.query_image == "bfr-search-history-files/query-images/20260427/1_query_image.png"
+    assert session.added.search_results.items[0].image_url == "bfr-ai-files/bolt.jpg"
     session.commit.assert_awaited()
 
 
@@ -208,7 +210,7 @@ def test_list_v2_search_history_uses_explicit_query_fields_and_unknown_fallback(
         time_created=datetime(2026, 4, 23, 12, 1, 0),
         query_text=None,
         query_image="bfr-search-history-files/query-images/20260427/2_query.png",
-        search_results=SearchResults(items=[]),
+        search_results=SearchResults(items=[{"item_id": "1", "item_code": "x", "similar": 0.9, "image_url": "bfr-ai-files/1960224080514424832.jpg"}]),
         inquery_id=None,
         inquery_num=None,
         search_result_item_name="螺栓M8X22",
@@ -242,6 +244,7 @@ def test_list_v2_search_history_uses_explicit_query_fields_and_unknown_fallback(
     assert res.items[0].query_text == "螺栓"
     assert res.items[1].search_type == "image"
     assert res.items[1].query_image.endswith("2_query.png")
+    assert res.items[1].result.items[0].image_url == "bfr-ai-files/1960224080514424832.jpg"
     assert res.items[2].search_type == "unknown"
     assert res.items[2].query_text is None
     assert res.items[2].query_image is None

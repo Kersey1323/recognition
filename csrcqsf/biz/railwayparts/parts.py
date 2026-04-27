@@ -1158,6 +1158,7 @@ class RailwayPartsManager:
                     item_id=str(item.item_id),
                     item_code=item.item_code,
                     similar=item.rate,
+                    image_url=item.image_url,
                 )
                 for item in search_items
             ]

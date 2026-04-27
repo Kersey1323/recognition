@@ -38,6 +38,7 @@ def test_search_history_list_item_serializes_explicit_query_fields():
                     "item_id": BIG_ITEM_ID,
                     "item_code": "11010150131",
                     "similar": 0.98,
+                    "image_url": "bfr-ai-files/bolt.jpg",
                 }
             ]
         },
@@ -52,6 +53,7 @@ def test_search_history_list_item_serializes_explicit_query_fields():
     assert data["query_image"] is None
     assert "parameters" not in data
     assert data["result"]["items"][0]["item_id"] == str(BIG_ITEM_ID)
+    assert data["result"]["items"][0]["image_url"] == "bfr-ai-files/bolt.jpg"
 
 
 def test_v2_index_delete_response_serializes_item_id_as_string():
