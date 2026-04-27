@@ -93,3 +93,31 @@ def test_state_manager_delete_create_and_drop_delegate_to_collection_manager():
     fake_collection_manager.create_siglip_collection.assert_called_once_with("PARTS_SIGLIP_TEST")
     fake_collection_manager.create_dinov2_collection.assert_called_once_with("PARTS_DINOV2_TEST")
     fake_collection_manager.drop_collection.assert_called_once_with("PARTS_SIGLIP_TEST")
+
+
+def test_state_manager_get_indexed_images_by_item_id_uses_intersection_of_two_collections():
+    fake_collection_manager = MagicMock()
+    fake_collection_manager.get_collection_image_records.side_effect = [
+        {
+            9001: "bfr-ai-files/a.jpg",
+            9002: "bfr-ai-files/b.jpg",
+        },
+        {
+            9002: "bfr-ai-files/b.jpg",
+            9003: "bfr-ai-files/c.jpg",
+        },
+    ]
+
+    with patch(
+        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.get_config",
+        return_value=_fake_env(),
+    ), patch(
+        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.CollectionManager",
+        return_value=fake_collection_manager,
+    ):
+        manager = MilvusStateManagerV2()
+        indexed_images = manager.get_indexed_images_by_item_id(101)
+
+    assert indexed_images == {
+        9002: "bfr-ai-files/b.jpg",
+    }

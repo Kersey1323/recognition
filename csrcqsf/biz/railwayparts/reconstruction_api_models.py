@@ -207,6 +207,7 @@ class ReconstructionIndexRebuildRes(BaseModel):
     message: str = Field(..., description='消息')
     item_id: Optional[str] = Field(None, description='配件ID，字符串返回以避免前端精度丢失')
     limit: Optional[str | int] = Field(None, description='处理数量限制')
+    rebuild_existing: bool = Field(False, description='是否重建已存在的索引')
 
     @validator("item_id", pre=True)
     def normalize_item_id(cls, value):

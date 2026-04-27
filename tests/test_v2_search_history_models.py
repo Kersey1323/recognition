@@ -53,6 +53,8 @@ def test_search_history_list_item_serializes_history_id_as_string():
 
     assert data["history_id"] == str(BIG_ITEM_ID)
     assert data["search_type"] == "text"
+    assert data["result"]["items"][0]["item_id"] == str(BIG_ITEM_ID)
+    assert isinstance(data["result"]["items"][0]["item_id"], str)
 
 
 def test_v2_index_delete_response_serializes_item_id_as_string():

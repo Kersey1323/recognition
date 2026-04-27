@@ -27,6 +27,13 @@ def _fake_v1_milvus_module():
     )
 
 
+def _fake_cv2_module():
+    return SimpleNamespace(
+        COLOR_BGR2RGB=1,
+        cvtColor=lambda image, _code: image,
+    )
+
+
 def _import_railway_parts_manager():
     cached = getattr(_import_railway_parts_manager, "_cached", None)
     if cached is not None:
@@ -43,6 +50,7 @@ def _import_railway_parts_manager():
             "csrcqsf.data.milvus": SimpleNamespace(milvus_client=MagicMock()),
             "csrcqsf.data.mdpdb": SimpleNamespace(sgo_sessionLocal=MagicMock()),
             "csrcqsf.biz.railwayparts.milvus": _fake_v1_milvus_module(),
+            "cv2": _fake_cv2_module(),
         },
     ):
         import csrcqsf.biz.railwayparts as railwayparts_pkg
@@ -152,3 +160,200 @@ def test_rebuild_v2_index_syncs_single_item_state_after_success():
 
     state_cls.assert_called_once_with()
     sync_mock.assert_awaited_once_with(101, state_manager=fake_state_manager)
+
+
+def test_rebuild_v2_index_bulk_mode_filters_existing_indexes_by_default():
+    parts_module = _import_railway_parts_manager()
+
+    session = AsyncMock()
+    fake_item = SimpleNamespace(
+        id=101,
+        item_name="橡胶套",
+        item_code="40000543491",
+        has_v2_index=0,
+    )
+    fake_image = SimpleNamespace(id=9001, image_url="bfr-ai-files/demo.jpg")
+    fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
+    fake_state_manager = MagicMock()
+    fake_cv2 = SimpleNamespace(
+        COLOR_BGR2RGB=1,
+        cvtColor=lambda image, _code: image,
+    )
+
+    with patch.dict(sys.modules, {"cv2": fake_cv2}), \
+         patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(session, "scalars", AsyncMock(return_value=[fake_item])) as scalars_mock, \
+         patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock(return_value=[fake_image])), \
+         patch.object(parts_module.RailwayPartsManager, "get_image_from_oss", AsyncMock(return_value=fake_image_array)), \
+         patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()) as sync_mock, \
+         patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager):
+        manager_cls.return_value.index_image = AsyncMock(return_value=(True, True))
+        result = asyncio.run(parts_module.RailwayPartsManager.rebuild_v2_index(limit=1))
+
+    stmt = scalars_mock.await_args.args[0]
+    assert "has_v2_index" in str(stmt)
+    assert result["processed_item_count"] == 1
+    assert result["skipped_existing_count"] == 0
+    fake_state_manager.delete_item_index.assert_not_called()
+    sync_mock.assert_awaited_once_with(101, state_manager=fake_state_manager)
+
+
+def test_rebuild_v2_index_single_item_skips_existing_when_not_forcing_rebuild():
+    parts_module = _import_railway_parts_manager()
+
+    session = AsyncMock()
+    fake_item = SimpleNamespace(
+        id=101,
+        item_name="橡胶套",
+        item_code="40000543491",
+        has_v2_index=1,
+    )
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
+         patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock()) as list_images_mock, \
+         patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "MilvusStateManagerV2") as state_cls:
+        manager_cls.return_value.index_image = AsyncMock()
+        result = asyncio.run(
+            parts_module.RailwayPartsManager.rebuild_v2_index(
+                item_id=101,
+                limit=1,
+                rebuild_existing=False,
+            )
+        )
+
+    list_images_mock.assert_not_awaited()
+    state_cls.return_value.delete_item_index.assert_not_called()
+    manager_cls.return_value.index_image.assert_not_awaited()
+    assert result["processed_item_count"] == 0
+    assert result["skipped_existing_count"] == 1
+
+
+def test_rebuild_v2_index_force_mode_deletes_existing_vectors_before_reindex():
+    parts_module = _import_railway_parts_manager()
+
+    session = AsyncMock()
+    fake_item = SimpleNamespace(
+        id=101,
+        item_name="橡胶套",
+        item_code="40000543491",
+        has_v2_index=1,
+    )
+    fake_image = SimpleNamespace(id=9001, image_url="bfr-ai-files/demo.jpg")
+    fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
+    fake_state_manager = MagicMock()
+    fake_cv2 = SimpleNamespace(
+        COLOR_BGR2RGB=1,
+        cvtColor=lambda image, _code: image,
+    )
+    call_order: list[str] = []
+
+    async def _index_image(**_kwargs):
+        call_order.append("index")
+        return True, True
+
+    def _delete_item_index(item_id):
+        call_order.append(f"delete:{item_id}")
+        return {"siglip_deleted": 4, "dinov2_deleted": 4}
+
+    with patch.dict(sys.modules, {"cv2": fake_cv2}), \
+         patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
+         patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock(return_value=[fake_image])), \
+         patch.object(parts_module.RailwayPartsManager, "get_image_from_oss", AsyncMock(return_value=fake_image_array)), \
+         patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()) as sync_mock, \
+         patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager):
+        manager_cls.return_value.index_image = AsyncMock(side_effect=_index_image)
+        fake_state_manager.delete_item_index.side_effect = _delete_item_index
+        result = asyncio.run(
+            parts_module.RailwayPartsManager.rebuild_v2_index(
+                item_id=101,
+                limit=1,
+                rebuild_existing=True,
+            )
+        )
+
+    assert call_order == ["delete:101", "index"]
+    sync_mock.assert_awaited_once_with(101, state_manager=fake_state_manager)
+    assert result["processed_item_count"] == 1
+    assert result["skipped_existing_count"] == 0
+
+
+def test_rebuild_v2_index_force_mode_syncs_state_after_delete_even_if_reindex_fails():
+    parts_module = _import_railway_parts_manager()
+
+    session = AsyncMock()
+    fake_item = SimpleNamespace(
+        id=101,
+        item_name="橡胶套",
+        item_code="40000543491",
+        has_v2_index=1,
+    )
+    fake_image = SimpleNamespace(id=9001, image_url="bfr-ai-files/demo.jpg")
+    fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
+    fake_state_manager = MagicMock()
+    fake_cv2 = SimpleNamespace(
+        COLOR_BGR2RGB=1,
+        cvtColor=lambda image, _code: image,
+    )
+
+    with patch.dict(sys.modules, {"cv2": fake_cv2}), \
+         patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
+         patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock(return_value=[fake_image])), \
+         patch.object(parts_module.RailwayPartsManager, "get_image_from_oss", AsyncMock(return_value=fake_image_array)), \
+         patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()) as sync_mock, \
+         patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager):
+        manager_cls.return_value.index_image = AsyncMock(return_value=(False, False))
+        fake_state_manager.delete_item_index.return_value = {"siglip_deleted": 4, "dinov2_deleted": 4}
+        result = asyncio.run(
+            parts_module.RailwayPartsManager.rebuild_v2_index(
+                item_id=101,
+                limit=1,
+                rebuild_existing=True,
+            )
+        )
+
+    sync_mock.assert_awaited_once_with(101, state_manager=fake_state_manager)
+    assert result["processed_item_count"] == 1
+
+
+def test_rebuild_v2_index_marks_successful_images_indexed_in_pg():
+    parts_module = _import_railway_parts_manager()
+
+    session = AsyncMock()
+    fake_item = SimpleNamespace(
+        id=101,
+        item_name="橡胶套",
+        item_code="40000543491",
+        has_v2_index=0,
+    )
+    fake_images = [
+        SimpleNamespace(id=9001, image_url="bfr-ai-files/a.jpg"),
+        SimpleNamespace(id=9002, image_url="bfr-ai-files/b.jpg"),
+    ]
+    fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
+    fake_state_manager = MagicMock()
+    fake_cv2 = SimpleNamespace(
+        COLOR_BGR2RGB=1,
+        cvtColor=lambda image, _code: image,
+    )
+
+    with patch.dict(sys.modules, {"cv2": fake_cv2}), \
+         patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
+         patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock(return_value=fake_images)), \
+         patch.object(parts_module.SgoItemImages, "indexed_image", AsyncMock()) as indexed_mock, \
+         patch.object(parts_module.RailwayPartsManager, "get_image_from_oss", AsyncMock(return_value=fake_image_array)), \
+         patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()), \
+         patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager):
+        manager_cls.return_value.index_image = AsyncMock(side_effect=[(True, True), (False, False)])
+        asyncio.run(parts_module.RailwayPartsManager.rebuild_v2_index(item_id=101, limit=1))
+
+    indexed_mock.assert_awaited_once_with(session=session, image_id_list=[9001])
+    session.commit.assert_awaited()

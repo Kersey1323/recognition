@@ -240,7 +240,7 @@ from csrcqsf.biz.railwayparts.auto_processor import AutoPartProcessor
 # 算法接口 - 图像分割
 # ============================================
 
-@parts_router.post('/auto_segment', tags=["算法-图像分割"], summary='自动分割并建立索引 (SAM + DINOv2)', responses={
+@parts_router.post('/auto_segment', tags=["算法-图像分割"], deprecated=True,summary='自动分割并建立索引 (SAM + DINOv2)', responses={
     200: {'model': AutoSegmentRes}
 })
 async def auto_segment(req: AutoSegmentReq):
@@ -278,7 +278,7 @@ async def auto_segment(req: AutoSegmentReq):
     )
 
 
-@parts_router.get('/segmented_images/{item_id}', tags=["业务-图片管理"], summary='获取配件的分割记录', responses={
+@parts_router.get('/segmented_images/{item_id}', tags=["业务-图片管理"],deprecated=True, summary='获取配件的分割记录', responses={
     200: {'model': ListSegmentedImagesRes}
 })
 async def list_segmented_images(item_id: str):
@@ -600,6 +600,7 @@ async def init_v2_collections():
 async def rebuild_v2_index(
     item_id: str = None,
     limit: int = None,
+    rebuild_existing: bool = False,
     background_tasks: BackgroundTasks = None
 ):
     """
@@ -624,21 +625,25 @@ async def rebuild_v2_index(
         background_tasks.add_task(
             RailwayPartsManager.rebuild_v2_index,
             item_id=int_item_id,
-            limit=limit
+            limit=limit,
+            rebuild_existing=rebuild_existing,
         )
         return ReconstructionIndexRebuildRes(
             message='Index rebuild task started in background',
             item_id=item_id,
-            limit=limit or 'all'
+            limit=limit or 'all',
+            rebuild_existing=rebuild_existing,
         )
     else:
         # 小批量任务直接执行
         result = await RailwayPartsManager.rebuild_v2_index(
             item_id=int_item_id,
-            limit=limit
+            limit=limit,
+            rebuild_existing=rebuild_existing,
         )
         return {
             'message': 'Index rebuilt successfully',
+            'rebuild_existing': rebuild_existing,
             'result': result
         }
 

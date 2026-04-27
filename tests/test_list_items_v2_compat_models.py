@@ -16,6 +16,18 @@ def test_list_item_req_accepts_has_source_video_flag():
     assert req.has_source_video == 2
 
 
+def test_list_item_req_defaults_has_source_video_to_no_filter():
+    req = ListItemReq(page=1, pageSize=20)
+
+    assert req.has_source_video == 2
+
+
+def test_items_normalize_source_video_filter_mode_uses_boolean_style_flags():
+    assert Items.normalize_source_video_filter_mode(0) == "missing"
+    assert Items.normalize_source_video_filter_mode(1) == "exists"
+    assert Items.normalize_source_video_filter_mode(2) is None
+
+
 def test_list_item_serializes_v2_status_fields():
     item = ListItem(
         item_name="橡胶套",

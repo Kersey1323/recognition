@@ -106,3 +106,34 @@ def test_delete_by_item_id_uses_item_id_filter():
     assert manager.client.deleted == [
         ("siglip_collection", "item_id == 1935558010375340032")
     ]
+
+
+def test_get_collection_image_records_maps_image_id_to_url():
+    manager = CollectionManager.__new__(CollectionManager)
+    client = _FakeClient()
+    client.query_iterator_result = _FakeQueryIterator(
+        [
+            [
+                {"image_id": 9001, "image_url": "bfr-ai-files/a.jpg"},
+                {"image_id": 9001, "image_url": "bfr-ai-files/a.jpg"},
+            ],
+            [
+                {"image_id": 9002, "image_url": "bfr-ai-files/b.jpg"},
+            ],
+        ]
+    )
+
+    def _query_iterator(collection_name, filter, output_fields, batch_size):
+        assert collection_name == "siglip_collection"
+        assert filter == "item_id == 101"
+        assert output_fields == ["image_id", "image_url"]
+        return client.query_iterator_result
+
+    client.query_iterator = _query_iterator
+    manager.client = client
+
+    assert manager.get_collection_image_records("siglip_collection", 101) == {
+        9001: "bfr-ai-files/a.jpg",
+        9002: "bfr-ai-files/b.jpg",
+    }
+    assert client.query_iterator_result.closed is True

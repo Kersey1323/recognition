@@ -33,7 +33,7 @@ class ListItemReq(PageReq):
     only_has_index: int = Field(description='只查看有索引的配件.1 为是 0为否', default=0, example=0)
     has_inquery_code: int = Field(description='只查看有询码记录的配件.1为是 0为否', default=0, example=0)
     has_images: int = Field(description='只查看有图片的配件.1 为是 0为否', default=0, example=0)
-    has_source_video: int = Field(description='原视频筛选.0不筛选 1已上传 2未上传', default=0, example=0)
+    has_source_video: int = Field(description='原视频筛选.0未上传 1已上传 2不筛选', default=2, example=2)
     
     class Config:
         json_schema_extra = {
@@ -45,7 +45,7 @@ class ListItemReq(PageReq):
                 "only_has_index": 0,
                 "has_inquery_code": 0,
                 "has_images": 0,
-                "has_source_video": 0,
+                "has_source_video": 2,
             }
         }
 
@@ -89,7 +89,7 @@ class UpdateItemReq(BaseModel):
     item_code: str | None = None
     parent_item_id: str | None = None
 
-    @validator("parent_item_id", pre=True)
+    @validator("parent_item_id", pre=True, allow_reuse=True)
     def normalize_parent_item_id(cls, value):
         if value in ("", None):
             return None
@@ -153,7 +153,7 @@ class CreateItemImageRecord(BaseModel):
     image_url: str
     filename: str
 
-    @validator("image_id", pre=True)
+    @validator("image_id", pre=True, allow_reuse=True)
     def normalize_image_id(cls, value):
         return str(value)
 
@@ -164,7 +164,7 @@ class CreateItemImagesRes(BaseModel):
     records: list[CreateItemImageRecord] = Field(default_factory=list)
     message: str
 
-    @validator("item_id", pre=True)
+    @validator("item_id", pre=True, allow_reuse=True)
     def normalize_item_id(cls, value):
         return str(value)
 

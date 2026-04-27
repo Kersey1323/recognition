@@ -49,8 +49,11 @@ def _import_railway_parts_manager():
     if item_module is not None:
         sys.modules["csrcqsf.models.item"] = item_module
 
-    _import_railway_parts_manager._cached = parts_module.RailwayPartsManager
-    return parts_module.RailwayPartsManager
+    _import_railway_parts_manager._cached = (
+        parts_module.RailwayPartsManager,
+        parts_module,
+    )
+    return _import_railway_parts_manager._cached
 
 
 def test_search_v2_by_text_persists_history_after_success():
@@ -76,11 +79,11 @@ def test_search_v2_by_text_persists_history_after_success():
         item_name="螺栓M8X22",
     )
 
-    RailwayPartsManager = _import_railway_parts_manager()
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
 
-    with patch("csrcqsf.biz.railwayparts.parts.MilvusManagerV2") as manager_cls, \
-         patch("csrcqsf.biz.railwayparts.parts.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.parts.Items.get_item_by_id", AsyncMock(return_value=fake_item)):
+    with patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)):
         manager_cls.return_value.search_by_text = AsyncMock(return_value=[fake_hit])
         result = asyncio.run(RailwayPartsManager.search_v2_by_text("螺栓", top_k=5))
 
@@ -88,6 +91,8 @@ def test_search_v2_by_text_persists_history_after_success():
     assert isinstance(session.added, SearchHistory)
     assert session.added.search_result_item_code == "11010150131"
     assert session.added.search_parameter.features == ["螺栓"]
+    assert session.added.search_results.items[0].item_id == str(fake_item.id)
+    assert isinstance(session.added.search_results.items[0].item_id, str)
     session.commit.assert_awaited()
 
 
@@ -95,7 +100,7 @@ def test_list_v2_search_history_maps_search_type():
     from csrcqsf.biz.railwayparts.api_models import SearchHistoryListReq
     from csrcqsf.models.search_history import SearchParameters, SearchResults
 
-    RailwayPartsManager = _import_railway_parts_manager()
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
 
     history = SimpleNamespace(
         id=1,
@@ -111,8 +116,8 @@ def test_list_v2_search_history_maps_search_type():
     )
     page_result = SimpleNamespace(total=1, data=[history])
 
-    with patch("csrcqsf.biz.railwayparts.parts.SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
-         patch("csrcqsf.biz.railwayparts.parts.SearchHistory.list_search_history", AsyncMock(return_value=page_result)):
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
+         patch.object(parts_module.SearchHistory, "list_search_history", AsyncMock(return_value=page_result)):
         res = asyncio.run(RailwayPartsManager.list_v2_search_history(SearchHistoryListReq(page=1, pageSize=10)))
 
     assert res.total == 1

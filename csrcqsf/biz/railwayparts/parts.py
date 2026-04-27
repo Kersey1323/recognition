@@ -288,6 +288,7 @@ class RailwayPartsManager:
         await ReconstructionManager.ensure_item_result_persisted(item_id)
 
         index_detail = await MilvusManager.list_item_index([item_id])
+        indexed_image_dict = MilvusStateManagerV2().get_indexed_images_by_item_id(item_id)
 
         async with SessionLocal() as session:
             item = await Items.get_item_by_id(session=session, item_id=item_id)
@@ -321,29 +322,20 @@ class RailwayPartsManager:
             #     res.parent_item_id = str(item.parent_item_id)
             #     res.parent_item_name = parent_item.item_name
             #     res.parent_item_code = parent_item.item_code
-            image_index_info = []
-            if index_detail.get(item_id) is not None:
-                image_index_info = index_detail.get(item_id).images
-
-            image_index_dict: dict[int, ImageIndex] = {
-                image.image_id: image for image in image_index_info}
-
-            for index in image_index_info:
+            for image_id, image_url in sorted(indexed_image_dict.items()):
                 res.images_index_list.append(
                     ItemImageIndexInfo(
-                        image_id=str(index.image_id),
-                        image_url=index.filename
+                        image_id=str(image_id),
+                        image_url=image_url
                     )
                 )
             async for image in images:
                 image_item = ItemImageItem(
                     image_id=str(image.id),
-                    has_indexed=False,
-                    image_raw_url=image.image_url,
+                    has_indexed=1 if image.id in indexed_image_dict else 0,
+                    image_url=image.image_url or indexed_image_dict.get(image.id),
                     source_type=image.image_source
                 )
-                if image.id in image_index_dict:
-                    image_item.has_indexed = True
                 res.images.append(image_item)
         return res
 
@@ -797,13 +789,19 @@ class RailwayPartsManager:
     
     
     @classmethod
-    async def rebuild_v2_index(cls, item_id: int = None, limit: int = None):
+    async def rebuild_v2_index(
+        cls,
+        item_id: int = None,
+        limit: int = None,
+        rebuild_existing: bool = False,
+    ):
         """
         使用新算法重建索引 (SigLIP + DINOv2)
         
         Args:
             item_id: 指定配件ID（可选，为空则重建所有）
             limit: 限制处理数量（可选，用于测试）
+            rebuild_existing: 是否重建已存在的索引
         """
         
         manager = MilvusManagerV2()
@@ -816,31 +814,60 @@ class RailwayPartsManager:
                 if items[0] is None:
                     raise Exception(f'配件不存在: {item_id}')
             else:
-                result = await Items.list_items(
-                    session=session,
-                    query='',
-                    page=1,
-                    per_page=limit or 10000,
-                    has_images=True
-                )
-                items = result.data
+                item_id_stmt = select(SgoItemImages.item_id).distinct()
+                stmt = select(Items).where(Items.id.in_(item_id_stmt))
+                if not rebuild_existing:
+                    stmt = stmt.where(Items.has_v2_index == 0)
+                stmt = stmt.order_by(Items.time_created.desc()).order_by(Items.id.desc())
+                if limit is not None:
+                    stmt = stmt.limit(limit)
+                items = list(await session.scalars(stmt))
             
             logger.info(f"开始为 {len(items)} 个配件建立 V2 索引")
             
             success_count = 0
             fail_count = 0
+            processed_item_count = 0
+            skipped_existing_count = 0
             from tqdm import tqdm
             for item in tqdm(items):
+                if item is None:
+                    continue
+                if not rebuild_existing and getattr(item, "has_v2_index", 0) == 1:
+                    skipped_existing_count += 1
+                    logger.info(f"跳过已存在索引的配件: item={item.id}")
+                    continue
+
                 try:
                     # 获取配件的图片
                     images_result = await SgoItemImages.list_item_images_by_item_id(session, item.id)
                     # 将 ScalarResult 转换为列表
                     images = list(images_result) if images_result else []
                     item_success_count = 0
+                    success_image_ids: list[int] = []
+                    deleted_existing = False
+                    image_status_changed = False
                     
                     if len(images) == 0:
                         logger.warning(f"配件 {item.id} 没有图片，跳过")
                         continue
+
+                    if rebuild_existing and getattr(item, "has_v2_index", 0) == 1:
+                        delete_result = state_manager.delete_item_index(item.id)
+                        await SgoItemImages.un_indexed_image(
+                            session=session,
+                            image_id_list=[img.id for img in images],
+                        )
+                        deleted_existing = True
+                        image_status_changed = True
+                        logger.info(
+                            "强制重建前已删除旧索引: item=%s, siglip=%s, dinov2=%s",
+                            item.id,
+                            int(delete_result.get("siglip_deleted", 0) or 0),
+                            int(delete_result.get("dinov2_deleted", 0) or 0),
+                        )
+
+                    processed_item_count += 1
                     
                     # 为每张图片建立索引
                     for img in images:
@@ -872,6 +899,7 @@ class RailwayPartsManager:
                             if siglip_ok and dinov2_ok:
                                 success_count += 1
                                 item_success_count += 1
+                                success_image_ids.append(img.id)
                                 logger.info(f"索引成功: item={item.id}, image={img.id}")
                             else:
                                 fail_count += 1
@@ -886,7 +914,17 @@ class RailwayPartsManager:
                     logger.error(f"处理配件失败: item={item.id}, error={e}")
                     continue
 
-                if item_success_count > 0:
+                if len(success_image_ids) > 0:
+                    await SgoItemImages.indexed_image(
+                        session=session,
+                        image_id_list=success_image_ids,
+                    )
+                    image_status_changed = True
+
+                if image_status_changed:
+                    await session.commit()
+
+                if item_success_count > 0 or deleted_existing:
                     await cls.sync_item_v2_index_state(
                         item.id, state_manager=state_manager
                     )
@@ -896,7 +934,9 @@ class RailwayPartsManager:
             return {
                 'success_count': success_count,
                 'fail_count': fail_count,
-                'total': success_count + fail_count
+                'total': success_count + fail_count,
+                'processed_item_count': processed_item_count,
+                'skipped_existing_count': skipped_existing_count,
             }
 
     @classmethod
@@ -987,7 +1027,7 @@ class RailwayPartsManager:
         search_results = SearchResults(
             items=[
                 SearchResultItem(
-                    item_id=int(item.item_id),
+                    item_id=str(item.item_id),
                     item_code=item.item_code,
                     similar=item.rate,
                 )

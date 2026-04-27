@@ -215,12 +215,14 @@ def test_reconstruction_index_rebuild_response_serializes_item_id_as_string():
         message="Index rebuild task started in background",
         item_id=BIG_ITEM_ID,
         limit="all",
+        rebuild_existing=True,
     )
 
     data = dump_model(res)
 
     assert data["item_id"] == str(BIG_ITEM_ID)
     assert isinstance(data["item_id"], str)
+    assert data["rebuild_existing"] is True
 
 
 def test_reconstruction_source_video_response_serializes_item_id_as_string():

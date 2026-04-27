@@ -23,7 +23,7 @@ class SearchParameters(BaseModel):
 
 
 class SearchResultItem(BaseModel):
-    item_id: int
+    item_id: str
     item_code: str
     similar: float
 

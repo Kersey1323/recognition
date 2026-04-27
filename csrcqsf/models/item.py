@@ -422,10 +422,18 @@ class Items(Base):
         return await session.scalars(stmt)
 
     @classmethod
+    def normalize_source_video_filter_mode(cls, has_source_video: int | None) -> str | None:
+        if has_source_video == 0:
+            return "missing"
+        if has_source_video == 1:
+            return "exists"
+        return None
+
+    @classmethod
     async def list_items(cls, session: AsyncSession, query: str = None, page: int = 0, per_page: int = 20,
                          has_images: bool = False,
                          item_id_list: list[int] = [], item_code_list: list[str] = [], need_index: bool = False,
-                         need_v2_index: bool = False, has_source_video: int = 0):
+                         need_v2_index: bool = False, has_source_video: int = 2):
         offset = (page-1) * per_page
         stmt = select(cls)
         if len(item_id_list) > 0:
@@ -442,9 +450,10 @@ class Items(Base):
             stmt = stmt.where(cls.image_index_num.__gt__(0).__and__(cls.feature_index_num.__gt__(0)))
         if need_v2_index:
             stmt = stmt.where(cls.has_v2_index == 1)
-        if has_source_video == 1:
+        source_video_filter_mode = cls.normalize_source_video_filter_mode(has_source_video)
+        if source_video_filter_mode == "exists":
             stmt = stmt.where(cls.source_video_path.is_not(None))
-        elif has_source_video == 2:
+        elif source_video_filter_mode == "missing":
             stmt = stmt.where(cls.source_video_path.is_(None))
         count = await async_get_count(session, stmt)
         stmt = stmt.order_by(cls.time_created.desc()).order_by(cls.id.desc())
