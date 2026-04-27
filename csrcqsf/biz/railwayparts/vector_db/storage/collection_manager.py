@@ -141,6 +141,58 @@ class CollectionManager:
 
         return counts
 
+    def get_collection_image_records(
+        self,
+        collection_name: str,
+        item_id: int,
+        batch_size: int = 1000,
+    ) -> dict[int, str]:
+        """
+        查询 collection 中指定 item_id 的 image_id -> image_url 映射。
+
+        Args:
+            collection_name: Collection 名称
+            item_id: 配件 ID
+            batch_size: 分批查询大小
+
+        Returns:
+            image_id -> image_url；如果 collection 不存在则返回空字典
+        """
+        if not self.collection_exists(collection_name):
+            return {}
+
+        images: dict[int, str] = {}
+        iterator = self.client.query_iterator(
+            collection_name=collection_name,
+            filter=f"item_id == {int(item_id)}",
+            output_fields=["image_id", "image_url"],
+            batch_size=batch_size,
+        )
+
+        try:
+            if hasattr(iterator, "next"):
+                while True:
+                    batch = iterator.next()
+                    if len(batch) == 0:
+                        break
+                    for row in batch:
+                        image_id = row.get("image_id")
+                        if image_id is None:
+                            continue
+                        images[int(image_id)] = row.get("image_url", "")
+            else:
+                for batch in iterator:
+                    for row in batch:
+                        image_id = row.get("image_id")
+                        if image_id is None:
+                            continue
+                        images[int(image_id)] = row.get("image_url", "")
+        finally:
+            if hasattr(iterator, "close"):
+                iterator.close()
+
+        return images
+
     def delete_by_item_id(self, collection_name: str, item_id: int) -> int:
         """
         删除指定 item_id 在 collection 中的全部记录。

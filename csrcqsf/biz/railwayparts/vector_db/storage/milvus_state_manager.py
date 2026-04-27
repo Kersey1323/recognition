@@ -83,6 +83,28 @@ class MilvusStateManagerV2:
             ),
         }
 
+    def get_indexed_images_by_item_id(self, item_id: int) -> dict[int, str]:
+        """
+        获取指定 item_id 当前完成 V2 索引的图片集合。
+
+        只有同时存在于 SigLIP 和 DINOv2 两个 collection 的图片，
+        才视为完成 V2 索引。
+        """
+        siglip_images = self.collection_manager.get_collection_image_records(
+            self.siglip_collection,
+            item_id,
+        )
+        dinov2_images = self.collection_manager.get_collection_image_records(
+            self.dinov2_collection,
+            item_id,
+        )
+
+        indexed_image_ids = set(siglip_images.keys()) & set(dinov2_images.keys())
+        return {
+            image_id: siglip_images.get(image_id) or dinov2_images.get(image_id, "")
+            for image_id in indexed_image_ids
+        }
+
     def create_collections(self):
         """创建所有 V2 collections。"""
         logger.info("Creating collections via lightweight state manager...")
