@@ -271,7 +271,44 @@ class SearchRes(BaseModel):
 
 
 class SearchHistoryListReq(PageReq):
-    pass
+    search_type: str = Field(
+        default="all",
+        description="检索类型筛选：all 全部，text 文本检索，image 图片检索",
+        example="image",
+    )
+    keyword: str | None = Field(
+        default=None,
+        description="关键词筛选，会匹配查询文本、检索结果物料编码/名称、人工纠正物料编码",
+        example="19010036737",
+    )
+    status: str = Field(
+        default="all",
+        description="校验状态筛选：all 全部，pending 待校验，correct 正确，wrong 错误，partial 部分正确",
+        example="pending",
+    )
+    date_from: str | None = Field(
+        default=None,
+        description="开始日期，格式 YYYY-MM-DD",
+        example="2026-04-27",
+    )
+    date_to: str | None = Field(
+        default=None,
+        description="结束日期，格式 YYYY-MM-DD",
+        example="2026-04-28",
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "page": 1,
+                "pageSize": 10,
+                "search_type": "image",
+                "keyword": "19010036737",
+                "status": "pending",
+                "date_from": "2026-04-27",
+                "date_to": "2026-04-28",
+            }
+        }
 
 
 class SearchHistoryListItem(BaseModel):
@@ -280,6 +317,7 @@ class SearchHistoryListItem(BaseModel):
     time_created: str
     query_text: str | None = None
     query_image: str | None = None
+    status: str = "pending"
     result: SearchResults | None
     inquery_id: str | None
     inquery_num: str | None
@@ -287,6 +325,8 @@ class SearchHistoryListItem(BaseModel):
     search_item_code: str | None
     correct_item_name: str | None
     correct_item_code: str | None
+    verify_remark: str | None = None
+    verified_at: str | None = None
 
     @validator("history_id", pre=True, allow_reuse=True)
     def normalize_history_id(cls, value):
@@ -298,6 +338,128 @@ class SearchHistoryListRes(BaseModel):
     page: int = Field(..., description="当前页码")
     pageSize: int = Field(..., description="每页数量")
     items: list[SearchHistoryListItem] = Field(default_factory=list)
+
+
+class SearchHistoryDetailReq(BaseModel):
+    history_id: str = Field(description="检索历史ID", example="2048696242753638400")
+
+    @validator("history_id", pre=True, allow_reuse=True)
+    def normalize_history_id(cls, value):
+        return str(value)
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "history_id": "2048696242753638400",
+            }
+        }
+
+
+class SearchHistoryVerifyReq(BaseModel):
+    history_id: str = Field(description="检索历史ID", example="2048696242753638400")
+    verify_status: str = Field(
+        description="校验结果：correct 正确，wrong 错误，partial 部分正确",
+        example="correct",
+    )
+    correct_item_code: str | None = Field(
+        default=None,
+        description="人工确认后的正确物料编码。verify_status=correct 且不传时，默认回填首条检索结果编码",
+        example="19010036737",
+    )
+    remark: str | None = Field(
+        default=None,
+        description="人工校验备注",
+        example="人工确认正确",
+    )
+
+    @validator("history_id", pre=True, allow_reuse=True)
+    def normalize_history_id(cls, value):
+        return str(value)
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "history_id": "2048696242753638400",
+                "verify_status": "correct",
+                "correct_item_code": "19010036737",
+                "remark": "人工确认正确",
+            }
+        }
+
+
+class SearchHistoryVerifyRes(BaseModel):
+    history_id: str
+    status: str
+    correct_item_code: str | None = None
+    correct_item_name: str | None = None
+    verify_remark: str | None = None
+    verified_at: str | None = None
+    message: str
+
+    @validator("history_id", pre=True, allow_reuse=True)
+    def normalize_history_id(cls, value):
+        return str(value)
+
+
+class SearchHistorySummaryRes(BaseModel):
+    total: int
+    pending_count: int
+    correct_count: int
+    wrong_count: int
+    partial_count: int
+
+
+class ItemSuggestReq(BaseModel):
+    keyword: str = Field(
+        description="联想关键词，可输入物料编码或物料名称片段",
+        example="1901",
+    )
+    limit: int = Field(
+        default=10,
+        description="最多返回的联想条数",
+        example=10,
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "keyword": "1901",
+                "limit": 10,
+            }
+        }
+
+
+class ItemSuggestItem(BaseModel):
+    item_id: str
+    item_code: str
+    item_name: str
+
+    @validator("item_id", pre=True, allow_reuse=True)
+    def normalize_item_id(cls, value):
+        return str(value)
+
+
+class ItemSuggestRes(BaseModel):
+    items: list[ItemSuggestItem] = Field(default_factory=list)
+
+
+class SearchHistoryDeleteReq(BaseModel):
+    history_id_list: list[str] = Field(
+        description="待删除的检索历史ID列表",
+        example=["2048696242753638400", "2048696242753638401"],
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "history_id_list": ["2048696242753638400", "2048696242753638401"],
+            }
+        }
+
+
+class SearchHistoryDeleteRes(BaseModel):
+    deleted_count: int
+    message: str
 
 
 class V2IndexDeleteRes(BaseModel):

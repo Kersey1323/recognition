@@ -1186,44 +1186,171 @@ class RailwayPartsManager:
             logger.exception("V2检索历史写入失败")
 
     @classmethod
+    def _normalize_review_status(cls, status: str | None) -> str:
+        return status or "pending"
+
+    @classmethod
+    def _build_search_history_item(cls, row):
+        if row.query_image:
+            search_type = "image"
+        elif row.query_text:
+            search_type = "text"
+        else:
+            search_type = "unknown"
+
+        return SearchHistoryListItem(
+            history_id=row.id,
+            search_type=search_type,
+            time_created=date_to_str(row.time_created),
+            query_text=row.query_text,
+            query_image=row.query_image,
+            status=cls._normalize_review_status(getattr(row, "verify_status", None)),
+            result=row.search_results,
+            inquery_id=row.inquery_id,
+            inquery_num=row.inquery_num,
+            search_item_name=row.search_result_item_name,
+            search_item_code=row.search_result_item_code,
+            correct_item_name=row.correct_item_name,
+            correct_item_code=row.correct_item_code,
+            verify_remark=getattr(row, "verify_remark", None),
+            verified_at=date_to_str(row.verified_at) if getattr(row, "verified_at", None) else None,
+        )
+
+    @classmethod
     async def list_v2_search_history(cls, req: SearchHistoryListReq):
         async with SessionLocal() as session:
             page_result = await SearchHistory.list_search_history(
                 session=session,
                 page=req.page,
                 per_page=req.per_page,
-            )
-
-        items = []
-        for row in page_result.data:
-            if row.query_image:
-                search_type = "image"
-            elif row.query_text:
-                search_type = "text"
-            else:
-                search_type = "unknown"
-            items.append(
-                SearchHistoryListItem(
-                    history_id=row.id,
-                    search_type=search_type,
-                    time_created=date_to_str(row.time_created),
-                    query_text=row.query_text,
-                    query_image=row.query_image,
-                    result=row.search_results,
-                    inquery_id=row.inquery_id,
-                    inquery_num=row.inquery_num,
-                    search_item_name=row.search_result_item_name,
-                    search_item_code=row.search_result_item_code,
-                    correct_item_name=row.correct_item_name,
-                    correct_item_code=row.correct_item_code,
-                )
+                search_type=req.search_type,
+                keyword=req.keyword,
+                status=req.status,
+                date_from=req.date_from,
+                date_to=req.date_to,
             )
 
         return SearchHistoryListRes(
             total=page_result.total,
             page=req.page,
             pageSize=req.per_page,
-            items=items,
+            items=[cls._build_search_history_item(row) for row in page_result.data],
+        )
+
+    @classmethod
+    async def get_v2_search_history_detail(cls, history_id: int):
+        async with SessionLocal() as session:
+            row = await SearchHistory.get_history_by_id(session, history_id)
+
+        if row is None:
+            raise Exception(f"history_id={history_id} 的记录不存在")
+
+        return cls._build_search_history_item(row)
+
+    @classmethod
+    async def summary_v2_search_history(cls):
+        async with SessionLocal() as session:
+            result = await SearchHistory.summarize_review_status(session)
+
+        total, pending_count, correct_count, wrong_count, partial_count = result.one()
+        return SearchHistorySummaryRes(
+            total=int(total or 0),
+            pending_count=int(pending_count or 0),
+            correct_count=int(correct_count or 0),
+            wrong_count=int(wrong_count or 0),
+            partial_count=int(partial_count or 0),
+        )
+
+    @classmethod
+    async def verify_v2_search_history(
+        cls,
+        *,
+        history_id: int,
+        verify_status: str,
+        correct_item_code: str | None,
+        remark: str | None,
+    ):
+        verified_at = datetime.now()
+
+        async with SessionLocal() as session:
+            history = await SearchHistory.get_history_by_id(session, history_id)
+            if history is None:
+                raise Exception(f"history_id={history_id} 的记录不存在")
+
+            if verify_status == "correct" and not correct_item_code:
+                correct_item_code = history.search_result_item_code
+                correct_item_name = history.search_result_item_name
+            elif correct_item_code:
+                item = await Items.get_item_by_item_code(session, correct_item_code)
+                if item is None:
+                    raise Exception(f"物料编码 {correct_item_code} 不存在")
+                correct_item_name = item.item_name
+            else:
+                correct_item_name = None
+
+            await SearchHistory.update_review_result(
+                session,
+                history_id,
+                verify_status=verify_status,
+                correct_item_code=correct_item_code,
+                correct_item_name=correct_item_name,
+                verify_remark=remark,
+                verified_at=verified_at,
+            )
+            await session.commit()
+
+        return SearchHistoryVerifyRes(
+            history_id=str(history_id),
+            status=verify_status,
+            correct_item_code=correct_item_code,
+            correct_item_name=correct_item_name,
+            verify_remark=remark,
+            verified_at=date_to_str(verified_at),
+            message="校验提交成功",
+        )
+
+    @classmethod
+    async def suggest_items(cls, keyword: str, limit: int = 10):
+        async with SessionLocal() as session:
+            rows = await Items.suggest_items(session, keyword=keyword, limit=limit)
+
+        return ItemSuggestRes(
+            items=[
+                ItemSuggestItem(
+                    item_id=str(row.id),
+                    item_code=row.item_code,
+                    item_name=row.item_name,
+                )
+                for row in rows
+            ]
+        )
+
+    @classmethod
+    async def delete_v2_search_history(cls, history_id_list: list[int]):
+        async with SessionLocal() as session:
+            rows = await SearchHistory.delete_history_with_query_images(session, history_id_list)
+            await session.commit()
+
+        for history_id, query_image in rows:
+            if not query_image:
+                continue
+            try:
+                bucket, object_name = parse_minio_path(
+                    query_image,
+                    default_bucket=minio_search_history_bucket,
+                )
+                minio_instance.client.remove_object(bucket, object_name)
+            except Exception as exc:
+                logger.warning(
+                    "删除检索历史查询图失败: history_id=%s, path=%s, error=%s",
+                    history_id,
+                    query_image,
+                    exc,
+                )
+
+        return SearchHistoryDeleteRes(
+            deleted_count=len(rows),
+            message="检索历史删除成功",
         )
     
     @classmethod

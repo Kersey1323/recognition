@@ -139,6 +139,25 @@ class Items(Base):
         return await session.scalar(stmt)
 
     @classmethod
+    async def suggest_items(cls, session: AsyncSession, keyword: str, limit: int = 10):
+        if not keyword:
+            return []
+
+        stmt = (
+            select(cls)
+            .where(
+                or_(
+                    cls.item_code.like(f"%{keyword}%"),
+                    cls.item_name.like(f"%{keyword}%"),
+                )
+            )
+            .order_by(cls.item_code.asc())
+            .limit(limit)
+        )
+        datas = await session.scalars(stmt)
+        return datas.all()
+
+    @classmethod
     async def get_item_by_id_list(cls, session: AsyncSession, item_id_list: list[int]):
         stmt = select(cls).where(cls.id.in_(item_id_list))
         item_list = await session.scalars(stmt)

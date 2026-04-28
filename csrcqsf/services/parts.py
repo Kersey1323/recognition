@@ -722,9 +722,65 @@ async def search_v2_by_image(
     return result
 
 
-@parts_router.post('/v2/search/history/list', tags=["算法-向量检索V2"], summary='V2检索历史分页查询')
+@parts_router.post('/v2/search/history/list', tags=["算法-向量检索V2"], summary='V2检索历史分页查询', responses={
+    200: {
+        'model': SearchHistoryListRes
+    }
+})
 async def list_v2_search_history(req: SearchHistoryListReq):
     return await RailwayPartsManager.list_v2_search_history(req)
+
+
+@parts_router.post('/v2/search/history/detail', tags=["算法-向量检索V2"], summary='V2检索历史详情', responses={
+    200: {
+        'model': SearchHistoryListItem
+    }
+})
+async def get_v2_search_history_detail(req: SearchHistoryDetailReq):
+    return await RailwayPartsManager.get_v2_search_history_detail(int(req.history_id))
+
+
+@parts_router.post('/v2/search/history/summary', tags=["算法-向量检索V2"], summary='V2检索历史统计', responses={
+    200: {
+        'model': SearchHistorySummaryRes
+    }
+})
+async def summary_v2_search_history():
+    return await RailwayPartsManager.summary_v2_search_history()
+
+
+@parts_router.post('/v2/search/history/verify', tags=["算法-向量检索V2"], summary='V2检索历史校验提交', responses={
+    200: {
+        'model': SearchHistoryVerifyRes
+    }
+})
+async def verify_v2_search_history(req: SearchHistoryVerifyReq):
+    return await RailwayPartsManager.verify_v2_search_history(
+        history_id=int(req.history_id),
+        verify_status=req.verify_status,
+        correct_item_code=req.correct_item_code,
+        remark=req.remark,
+    )
+
+
+@parts_router.post('/item/suggest', tags=["业务-配件管理"], summary='物料编码联想', responses={
+    200: {
+        'model': ItemSuggestRes
+    }
+})
+async def suggest_items(req: ItemSuggestReq):
+    return await RailwayPartsManager.suggest_items(req.keyword, limit=req.limit)
+
+
+@parts_router.post('/v2/search/history/delete', tags=["算法-向量检索V2"], summary='V2检索历史批量删除', responses={
+    200: {
+        'model': SearchHistoryDeleteRes
+    }
+})
+async def delete_v2_search_history(req: SearchHistoryDeleteReq):
+    return await RailwayPartsManager.delete_v2_search_history(
+        [int(history_id) for history_id in req.history_id_list]
+    )
 
 
 @parts_router.get('/v2/search/modes', tags=["算法-向量检索V2"], summary='获取V2检索模式说明')
