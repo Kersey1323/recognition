@@ -83,3 +83,8 @@ async def db_migrate():
             ADD COLUMN IF NOT EXISTS verify_remark VARCHAR(500),
             ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP WITHOUT TIME ZONE
         """))
+        await conn.execute(text("""
+            ALTER TABLE parts.reconstruction_records
+            ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITHOUT TIME ZONE,
+            ADD COLUMN IF NOT EXISTS elapsed_sec DOUBLE PRECISION
+        """))

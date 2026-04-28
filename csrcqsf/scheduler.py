@@ -1,9 +1,12 @@
 from typing import Callable
 from apscheduler.schedulers.background import BackgroundScheduler, BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
+from celery.result import AsyncResult
 from globals_vars import logger
 from apscheduler.job import Job as apsjob
 from datetime import datetime,timedelta
+from sqlalchemy import create_engine, select, or_
+from sqlalchemy.orm import Session
 
 
 class BFRTrigger(CronTrigger):
@@ -109,14 +112,12 @@ def sync_reconstruction_tasks_sync():
     """
     try:
         from csrcqsf.biz.railwayparts.reconstruction_server.celery_app import celery_app
-        from celery.result import AsyncResult
         from csrcqsf.models.reconstruction import ReconstructionStatus, ReconstructionRecord
         from csrcqsf.biz.railwayparts.reconstruction_manager import (
+            _normalize_datetime,
             get_reconstruction_task_failure_message,
             map_celery_state_to_reconstruction_status,
         )
-        from sqlalchemy import create_engine, select, or_
-        from sqlalchemy.orm import Session
         from csrcqsf.settings import ai_settings
         
         # 创建同步数据库引擎（使用 psycopg2 驱动）
@@ -159,17 +160,25 @@ def sync_reconstruction_tasks_sync():
                         progress = info.get("progress", progress)
                     elif result.state == "SUCCESS":
                         task_error = get_reconstruction_task_failure_message(result.result)
+                        completed_at = _normalize_datetime(getattr(result, "date_done", None))
+                        elapsed_sec = (result.result or {}).get("elapsed_sec") if isinstance(result.result, dict) else None
                         if task_error is not None:
                             new_status = ReconstructionStatus.FAILED
                             stage = "失败"
                             error = task_error
                         else:
+                            new_status = ReconstructionStatus.SUCCESS
                             progress = 100
                             stage = "完成"
                             error = None
+                        record.completed_at = completed_at or record.completed_at
+                        if elapsed_sec is not None:
+                            record.elapsed_sec = elapsed_sec
                     elif result.state == "FAILURE":
+                        new_status = ReconstructionStatus.FAILED
                         error = str(result.info)
                         stage = "失败"
+                        record.completed_at = _normalize_datetime(getattr(result, "date_done", None)) or record.completed_at
                     
                     # 更新数据库状态
                     if (
@@ -177,6 +186,8 @@ def sync_reconstruction_tasks_sync():
                         or progress != record.progress
                         or stage != record.current_stage
                         or error != record.error_message
+                        or getattr(record, "completed_at", None) is not None
+                        or getattr(record, "elapsed_sec", None) is not None
                     ):
                         record.status = new_status
                         record.progress = progress

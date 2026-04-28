@@ -87,8 +87,336 @@ def get_reconstruction_task_failure_message(task_result) -> str | None:
     return str(error) if error else "重建任务失败"
 
 
+def _normalize_datetime(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+    return None
+
+
 class ReconstructionManager:
     """三维重构管理器"""
+
+    @classmethod
+    def _resolve_terminal_completed_at(cls, celery_result, fallback=None):
+        return _normalize_datetime(getattr(celery_result, "date_done", None)) or fallback or datetime.utcnow()
+
+    @classmethod
+    def _apply_record_status_snapshot(
+        cls,
+        record,
+        *,
+        status: str,
+        progress: int | None,
+        current_stage: str | None,
+        error_message: str | None,
+        completed_at=None,
+        elapsed_sec: float | None = None,
+    ) -> None:
+        if record is None:
+            return
+        record.status = status
+        if progress is not None:
+            record.progress = progress
+        if current_stage is not None:
+            record.current_stage = current_stage
+        if error_message is not None or status in (
+            ReconstructionStatus.SUCCESS,
+            ReconstructionStatus.FAILED,
+            ReconstructionStatus.CANCELLED,
+        ):
+            record.error_message = error_message
+        if completed_at is not None:
+            record.completed_at = completed_at
+        if elapsed_sec is not None:
+            record.elapsed_sec = elapsed_sec
+
+    @classmethod
+    def _needs_status_update(
+        cls,
+        record,
+        *,
+        status: str,
+        progress: int | None,
+        current_stage: str | None,
+        error_message: str | None,
+        completed_at=None,
+        elapsed_sec: float | None = None,
+    ) -> bool:
+        if record is None:
+            return True
+        return (
+            status != getattr(record, "status", None)
+            or progress != getattr(record, "progress", None)
+            or current_stage != getattr(record, "current_stage", None)
+            or error_message != getattr(record, "error_message", None)
+            or (completed_at is not None and completed_at != getattr(record, "completed_at", None))
+            or (elapsed_sec is not None and elapsed_sec != getattr(record, "elapsed_sec", None))
+        )
+
+    @classmethod
+    async def _update_terminal_status(
+        cls,
+        *,
+        session,
+        task_id: str,
+        status: str,
+        progress: int,
+        current_stage: str,
+        error_message: str | None,
+        completed_at,
+        elapsed_sec: float | None,
+        record=None,
+    ):
+        await ReconstructionRecord.update_status(
+            session=session,
+            task_id=task_id,
+            status=status,
+            progress=progress,
+            current_stage=current_stage,
+            error_message=error_message,
+            completed_at=completed_at,
+            elapsed_sec=elapsed_sec,
+        )
+        cls._apply_record_status_snapshot(
+            record,
+            status=status,
+            progress=progress,
+            current_stage=current_stage,
+            error_message=error_message,
+            completed_at=completed_at,
+            elapsed_sec=elapsed_sec,
+        )
+
+    @classmethod
+    def _response_time_updated(cls, record) -> str | None:
+        if record.status in (
+            ReconstructionStatus.SUCCESS,
+            ReconstructionStatus.FAILED,
+            ReconstructionStatus.CANCELLED,
+        ) and getattr(record, "completed_at", None):
+            return record.completed_at.isoformat()
+        return record.time_updated.isoformat() if record.time_updated else None
+
+    @classmethod
+    async def _refresh_record_from_celery_result(cls, *, session, record, result) -> bool:
+        new_status = map_celery_state_to_reconstruction_status(result.state)
+        progress = record.progress
+        stage = record.current_stage
+        error = record.error_message
+        result_changed = False
+        db_changed = False
+
+        if result.state == "PROGRESS":
+            info = result.info or {}
+            stage = info.get("stage", stage)
+            progress = info.get("progress", progress)
+            db_changed = cls._needs_status_update(
+                record,
+                status=new_status,
+                progress=progress,
+                current_stage=stage,
+                error_message=error,
+            )
+            if db_changed:
+                await ReconstructionRecord.update_status(
+                    session=session,
+                    task_id=record.task_id,
+                    status=new_status,
+                    progress=progress,
+                    current_stage=stage,
+                    error_message=error,
+                )
+                cls._apply_record_status_snapshot(
+                    record,
+                    status=new_status,
+                    progress=progress,
+                    current_stage=stage,
+                    error_message=error,
+                )
+            return db_changed
+
+        if result.state == "SUCCESS":
+            task_result = result.result or {}
+            completed_at = cls._resolve_terminal_completed_at(result, getattr(record, "completed_at", None))
+            elapsed_sec = task_result.get("elapsed_sec", getattr(record, "elapsed_sec", None))
+            task_error = get_reconstruction_task_failure_message(task_result)
+            if task_error is not None:
+                new_status = ReconstructionStatus.FAILED
+                stage = "失败"
+                error = task_error
+                db_changed = cls._needs_status_update(
+                    record,
+                    status=new_status,
+                    progress=progress,
+                    current_stage=stage,
+                    error_message=error,
+                    completed_at=completed_at,
+                    elapsed_sec=elapsed_sec,
+                )
+                if db_changed:
+                    await cls._update_terminal_status(
+                        session=session,
+                        task_id=record.task_id,
+                        status=new_status,
+                        progress=progress,
+                        current_stage=stage,
+                        error_message=error,
+                        completed_at=completed_at,
+                        elapsed_sec=elapsed_sec,
+                        record=record,
+                    )
+                return db_changed
+
+            progress = 100
+            stage = "完成"
+            error = None
+            result_changed = await cls._persist_success_result(
+                session=session,
+                record=record,
+                task_result=task_result,
+            )
+            db_changed = result_changed or cls._needs_status_update(
+                record,
+                status=ReconstructionStatus.SUCCESS,
+                progress=progress,
+                current_stage=stage,
+                error_message=error,
+                completed_at=completed_at,
+                elapsed_sec=elapsed_sec,
+            )
+            if db_changed:
+                await cls._update_terminal_status(
+                    session=session,
+                    task_id=record.task_id,
+                    status=ReconstructionStatus.SUCCESS,
+                    progress=progress,
+                    current_stage=stage,
+                    error_message=error,
+                    completed_at=completed_at,
+                    elapsed_sec=elapsed_sec,
+                    record=record,
+                )
+            return db_changed or result_changed
+
+        if result.state == "FAILURE":
+            new_status = ReconstructionStatus.FAILED
+            stage = "失败"
+            error = str(result.info)
+            completed_at = cls._resolve_terminal_completed_at(result, getattr(record, "completed_at", None))
+            elapsed_sec = getattr(record, "elapsed_sec", None)
+            db_changed = cls._needs_status_update(
+                record,
+                status=new_status,
+                progress=progress,
+                current_stage=stage,
+                error_message=error,
+                completed_at=completed_at,
+                elapsed_sec=elapsed_sec,
+            )
+            if db_changed:
+                await cls._update_terminal_status(
+                    session=session,
+                    task_id=record.task_id,
+                    status=new_status,
+                    progress=progress,
+                    current_stage=stage,
+                    error_message=error,
+                    completed_at=completed_at,
+                    elapsed_sec=elapsed_sec,
+                    record=record,
+                )
+            return db_changed
+
+        db_changed = cls._needs_status_update(
+            record,
+            status=new_status,
+            progress=progress,
+            current_stage=stage,
+            error_message=error,
+        )
+        if db_changed:
+            await ReconstructionRecord.update_status(
+                session=session,
+                task_id=record.task_id,
+                status=new_status,
+                progress=progress,
+                current_stage=stage,
+                error_message=error,
+            )
+            cls._apply_record_status_snapshot(
+                record,
+                status=new_status,
+                progress=progress,
+                current_stage=stage,
+                error_message=error,
+            )
+        return db_changed
+
+    @classmethod
+    async def _refresh_records_from_celery(cls, session, records) -> None:
+        if not records:
+            return
+        celery_app, _, _ = _get_celery_modules()
+        for record in records:
+            needs_refresh = (
+                record.status not in (
+                    ReconstructionStatus.SUCCESS,
+                    ReconstructionStatus.FAILED,
+                    ReconstructionStatus.CANCELLED,
+                )
+                or (record.status == ReconstructionStatus.SUCCESS and (record.progress != 100 or record.current_stage != "完成"))
+                or (
+                    record.status in (
+                        ReconstructionStatus.SUCCESS,
+                        ReconstructionStatus.FAILED,
+                        ReconstructionStatus.CANCELLED,
+                    ) and not getattr(record, "completed_at", None)
+                )
+            )
+            if not needs_refresh:
+                continue
+            result = AsyncResult(record.task_id, app=celery_app)
+            await cls._refresh_record_from_celery_result(session=session, record=record, result=result)
+
+    @classmethod
+    def _serialize_task_record(cls, record: ReconstructionRecord) -> dict:
+        return {
+            "task_id": record.task_id,
+            "item_id": record.item_id,
+            "task_type": getattr(record, "task_type", None),
+            "status": record.status,
+            "progress": record.progress,
+            "current_stage": record.current_stage,
+            "scene_name": getattr(record, "scene_name", None),
+            "error_message": record.error_message,
+            "ply_url": record.ply_url,
+            "glb_url": record.glb_url,
+            "total_frames": record.total_frames,
+            "filtered_frames": record.filtered_frames,
+            "colmap_points": record.colmap_points,
+            "time_created": record.time_created.isoformat() if record.time_created else None,
+            "time_updated": cls._response_time_updated(record),
+        }
+
+    @classmethod
+    async def statistics(cls) -> dict:
+        async with SessionLocal() as session:
+            summary = await ReconstructionRecord.summarize_tasks(session)
+
+        success_base = summary["success_tasks"] + summary["failed_tasks"]
+        success_rate = (summary["success_tasks"] / success_base) if success_base else 0
+        return {
+            **summary,
+            "success_rate": success_rate,
+        }
 
     @classmethod
     async def _require_item_exists(cls, item_id: int):
@@ -368,6 +696,8 @@ class ReconstructionManager:
                 logger.warning(f"重构结果持久化时未找到任务记录: task_id={task_id}")
                 return False
 
+            completed_at = datetime.utcnow()
+            elapsed_sec = task_result.get("elapsed_sec")
             task_error = get_reconstruction_task_failure_message(task_result)
             if task_error is not None:
                 await ReconstructionRecord.update_status(
@@ -377,6 +707,8 @@ class ReconstructionManager:
                     progress=record.progress,
                     current_stage="失败",
                     error_message=task_error,
+                    completed_at=completed_at,
+                    elapsed_sec=elapsed_sec,
                 )
                 await session.commit()
                 return False
@@ -394,6 +726,8 @@ class ReconstructionManager:
                 progress=100,
                 current_stage="完成",
                 error_message=None,
+                completed_at=completed_at,
+                elapsed_sec=elapsed_sec,
             )
             await session.commit()
             return changed
@@ -793,71 +1127,29 @@ class ReconstructionManager:
                 
                 return response
             
-            new_status = map_celery_state_to_reconstruction_status(result.state)
-            
-            # 获取进度和阶段信息
-            progress = record.progress
-            stage = record.current_stage
-            error = record.error_message
-            result_changed = False
-            
-            if result.state == "PROGRESS":
-                info = result.info or {}
-                stage = info.get("stage", stage)
-                progress = info.get("progress", progress)
-            elif result.state == "SUCCESS":
-                task_result = result.result or {}
-                task_error = get_reconstruction_task_failure_message(task_result)
-                if task_error is not None:
-                    new_status = ReconstructionStatus.FAILED
-                    stage = "失败"
-                    error = task_error
-                else:
-                    progress = 100
-                    stage = "完成"
-                    error = None
-                    result_changed = await cls._persist_success_result(
-                        session=session,
-                        record=record,
-                        task_result=task_result,
-                    )
-            elif result.state == "FAILURE":
-                error = str(result.info)
-                stage = "失败"
-            
-            # 更新数据库状态
-            if (
-                new_status != record.status
-                or progress != record.progress
-                or stage != record.current_stage
-                or error != record.error_message
-                or result_changed
-            ):
-                await ReconstructionRecord.update_status(
-                    session=session,
-                    task_id=task_id,
-                    status=new_status,
-                    progress=progress,
-                    current_stage=stage,
-                    error_message=error
-                )
+            changed = await cls._refresh_record_from_celery_result(
+                session=session,
+                record=record,
+                result=result,
+            )
+            if changed:
                 await session.commit()
             
             # 返回完整信息
             return {
                 "task_id": task_id,
                 "item_id": record.item_id,
-                "status": new_status,
-                "progress": progress,
-                "current_stage": stage,
-                "error_message": error,
+                "status": record.status,
+                "progress": record.progress,
+                "current_stage": record.current_stage,
+                "error_message": record.error_message,
                 "ply_url": record.ply_url,
                 "glb_url": record.glb_url,
                 "total_frames": record.total_frames,
                 "filtered_frames": record.filtered_frames,
                 "colmap_points": record.colmap_points,
                 "time_created": record.time_created.isoformat() if record.time_created else None,
-                "time_updated": record.time_updated.isoformat() if record.time_updated else None
+                "time_updated": cls._response_time_updated(record),
             }
 
     @classmethod
@@ -948,25 +1240,9 @@ class ReconstructionManager:
         """
         async with SessionLocal() as session:
             records = await ReconstructionRecord.get_by_item_id(session, item_id)
-            
-            return [
-                {
-                    "task_id": r.task_id,
-                    "item_id": r.item_id,
-                    "status": r.status,
-                    "progress": r.progress,
-                    "current_stage": r.current_stage,
-                    "error_message": r.error_message,
-                    "ply_url": r.ply_url,
-                    "glb_url": r.glb_url,
-                    "total_frames": r.total_frames,
-                    "filtered_frames": r.filtered_frames,
-                    "colmap_points": r.colmap_points,
-                    "time_created": r.time_created.isoformat() if r.time_created else None,
-                    "time_updated": r.time_updated.isoformat() if r.time_updated else None
-                }
-                for r in records
-            ]
+            await cls._refresh_records_from_celery(session, records)
+            await session.commit()
+            return [cls._serialize_task_record(record) for record in records]
     
     @classmethod
     async def list_all_tasks(
@@ -994,31 +1270,13 @@ class ReconstructionManager:
                 limit=limit,
                 offset=offset
             )
-            
+            await cls._refresh_records_from_celery(session, records)
+            await session.commit()
             return {
                 "total": total,
                 "page": page,
                 "pageSize": page_size,
-                "records": [
-                    {
-                        "task_id": r.task_id,
-                        "item_id": r.item_id,
-                        "task_type": r.task_type,
-                        "status": r.status,
-                        "progress": r.progress,
-                        "current_stage": r.current_stage,
-                        "scene_name": r.scene_name,
-                        "error_message": r.error_message,
-                        "ply_url": r.ply_url,
-                        "glb_url": r.glb_url,
-                        "total_frames": r.total_frames,
-                        "filtered_frames": r.filtered_frames,
-                        "colmap_points": r.colmap_points,
-                        "time_created": r.time_created.isoformat() if r.time_created else None,
-                        "time_updated": r.time_updated.isoformat() if r.time_updated else None
-                    }
-                    for r in records
-                ]
+                "records": [cls._serialize_task_record(record) for record in records]
             }
     
     @classmethod

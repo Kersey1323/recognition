@@ -15,3 +15,9 @@ def test_reconstruction_routes_include_manual_result_upload():
 
     assert "@parts_router.post('/v2/reconstruct/result/{item_id}'" in text
     assert "@parts_router.delete('/v2/reconstruct/result/{item_id}'" in text
+
+
+def test_reconstruction_routes_include_statistics_endpoint():
+    text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+
+    assert "@parts_router.post('/v2/reconstruct/statistics'" in text

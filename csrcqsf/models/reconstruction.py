@@ -2,8 +2,9 @@
 三维重构记录模型
 """
 from __future__ import annotations
+from datetime import datetime
 from enum import Enum
-from sqlalchemy import String, Text, INT, BIGINT, Float, select, update, or_, and_
+from sqlalchemy import DateTime, String, Text, INT, BIGINT, Float, case, func, select, update, or_, and_
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from csrcqsf.data.pg import Base
@@ -54,7 +55,11 @@ class ReconstructionRecord(Base):
     ply_url: Mapped[str] = mapped_column(String(500), nullable=True, comment='PLY文件URL')
     obj_url: Mapped[str] = mapped_column(String(500), nullable=True, comment='OBJ文件URL')
     glb_url: Mapped[str] = mapped_column(String(500), nullable=True, comment='GLB文件URL')
-    
+
+    # 终态统计
+    completed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True, comment='任务进入终态的时间')
+    elapsed_sec: Mapped[float] = mapped_column(Float, nullable=True, comment='任务耗时（秒）')
+
     # 错误信息
     error_message: Mapped[str] = mapped_column(Text, nullable=True, comment='错误信息')
     
@@ -145,6 +150,41 @@ class ReconstructionRecord(Base):
         result = await session.scalars(stmt)
         
         return list(result), total or 0
+
+    @classmethod
+    async def summarize_tasks(cls, session: AsyncSession) -> dict[str, float | int | None]:
+        running_statuses = (
+            ReconstructionStatus.PENDING,
+            ReconstructionStatus.EXTRACTING,
+            ReconstructionStatus.FILTERING,
+            ReconstructionStatus.COLMAP,
+            ReconstructionStatus.SAM3,
+            ReconstructionStatus.TRAINING,
+            ReconstructionStatus.CONVERTING,
+        )
+        stmt = select(
+            func.count(cls.id),
+            func.sum(case((cls.status.in_(running_statuses), 1), else_=0)),
+            func.sum(case((cls.status == ReconstructionStatus.SUCCESS, 1), else_=0)),
+            func.sum(case((cls.status == ReconstructionStatus.FAILED, 1), else_=0)),
+            func.sum(case((cls.status == ReconstructionStatus.CANCELLED, 1), else_=0)),
+            func.avg(case((cls.status == ReconstructionStatus.SUCCESS, cls.elapsed_sec), else_=None)),
+            func.min(case((cls.status == ReconstructionStatus.SUCCESS, cls.elapsed_sec), else_=None)),
+            func.max(case((cls.status == ReconstructionStatus.SUCCESS, cls.elapsed_sec), else_=None)),
+        )
+        total, running, success, failed, cancelled, avg_elapsed, min_elapsed, max_elapsed = (
+            await session.execute(stmt)
+        ).one()
+        return {
+            "total_tasks": int(total or 0),
+            "running_tasks": int(running or 0),
+            "success_tasks": int(success or 0),
+            "failed_tasks": int(failed or 0),
+            "cancelled_tasks": int(cancelled or 0),
+            "avg_success_elapsed_sec": float(avg_elapsed) if avg_elapsed is not None else None,
+            "min_success_elapsed_sec": float(min_elapsed) if min_elapsed is not None else None,
+            "max_success_elapsed_sec": float(max_elapsed) if max_elapsed is not None else None,
+        }
     
     @classmethod
     async def update_status(
@@ -154,7 +194,9 @@ class ReconstructionRecord(Base):
         status: str,
         progress: int = None,
         current_stage: str = None,
-        error_message: str = None
+        error_message: str = None,
+        completed_at=None,
+        elapsed_sec: float | None = None,
     ):
         """更新任务状态"""
         record = await cls.get_by_task_id(session, task_id)
@@ -164,8 +206,16 @@ class ReconstructionRecord(Base):
                 record.progress = progress
             if current_stage is not None:
                 record.current_stage = current_stage
-            if error_message is not None:
+            if error_message is not None or status in (
+                ReconstructionStatus.SUCCESS,
+                ReconstructionStatus.FAILED,
+                ReconstructionStatus.CANCELLED,
+            ):
                 record.error_message = error_message
+            if completed_at is not None:
+                record.completed_at = completed_at
+            if elapsed_sec is not None:
+                record.elapsed_sec = elapsed_sec
             await session.flush()
     
     @classmethod

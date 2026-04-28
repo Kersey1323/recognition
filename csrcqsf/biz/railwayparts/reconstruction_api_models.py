@@ -161,6 +161,24 @@ class ReconstructionStatusRes(BaseModel):
         return str(value)
 
 
+class ReconstructionStatisticsReq(BaseModel):
+    """三维重构统计请求"""
+    pass
+
+
+class ReconstructionStatisticsRes(BaseModel):
+    """三维重构统计响应"""
+    total_tasks: int = Field(default=0, description='重构任务总数')
+    running_tasks: int = Field(default=0, description='运行中的任务数')
+    success_tasks: int = Field(default=0, description='成功任务数')
+    failed_tasks: int = Field(default=0, description='失败任务数')
+    cancelled_tasks: int = Field(default=0, description='已取消任务数')
+    success_rate: float = Field(default=0, description='成功率，仅按成功+失败计算')
+    avg_success_elapsed_sec: Optional[float] = Field(default=None, description='成功任务平均耗时，单位秒')
+    min_success_elapsed_sec: Optional[float] = Field(default=None, description='成功任务最短耗时，单位秒')
+    max_success_elapsed_sec: Optional[float] = Field(default=None, description='成功任务最长耗时，单位秒')
+
+
 class ReconstructionListRes(BaseModel):
     """重建记录列表响应"""
     records: list[ReconstructionStatusRes] = Field(default_factory=list, description='记录列表')

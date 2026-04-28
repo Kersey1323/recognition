@@ -302,6 +302,8 @@ from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionTaskRes,
     ReconstructionStatusRes,
     ReconstructionListRes,
+    ReconstructionStatisticsReq,
+    ReconstructionStatisticsRes,
     ReconstructionSourceVideoRes,
     ReconstructionSourceVideoListReq,
     ReconstructionSourceVideoListRes,
@@ -530,6 +532,12 @@ async def list_all_reconstruct_tasks(req: ReconstructionAllTasksReq):
         page_size=req.per_page,
     )
     return ReconstructionAllTasksRes(**result)
+
+
+@parts_router.post('/v2/reconstruct/statistics', tags=["算法-3D重建V2"], summary='V2: 三维重构统计')
+async def reconstruct_v2_statistics(_req: ReconstructionStatisticsReq):
+    result = await ReconstructionManager.statistics()
+    return ReconstructionStatisticsRes(**result)
 
 
 @parts_router.delete('/v2/reconstruct/cancel/{task_id}', tags=["算法-3D重建V2"], summary='V2: 取消任务')

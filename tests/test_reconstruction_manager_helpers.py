@@ -239,7 +239,9 @@ def test_get_task_status_treats_celery_success_with_failed_payload_as_failed():
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=True)) as persist_success_result, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status:
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status, \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.datetime") as datetime_mock:
+        datetime_mock.utcnow.return_value = datetime(2026, 4, 28, 16, 27, 53)
         result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
 
     assert result["task_id"] == "task-id"
@@ -256,6 +258,64 @@ def test_get_task_status_treats_celery_success_with_failed_payload_as_failed():
         progress=85,
         current_stage="失败",
         error_message="视频重建失败，退出码: 1",
+        completed_at=datetime(2026, 4, 28, 16, 27, 53),
+        elapsed_sec=None,
+    )
+
+
+def test_get_task_status_promotes_success_payload_to_completed_response_and_terminal_time():
+    session = AsyncMock()
+    completed_at = datetime(2026, 4, 28, 16, 27, 53)
+    record = SimpleNamespace(
+        task_id="task-id",
+        item_id=2023080809420000001,
+        status=ReconstructionStatus.SUCCESS,
+        progress=98,
+        current_stage="提取结果",
+        error_message=None,
+        ply_url="bfr-reconstruction-files/results/demo/point_cloud.ply",
+        glb_url=None,
+        total_frames=None,
+        filtered_frames=None,
+        colmap_points=None,
+        completed_at=None,
+        elapsed_sec=None,
+        time_created=datetime(2026, 4, 28, 16, 19, 27),
+        time_updated=datetime(2026, 4, 28, 16, 25, 10),
+    )
+    celery_result = SimpleNamespace(
+        state="SUCCESS",
+        result={
+            "status": "success",
+            "ply_path": "/tmp/point_cloud.ply",
+            "output_dir": "/tmp/output",
+            "elapsed_sec": 493.4,
+        },
+        info=None,
+        date_done=completed_at,
+    )
+
+    with patch("csrcqsf.biz.railwayparts.reconstruction_manager._get_celery_modules", return_value=(MagicMock(), None, None)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.AsyncResult", return_value=celery_result), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=False)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status:
+        result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
+
+    assert result["status"] == ReconstructionStatus.SUCCESS
+    assert result["progress"] == 100
+    assert result["current_stage"] == "完成"
+    assert result["time_updated"] == completed_at.isoformat()
+    update_status.assert_awaited_once_with(
+        session=session,
+        task_id="task-id",
+        status=ReconstructionStatus.SUCCESS,
+        progress=100,
+        current_stage="完成",
+        error_message=None,
+        completed_at=completed_at,
+        elapsed_sec=493.4,
     )
 
 

@@ -1,5 +1,6 @@
 import asyncio
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -83,7 +84,7 @@ class _AsyncSessionContext:
         return False
 
 
-def test_persist_task_result_marks_record_success_and_commits():
+def test_persist_task_result_marks_record_success_with_completed_at_and_elapsed_sec():
     from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
 
     session = AsyncMock()
@@ -91,16 +92,24 @@ def test_persist_task_result_marks_record_success_and_commits():
         task_id="task-id",
         item_id=1935558010375340032,
         ply_url=None,
+        progress=98,
     )
 
     with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=True)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status:
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status, \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.datetime") as datetime_mock:
+        datetime_mock.utcnow.return_value = datetime(2026, 4, 28, 16, 27, 53)
         changed = asyncio.run(
             ReconstructionManager.persist_task_result_by_task_id(
                 task_id="task-id",
-                task_result={"ply_path": "/tmp/point_cloud.ply", "output_dir": "/tmp/output"},
+                task_result={
+                    "status": "success",
+                    "ply_path": "/tmp/point_cloud.ply",
+                    "output_dir": "/tmp/output",
+                    "elapsed_sec": 493.4,
+                },
             )
         )
 
@@ -112,11 +121,13 @@ def test_persist_task_result_marks_record_success_and_commits():
         progress=100,
         current_stage="完成",
         error_message=None,
+        completed_at=datetime(2026, 4, 28, 16, 27, 53),
+        elapsed_sec=493.4,
     )
     session.commit.assert_awaited_once()
 
 
-def test_persist_task_result_marks_failed_payload_as_failed_without_persisting_success_result():
+def test_persist_task_result_marks_failed_payload_with_completed_at_and_elapsed_sec():
     from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
 
     session = AsyncMock()
@@ -130,14 +141,16 @@ def test_persist_task_result_marks_failed_payload_as_failed_without_persisting_s
     with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=True)) as persist_success_result, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status:
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status, \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.datetime") as datetime_mock:
+        datetime_mock.utcnow.return_value = datetime(2026, 4, 28, 16, 27, 53)
         changed = asyncio.run(
             ReconstructionManager.persist_task_result_by_task_id(
                 task_id="task-id",
                 task_result={
                     "status": "failed",
                     "error": "视频重建失败，退出码: 1",
-                    "log_file": "/tmp/reconstruction.log",
+                    "elapsed_sec": 120.5,
                 },
             )
         )
@@ -151,5 +164,30 @@ def test_persist_task_result_marks_failed_payload_as_failed_without_persisting_s
         progress=65,
         current_stage="失败",
         error_message="视频重建失败，退出码: 1",
+        completed_at=datetime(2026, 4, 28, 16, 27, 53),
+        elapsed_sec=120.5,
     )
     session.commit.assert_awaited_once()
+
+
+def test_video_reconstruction_failure_payload_includes_elapsed_sec():
+    from csrcqsf.biz.railwayparts.reconstruction_server import tasks
+
+    fake_self = SimpleNamespace(
+        request=SimpleNamespace(id="task-id"),
+        update_progress=lambda *args, **kwargs: None,
+    )
+
+    with patch.object(tasks.os.path, "exists", return_value=True), \
+         patch.object(tasks.subprocess, "Popen", side_effect=RuntimeError("boom")), \
+         patch.object(tasks.time, "time", side_effect=[100.0, 101.6]):
+        result = tasks.video_reconstruction.run.__func__(
+            fake_self,
+            video_path="/tmp/demo.mp4",
+            name="demo",
+            iterations=30000,
+            output_name="demo",
+        )
+
+    assert result["status"] == "failed"
+    assert result["elapsed_sec"] == 1.6

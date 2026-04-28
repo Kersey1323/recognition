@@ -3,6 +3,7 @@ from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionIndexRebuildRes,
     ReconstructionResultUploadRes,
     ReconstructionSourceVideoListReq,
+    ReconstructionStatisticsRes,
     ReconstructionStatusRes,
     ReconstructionTrainReq,
     ReconstructionTaskListItem,
@@ -146,6 +147,32 @@ def test_reconstruction_status_response_serializes_item_id_as_string():
 
     assert data["item_id"] == str(BIG_ITEM_ID)
     assert isinstance(data["item_id"], str)
+
+
+def test_reconstruction_statistics_response_serializes_summary_fields():
+    res = ReconstructionStatisticsRes(
+        total_tasks=35,
+        running_tasks=1,
+        success_tasks=28,
+        failed_tasks=5,
+        cancelled_tasks=1,
+        success_rate=0.8485,
+        avg_success_elapsed_sec=486.2,
+        min_success_elapsed_sec=301.4,
+        max_success_elapsed_sec=921.7,
+    )
+
+    data = dump_model(res)
+
+    assert data["total_tasks"] == 35
+    assert data["running_tasks"] == 1
+    assert data["success_tasks"] == 28
+    assert data["failed_tasks"] == 5
+    assert data["cancelled_tasks"] == 1
+    assert data["success_rate"] == 0.8485
+    assert data["avg_success_elapsed_sec"] == 486.2
+    assert data["min_success_elapsed_sec"] == 301.4
+    assert data["max_success_elapsed_sec"] == 921.7
 
 
 def test_reconstruction_task_list_item_serializes_item_id_as_string():
