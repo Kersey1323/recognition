@@ -26,6 +26,7 @@ class SearchParameters(BaseModel):
 class SearchResultItem(BaseModel):
     item_id: str
     item_code: str
+    item_name: str | None = None
     similar: float
     image_url: str | None = None
 

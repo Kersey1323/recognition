@@ -62,6 +62,31 @@ class ReconstructionBusinessError(Exception):
         return self.message
 
 
+def map_celery_state_to_reconstruction_status(state: str) -> str:
+    """把 Celery 状态统一映射到对外暴露的业务状态。"""
+    status_map = {
+        "PENDING": ReconstructionStatus.PENDING,
+        "STARTED": ReconstructionStatus.TRAINING,
+        "PROGRESS": ReconstructionStatus.TRAINING,
+        "SUCCESS": ReconstructionStatus.SUCCESS,
+        "FAILURE": ReconstructionStatus.FAILED,
+    }
+    return status_map.get(state, state)
+
+
+def get_reconstruction_task_failure_message(task_result) -> str | None:
+    """识别 Celery 成功返回中的业务失败结果。"""
+    if not isinstance(task_result, dict):
+        return None
+
+    status = str(task_result.get("status") or "").strip().lower()
+    if status != ReconstructionStatus.FAILED.value:
+        return None
+
+    error = task_result.get("error") or task_result.get("message")
+    return str(error) if error else "重建任务失败"
+
+
 class ReconstructionManager:
     """三维重构管理器"""
 
@@ -341,6 +366,19 @@ class ReconstructionManager:
             record = await ReconstructionRecord.get_by_task_id(session, task_id)
             if not record:
                 logger.warning(f"重构结果持久化时未找到任务记录: task_id={task_id}")
+                return False
+
+            task_error = get_reconstruction_task_failure_message(task_result)
+            if task_error is not None:
+                await ReconstructionRecord.update_status(
+                    session=session,
+                    task_id=task_id,
+                    status=ReconstructionStatus.FAILED,
+                    progress=record.progress,
+                    current_stage="失败",
+                    error_message=task_error,
+                )
+                await session.commit()
                 return False
 
             changed = await cls._persist_success_result(
@@ -724,7 +762,7 @@ class ReconstructionManager:
                 # 如果数据库中没有记录，只返回 Celery 状态
                 response = {
                     "task_id": task_id,
-                    "status": result.state,
+                    "status": map_celery_state_to_reconstruction_status(result.state),
                     "result": None,
                     "error": None,
                     "stage": None,
@@ -740,25 +778,22 @@ class ReconstructionManager:
                     response["stage"] = info.get("stage", "处理中")
                     response["progress"] = info.get("progress", 0)
                 elif result.state == "SUCCESS":
-                    response["stage"] = "完成"
-                    response["progress"] = 100
                     response["result"] = result.result
+                    task_error = get_reconstruction_task_failure_message(result.result)
+                    if task_error is not None:
+                        response["status"] = ReconstructionStatus.FAILED
+                        response["stage"] = "失败"
+                        response["error"] = task_error
+                    else:
+                        response["stage"] = "完成"
+                        response["progress"] = 100
                 elif result.state == "FAILURE":
                     response["stage"] = "失败"
                     response["error"] = str(result.info)
                 
                 return response
             
-            # 映射 Celery 状态到 ReconstructionStatus
-            status_map = {
-                "PENDING": ReconstructionStatus.PENDING,
-                "STARTED": ReconstructionStatus.TRAINING,
-                "PROGRESS": ReconstructionStatus.TRAINING,
-                "SUCCESS": ReconstructionStatus.SUCCESS,
-                "FAILURE": ReconstructionStatus.FAILED,
-            }
-            
-            new_status = status_map.get(result.state, record.status)
+            new_status = map_celery_state_to_reconstruction_status(result.state)
             
             # 获取进度和阶段信息
             progress = record.progress
@@ -771,20 +806,33 @@ class ReconstructionManager:
                 stage = info.get("stage", stage)
                 progress = info.get("progress", progress)
             elif result.state == "SUCCESS":
-                progress = 100
-                stage = "完成"
                 task_result = result.result or {}
-                result_changed = await cls._persist_success_result(
-                    session=session,
-                    record=record,
-                    task_result=task_result,
-                )
+                task_error = get_reconstruction_task_failure_message(task_result)
+                if task_error is not None:
+                    new_status = ReconstructionStatus.FAILED
+                    stage = "失败"
+                    error = task_error
+                else:
+                    progress = 100
+                    stage = "完成"
+                    error = None
+                    result_changed = await cls._persist_success_result(
+                        session=session,
+                        record=record,
+                        task_result=task_result,
+                    )
             elif result.state == "FAILURE":
                 error = str(result.info)
                 stage = "失败"
             
             # 更新数据库状态
-            if new_status != record.status or progress != record.progress or result_changed:
+            if (
+                new_status != record.status
+                or progress != record.progress
+                or stage != record.current_stage
+                or error != record.error_message
+                or result_changed
+            ):
                 await ReconstructionRecord.update_status(
                     session=session,
                     task_id=task_id,

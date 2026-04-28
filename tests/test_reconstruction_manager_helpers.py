@@ -1,6 +1,7 @@
 import asyncio
 import json
 import io
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,6 +13,7 @@ from csrcqsf.biz.railwayparts.reconstruction_manager import (
     ReconstructionBusinessError,
     ReconstructionManager,
 )
+from csrcqsf.models.reconstruction import ReconstructionStatus
 
 
 class _AsyncSessionContext:
@@ -202,6 +204,59 @@ def test_build_video_run_name_uses_timestamp_and_item_name():
 
     assert run_name.endswith("_橡胶套")
     assert len(run_name.split("_", 1)[0]) == 14
+
+
+def test_get_task_status_treats_celery_success_with_failed_payload_as_failed():
+    session = AsyncMock()
+    task_result = {
+        "status": "failed",
+        "error": "视频重建失败，退出码: 1",
+        "log_file": "/tmp/reconstruction.log",
+    }
+    record = SimpleNamespace(
+        task_id="task-id",
+        item_id=2023080809420000001,
+        status=ReconstructionStatus.TRAINING,
+        progress=85,
+        current_stage="训练中",
+        error_message=None,
+        ply_url=None,
+        glb_url=None,
+        total_frames=None,
+        filtered_frames=None,
+        colmap_points=None,
+        time_created=datetime(2026, 4, 28, 14, 49, 2),
+        time_updated=datetime(2026, 4, 28, 14, 53, 38),
+    )
+    celery_result = SimpleNamespace(
+        state="SUCCESS",
+        result=task_result,
+        info=None,
+    )
+
+    with patch("csrcqsf.biz.railwayparts.reconstruction_manager._get_celery_modules", return_value=(MagicMock(), None, None)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.AsyncResult", return_value=celery_result), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=True)) as persist_success_result, \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status:
+        result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
+
+    assert result["task_id"] == "task-id"
+    assert result["item_id"] == 2023080809420000001
+    assert result["status"] == ReconstructionStatus.FAILED
+    assert result["progress"] == 85
+    assert result["current_stage"] == "失败"
+    assert result["error_message"] == "视频重建失败，退出码: 1"
+    persist_success_result.assert_not_awaited()
+    update_status.assert_awaited_once_with(
+        session=session,
+        task_id="task-id",
+        status=ReconstructionStatus.FAILED,
+        progress=85,
+        current_stage="失败",
+        error_message="视频重建失败，退出码: 1",
+    )
 
 
 def _fake_upload_file(filename: str, content_type: str = "application/octet-stream", body: bytes = b"ply"):

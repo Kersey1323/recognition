@@ -1157,6 +1157,7 @@ class RailwayPartsManager:
                 SearchResultItem(
                     item_id=str(item.item_id),
                     item_code=item.item_code,
+                    item_name=item.item_name,
                     similar=item.rate,
                     image_url=item.image_url,
                 )
@@ -1217,6 +1218,42 @@ class RailwayPartsManager:
         )
 
     @classmethod
+    async def _enrich_search_history_result_item_names(cls, session, rows) -> None:
+        missing_items = []
+        item_id_set = set()
+
+        for row in rows:
+            search_results = getattr(row, "search_results", None)
+            if search_results is None:
+                continue
+
+            for result_item in search_results.items:
+                if getattr(result_item, "item_name", None):
+                    continue
+                try:
+                    item_id = int(result_item.item_id)
+                except (TypeError, ValueError):
+                    continue
+                item_id_set.add(item_id)
+                missing_items.append(result_item)
+
+        if not item_id_set:
+            return
+
+        item_name_map = {}
+        async for item in Items.get_item_by_id_list(session=session, item_id_list=list(item_id_set)):
+            item_name_map[int(item.id)] = item.item_name
+
+        for result_item in missing_items:
+            try:
+                item_id = int(result_item.item_id)
+            except (TypeError, ValueError):
+                continue
+            item_name = item_name_map.get(item_id)
+            if item_name:
+                result_item.item_name = item_name
+
+    @classmethod
     async def list_v2_search_history(cls, req: SearchHistoryListReq):
         async with SessionLocal() as session:
             page_result = await SearchHistory.list_search_history(
@@ -1229,6 +1266,7 @@ class RailwayPartsManager:
                 date_from=req.date_from,
                 date_to=req.date_to,
             )
+            await cls._enrich_search_history_result_item_names(session, page_result.data)
 
         return SearchHistoryListRes(
             total=page_result.total,
@@ -1241,6 +1279,8 @@ class RailwayPartsManager:
     async def get_v2_search_history_detail(cls, history_id: int):
         async with SessionLocal() as session:
             row = await SearchHistory.get_history_by_id(session, history_id)
+            if row is not None:
+                await cls._enrich_search_history_result_item_names(session, [row])
 
         if row is None:
             raise Exception(f"history_id={history_id} 的记录不存在")

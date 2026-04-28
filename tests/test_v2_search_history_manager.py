@@ -104,6 +104,7 @@ def test_search_v2_by_text_persists_query_text_after_success():
     assert session.added.query_image is None
     assert session.added.search_parameter is None
     assert session.added.search_results.items[0].item_id == str(fake_item.id)
+    assert session.added.search_results.items[0].item_name == "螺栓M8X22"
     assert session.added.search_results.items[0].image_url == "bfr-ai-files/bolt.jpg"
     session.commit.assert_awaited()
 
@@ -210,7 +211,7 @@ def test_list_v2_search_history_uses_explicit_query_fields_and_unknown_fallback(
         time_created=datetime(2026, 4, 23, 12, 1, 0),
         query_text=None,
         query_image="bfr-search-history-files/query-images/20260427/2_query.png",
-        search_results=SearchResults(items=[{"item_id": "1", "item_code": "x", "similar": 0.9, "image_url": "bfr-ai-files/1960224080514424832.jpg"}]),
+        search_results=SearchResults(items=[{"item_id": "1", "item_code": "x", "item_name": "螺栓M8X22", "similar": 0.9, "image_url": "bfr-ai-files/1960224080514424832.jpg"}]),
         inquery_id=None,
         inquery_num=None,
         search_result_item_name="螺栓M8X22",
@@ -244,7 +245,43 @@ def test_list_v2_search_history_uses_explicit_query_fields_and_unknown_fallback(
     assert res.items[0].query_text == "螺栓"
     assert res.items[1].search_type == "image"
     assert res.items[1].query_image.endswith("2_query.png")
+    assert res.items[1].result.items[0].item_name == "螺栓M8X22"
     assert res.items[1].result.items[0].image_url == "bfr-ai-files/1960224080514424832.jpg"
     assert res.items[2].search_type == "unknown"
     assert res.items[2].query_text is None
     assert res.items[2].query_image is None
+
+
+def test_list_v2_search_history_backfills_missing_result_item_name_from_items_table():
+    from csrcqsf.biz.railwayparts.api_models import SearchHistoryListReq
+    from csrcqsf.models.search_history import SearchResults
+
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+
+    legacy_history = SimpleNamespace(
+        id=2,
+        time_created=datetime(2026, 4, 23, 12, 1, 0),
+        query_text=None,
+        query_image="bfr-search-history-files/query-images/20260427/2_query.png",
+        search_results=SearchResults(items=[{"item_id": "1935558010375340032", "item_code": "11010150131", "similar": 0.9, "image_url": "bfr-ai-files/1960224080514424832.jpg"}]),
+        inquery_id=None,
+        inquery_num=None,
+        search_result_item_name="螺栓M8X22",
+        search_result_item_code="11010150131",
+        correct_item_name=None,
+        correct_item_code=None,
+    )
+    page_result = SimpleNamespace(total=1, data=[legacy_history])
+    fake_item = SimpleNamespace(id=1935558010375340032, item_name="螺栓M8X22")
+
+    async def _yield_items(*args, **kwargs):
+        yield fake_item
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
+         patch.object(parts_module.SearchHistory, "list_search_history", AsyncMock(return_value=page_result)), \
+         patch.object(parts_module.Items, "get_item_by_id_list", _yield_items):
+        res = asyncio.run(
+            RailwayPartsManager.list_v2_search_history(SearchHistoryListReq(page=1, pageSize=10))
+        )
+
+    assert res.items[0].result.items[0].item_name == "螺栓M8X22"

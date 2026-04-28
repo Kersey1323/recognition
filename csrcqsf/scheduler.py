@@ -111,6 +111,10 @@ def sync_reconstruction_tasks_sync():
         from csrcqsf.biz.railwayparts.reconstruction_server.celery_app import celery_app
         from celery.result import AsyncResult
         from csrcqsf.models.reconstruction import ReconstructionStatus, ReconstructionRecord
+        from csrcqsf.biz.railwayparts.reconstruction_manager import (
+            get_reconstruction_task_failure_message,
+            map_celery_state_to_reconstruction_status,
+        )
         from sqlalchemy import create_engine, select, or_
         from sqlalchemy.orm import Session
         from csrcqsf.settings import ai_settings
@@ -143,16 +147,7 @@ def sync_reconstruction_tasks_sync():
                     # 从 Celery 获取任务状态
                     result = AsyncResult(record.task_id, app=celery_app)
                     
-                    # 映射 Celery 状态到 ReconstructionStatus
-                    status_map = {
-                        "PENDING": ReconstructionStatus.PENDING,
-                        "STARTED": ReconstructionStatus.TRAINING,
-                        "PROGRESS": ReconstructionStatus.TRAINING,
-                        "SUCCESS": ReconstructionStatus.SUCCESS,
-                        "FAILURE": ReconstructionStatus.FAILED,
-                    }
-                    
-                    new_status = status_map.get(result.state, record.status)
+                    new_status = map_celery_state_to_reconstruction_status(result.state)
                     progress = record.progress
                     stage = record.current_stage
                     error = record.error_message
@@ -163,19 +158,30 @@ def sync_reconstruction_tasks_sync():
                         stage = info.get("stage", stage)
                         progress = info.get("progress", progress)
                     elif result.state == "SUCCESS":
-                        progress = 100
-                        stage = "完成"
+                        task_error = get_reconstruction_task_failure_message(result.result)
+                        if task_error is not None:
+                            new_status = ReconstructionStatus.FAILED
+                            stage = "失败"
+                            error = task_error
+                        else:
+                            progress = 100
+                            stage = "完成"
+                            error = None
                     elif result.state == "FAILURE":
                         error = str(result.info)
                         stage = "失败"
                     
                     # 更新数据库状态
-                    if new_status != record.status or progress != record.progress:
+                    if (
+                        new_status != record.status
+                        or progress != record.progress
+                        or stage != record.current_stage
+                        or error != record.error_message
+                    ):
                         record.status = new_status
                         record.progress = progress
                         record.current_stage = stage
-                        if error:
-                            record.error_message = error
+                        record.error_message = error
                         session.commit()
                         synced_count += 1
                         

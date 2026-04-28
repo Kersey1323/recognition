@@ -66,6 +66,7 @@ def test_search_history_list_item_serializes_status_and_result_image_urls():
                 {
                     "item_id": "101",
                     "item_code": "19010036737",
+                    "item_name": "钢丝绳",
                     "similar": 0.91,
                     "image_url": "bfr-ai-files/demo.jpg",
                 }
@@ -78,6 +79,7 @@ def test_search_history_list_item_serializes_status_and_result_image_urls():
     data = dump_model(item)
 
     assert data["status"] == "pending"
+    assert data["result"]["items"][0]["item_name"] == "钢丝绳"
     assert data["result"]["items"][0]["image_url"] == "bfr-ai-files/demo.jpg"
 
 
