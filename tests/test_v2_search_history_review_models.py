@@ -133,3 +133,5 @@ def test_review_console_request_models_expose_openapi_examples_and_descriptions(
 
     assert delete_schema["properties"]["history_id_list"]["description"] == "待删除的检索历史ID列表"
     assert delete_schema["example"]["history_id_list"] == ["2048696242753638400", "2048696242753638401"]
+    assert list_schema["properties"]["page"]["description"] == "页码，从1开始"
+    assert list_schema["properties"]["pageSize"]["description"] == "每页数量"

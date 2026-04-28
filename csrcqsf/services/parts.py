@@ -726,7 +726,17 @@ async def search_v2_by_image(
     200: {
         'model': SearchHistoryListRes
     }
-})
+}, description="""
+请求体字段说明：
+
+- `page`: 页码，从 1 开始
+- `pageSize`: 每页数量
+- `search_type`: 检索类型筛选，支持 `all`、`text`、`image`
+- `keyword`: 关键词筛选，会匹配查询文本、检索结果物料编码/名称、人工纠正物料编码
+- `status`: 校验状态筛选，支持 `all`、`pending`、`correct`、`wrong`、`partial`
+- `date_from`: 开始日期，格式 `YYYY-MM-DD`
+- `date_to`: 结束日期，格式 `YYYY-MM-DD`
+""")
 async def list_v2_search_history(req: SearchHistoryListReq):
     return await RailwayPartsManager.list_v2_search_history(req)
 
@@ -735,7 +745,11 @@ async def list_v2_search_history(req: SearchHistoryListReq):
     200: {
         'model': SearchHistoryListItem
     }
-})
+}, description="""
+请求体字段说明：
+
+- `history_id`: 检索历史ID
+""")
 async def get_v2_search_history_detail(req: SearchHistoryDetailReq):
     return await RailwayPartsManager.get_v2_search_history_detail(int(req.history_id))
 
@@ -753,7 +767,14 @@ async def summary_v2_search_history():
     200: {
         'model': SearchHistoryVerifyRes
     }
-})
+}, description="""
+请求体字段说明：
+
+- `history_id`: 检索历史ID
+- `verify_status`: 校验结果，支持 `correct`、`wrong`、`partial`
+- `correct_item_code`: 人工确认后的正确物料编码；当 `verify_status=correct` 且不传时，默认回填首条检索结果编码
+- `remark`: 人工校验备注
+""")
 async def verify_v2_search_history(req: SearchHistoryVerifyReq):
     return await RailwayPartsManager.verify_v2_search_history(
         history_id=int(req.history_id),
@@ -767,7 +788,12 @@ async def verify_v2_search_history(req: SearchHistoryVerifyReq):
     200: {
         'model': ItemSuggestRes
     }
-})
+}, description="""
+请求体字段说明：
+
+- `keyword`: 联想关键词，可输入物料编码或物料名称片段
+- `limit`: 最多返回的联想条数
+""")
 async def suggest_items(req: ItemSuggestReq):
     return await RailwayPartsManager.suggest_items(req.keyword, limit=req.limit)
 
@@ -776,7 +802,11 @@ async def suggest_items(req: ItemSuggestReq):
     200: {
         'model': SearchHistoryDeleteRes
     }
-})
+}, description="""
+请求体字段说明：
+
+- `history_id_list`: 待删除的检索历史ID列表
+""")
 async def delete_v2_search_history(req: SearchHistoryDeleteReq):
     return await RailwayPartsManager.delete_v2_search_history(
         [int(history_id) for history_id in req.history_id_list]

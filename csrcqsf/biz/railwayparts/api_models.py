@@ -271,6 +271,8 @@ class SearchRes(BaseModel):
 
 
 class SearchHistoryListReq(PageReq):
+    page: int = Field(description="页码，从1开始", example=1, ge=0)
+    per_page: int = Field(description="每页数量", example=10, ge=0, alias='pageSize')
     search_type: str = Field(
         default="all",
         description="检索类型筛选：all 全部，text 文本检索，image 图片检索",
