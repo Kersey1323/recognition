@@ -139,6 +139,7 @@ def test_reconstruction_status_response_serializes_item_id_as_string():
     res = ReconstructionStatusRes(
         task_id="2db366e0-f619-476e-b365-93498be7c5a0",
         item_id=BIG_ITEM_ID,
+        item_name="配件A",
         status="success",
         progress=100,
     )
@@ -147,6 +148,37 @@ def test_reconstruction_status_response_serializes_item_id_as_string():
 
     assert data["item_id"] == str(BIG_ITEM_ID)
     assert isinstance(data["item_id"], str)
+    assert data["item_name"] == "配件A"
+
+
+def test_reconstruction_list_response_serializes_nested_item_name():
+    from csrcqsf.biz.railwayparts.reconstruction_api_models import ReconstructionListRes
+
+    res = ReconstructionListRes(
+        records=[
+            {
+                "task_id": "2db366e0-f619-476e-b365-93498be7c5a0",
+                "item_id": BIG_ITEM_ID,
+                "item_name": "配件A",
+                "status": "success",
+                "progress": 100,
+                "current_stage": "完成",
+                "error_message": None,
+                "ply_url": "bfr-reconstruction-files/results/1935558010375340032/task-id/point_cloud.ply",
+                "glb_url": None,
+                "total_frames": None,
+                "filtered_frames": None,
+                "colmap_points": None,
+                "time_created": "2026-04-21T17:17:11.087360",
+                "time_updated": "2026-04-21T09:19:35.576566",
+            }
+        ],
+    )
+
+    data = dump_model(res)
+
+    assert data["records"][0]["item_id"] == str(BIG_ITEM_ID)
+    assert data["records"][0]["item_name"] == "配件A"
 
 
 def test_reconstruction_statistics_response_serializes_summary_fields():
@@ -179,6 +211,7 @@ def test_reconstruction_task_list_item_serializes_item_id_as_string():
     res = ReconstructionTaskListItem(
         task_id="2db366e0-f619-476e-b365-93498be7c5a0",
         item_id=BIG_ITEM_ID,
+        item_name="配件A",
         task_type="video",
         status="success",
         progress=100,
@@ -198,6 +231,7 @@ def test_reconstruction_task_list_item_serializes_item_id_as_string():
 
     assert data["item_id"] == str(BIG_ITEM_ID)
     assert isinstance(data["item_id"], str)
+    assert data["item_name"] == "配件A"
     assert data["ply_url"].endswith("point_cloud.ply")
     assert "obj_url" not in data
 
@@ -211,6 +245,7 @@ def test_reconstruction_all_tasks_response_serializes_nested_item_id_as_string()
             {
                 "task_id": "2db366e0-f619-476e-b365-93498be7c5a0",
                 "item_id": BIG_ITEM_ID,
+                "item_name": "配件A",
                 "task_type": "video",
                 "status": "success",
                 "progress": 100,
@@ -234,6 +269,7 @@ def test_reconstruction_all_tasks_response_serializes_nested_item_id_as_string()
     assert data["pageSize"] == 20
     assert data["records"][0]["item_id"] == str(BIG_ITEM_ID)
     assert isinstance(data["records"][0]["item_id"], str)
+    assert data["records"][0]["item_name"] == "配件A"
     assert "obj_url" not in data["records"][0]
 
 

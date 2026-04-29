@@ -138,6 +138,7 @@ class ReconstructionStatusRes(BaseModel):
     """重建任务状态响应"""
     task_id: str = Field(..., description='任务ID')
     item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')
+    item_name: Optional[str] = Field(None, description='配件名称')
     status: str = Field(..., description='任务状态')
     progress: int = Field(..., description='进度 0-100')
     current_stage: Optional[str] = Field(None, description='当前阶段')
@@ -188,6 +189,7 @@ class ReconstructionTaskListItem(BaseModel):
     """重建任务列表项"""
     task_id: str = Field(..., description='任务ID')
     item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')
+    item_name: Optional[str] = Field(None, description='配件名称')
     task_type: str = Field(..., description='任务类型')
     status: str = Field(..., description='任务状态')
     progress: int = Field(..., description='进度 0-100')

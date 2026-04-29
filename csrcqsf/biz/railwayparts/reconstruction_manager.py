@@ -387,10 +387,25 @@ class ReconstructionManager:
             await cls._refresh_record_from_celery_result(session=session, record=record, result=result)
 
     @classmethod
-    def _serialize_task_record(cls, record: ReconstructionRecord) -> dict:
+    async def _get_item_name_map(cls, session, item_ids: list[int]) -> dict[int, str]:
+        item_name_map: dict[int, str] = {}
+        if not item_ids:
+            return item_name_map
+
+        async for item in Items.get_item_by_id_list(session, item_ids):
+            item_name_map[item.id] = item.item_name
+        return item_name_map
+
+    @classmethod
+    def _serialize_task_record(
+        cls,
+        record: ReconstructionRecord,
+        item_name_map: dict[int, str] | None = None,
+    ) -> dict:
         return {
             "task_id": record.task_id,
             "item_id": record.item_id,
+            "item_name": (item_name_map or {}).get(record.item_id),
             "task_type": getattr(record, "task_type", None),
             "status": record.status,
             "progress": record.progress,
@@ -1241,8 +1256,12 @@ class ReconstructionManager:
         async with SessionLocal() as session:
             records = await ReconstructionRecord.get_by_item_id(session, item_id)
             await cls._refresh_records_from_celery(session, records)
+            item_name_map = await cls._get_item_name_map(
+                session=session,
+                item_ids=list({record.item_id for record in records if getattr(record, "item_id", None) is not None}),
+            )
             await session.commit()
-            return [cls._serialize_task_record(record) for record in records]
+            return [cls._serialize_task_record(record, item_name_map=item_name_map) for record in records]
     
     @classmethod
     async def list_all_tasks(
@@ -1271,12 +1290,16 @@ class ReconstructionManager:
                 offset=offset
             )
             await cls._refresh_records_from_celery(session, records)
+            item_name_map = await cls._get_item_name_map(
+                session=session,
+                item_ids=list({record.item_id for record in records if getattr(record, "item_id", None) is not None}),
+            )
             await session.commit()
             return {
                 "total": total,
                 "page": page,
                 "pageSize": page_size,
-                "records": [cls._serialize_task_record(record) for record in records]
+                "records": [cls._serialize_task_record(record, item_name_map=item_name_map) for record in records]
             }
     
     @classmethod
