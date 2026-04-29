@@ -278,6 +278,11 @@ class SearchHistoryListReq(PageReq):
         description="检索类型筛选：all 全部，text 文本检索，image 图片检索",
         example="image",
     )
+    search_equipment: str = Field(
+        default="all",
+        description="检索设备筛选：all 全部，web WEB端，terminal 手持终端",
+        example="terminal",
+    )
     keyword: str | None = Field(
         default=None,
         description="关键词筛选，会匹配查询文本、检索结果物料编码/名称、人工纠正物料编码",
@@ -285,7 +290,7 @@ class SearchHistoryListReq(PageReq):
     )
     status: str = Field(
         default="all",
-        description="校验状态筛选：all 全部，pending 待校验，correct 正确，wrong 错误，partial 部分正确",
+        description="校验状态筛选：all 全部，pending 待校验，correct 正确，wrong 错误",
         example="pending",
     )
     date_from: str | None = Field(
@@ -305,6 +310,7 @@ class SearchHistoryListReq(PageReq):
                 "page": 1,
                 "pageSize": 10,
                 "search_type": "image",
+                "search_equipment": "terminal",
                 "keyword": "19010036737",
                 "status": "pending",
                 "date_from": "2026-04-27",
@@ -329,6 +335,13 @@ class SearchHistoryListItem(BaseModel):
     correct_item_code: str | None
     verify_remark: str | None = None
     verified_at: str | None = None
+    search_equipment: str | None = None
+    feedback_remark: str | None = None
+    feedback_at: str | None = None
+    has_open_review_ticket: bool = False
+    latest_ticket_id: str | None = None
+    latest_review_status: str | None = None
+    latest_issue_type: str | None = None
 
     @validator("history_id", pre=True, allow_reuse=True)
     def normalize_history_id(cls, value):
@@ -408,7 +421,199 @@ class SearchHistorySummaryRes(BaseModel):
     pending_count: int
     correct_count: int
     wrong_count: int
-    partial_count: int
+    open_ticket_count: int
+
+
+class SearchHistoryFeedbackReq(BaseModel):
+    history_id: str = Field(description="检索历史ID", example="2048696242753638400")
+    feedback_result: str = Field(
+        description="用户反馈结果：correct 正确，wrong 错误",
+        example="wrong",
+    )
+    remark: str | None = Field(
+        default=None,
+        description="反馈备注",
+        example="识别错误，建议技术部核验",
+    )
+
+    @validator("history_id", pre=True, allow_reuse=True)
+    def normalize_history_id(cls, value):
+        return str(value)
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "history_id": "2048696242753638400",
+                "feedback_result": "wrong",
+                "remark": "识别错误，建议技术部核验",
+            }
+        }
+
+
+class SearchHistoryFeedbackRes(BaseModel):
+    history_id: str
+    verify_status: str
+    feedback_remark: str | None = None
+    feedback_at: str | None = None
+    ticket_id: str | None = None
+    ticket_created: bool = False
+    message: str
+
+    @validator("history_id", pre=True, allow_reuse=True)
+    def normalize_history_id(cls, value):
+        return str(value)
+
+    @validator("ticket_id", pre=True, allow_reuse=True)
+    def normalize_ticket_id(cls, value):
+        if value is None:
+            return None
+        return str(value)
+
+
+class SearchReviewTicketListReq(PageReq):
+    page: int = Field(description="页码，从1开始", example=1, ge=0)
+    per_page: int = Field(description="每页数量", example=10, ge=0, alias='pageSize')
+    review_status: str = Field(
+        default="all",
+        description="核验单状态筛选：all 全部，open 新建，reviewing 核验中，resolved 已解决，closed 已关闭",
+        example="open",
+    )
+    issue_type: str = Field(
+        default="all",
+        description="问题类型筛选：all 全部，missing_index 未建索引，precision_issue 精度问题，system_bug 系统问题",
+        example="precision_issue",
+    )
+    search_equipment: str = Field(
+        default="all",
+        description="检索设备筛选：all 全部，web WEB端，terminal 手持终端",
+        example="terminal",
+    )
+    keyword: str | None = Field(
+        default=None,
+        description="关键词筛选，支持 history_id/ticket_id/物料编码/物料名称",
+        example="19010036737",
+    )
+    date_from: str | None = Field(
+        default=None,
+        description="开始日期，格式 YYYY-MM-DD",
+        example="2026-04-27",
+    )
+    date_to: str | None = Field(
+        default=None,
+        description="结束日期，格式 YYYY-MM-DD",
+        example="2026-04-28",
+    )
+
+
+class SearchReviewTicketItem(BaseModel):
+    ticket_id: str
+    history_id: str
+    review_status: str
+    issue_type: str | None = None
+    time_created: str
+    time_updated: str
+    query_text: str | None = None
+    query_image: str | None = None
+    search_equipment: str | None = None
+    search_item_name: str | None = None
+    search_item_code: str | None = None
+    feedback_remark: str | None = None
+    correct_item_name: str | None = None
+    correct_item_code: str | None = None
+
+    @validator("ticket_id", pre=True, allow_reuse=True)
+    def normalize_ticket_id(cls, value):
+        return str(value)
+
+    @validator("history_id", pre=True, allow_reuse=True)
+    def normalize_history_id(cls, value):
+        return str(value)
+
+
+class SearchReviewTicketListRes(BaseModel):
+    total: int = Field(..., description="总数")
+    page: int = Field(..., description="当前页码")
+    pageSize: int = Field(..., description="每页数量")
+    items: list[SearchReviewTicketItem] = Field(default_factory=list)
+
+
+class SearchReviewTicketDetailReq(BaseModel):
+    ticket_id: str = Field(description="核验单ID", example="2048696242753638400")
+
+    @validator("ticket_id", pre=True, allow_reuse=True)
+    def normalize_ticket_id(cls, value):
+        return str(value)
+
+
+class SearchReviewTicketDetailRes(BaseModel):
+    ticket_id: str
+    history_id: str
+    review_status: str
+    issue_type: str | None = None
+    review_remark: str | None = None
+    resolution_remark: str | None = None
+    review_started_at: str | None = None
+    resolved_at: str | None = None
+    closed_at: str | None = None
+    query_text: str | None = None
+    query_image: str | None = None
+    search_equipment: str | None = None
+    result: SearchResults | None = None
+    search_item_name: str | None = None
+    search_item_code: str | None = None
+    feedback_remark: str | None = None
+    correct_item_name: str | None = None
+    correct_item_code: str | None = None
+
+    @validator("ticket_id", pre=True, allow_reuse=True)
+    def normalize_ticket_id(cls, value):
+        return str(value)
+
+    @validator("history_id", pre=True, allow_reuse=True)
+    def normalize_history_id(cls, value):
+        return str(value)
+
+
+class SearchReviewTicketUpdateReq(BaseModel):
+    ticket_id: str = Field(description="核验单ID", example="2048696242753638400")
+    review_status: str = Field(
+        description="核验单状态：reviewing 核验中，resolved 已解决，closed 已关闭",
+        example="resolved",
+    )
+    issue_type: str | None = Field(default=None, description="问题类型", example="precision_issue")
+    review_remark: str | None = Field(default=None, description="核验备注", example="已接单核验")
+    resolution_remark: str | None = Field(default=None, description="解决备注", example="已修复")
+    correct_item_code: str | None = Field(default=None, description="纠正后的物料编码", example="19010036737")
+
+    @validator("ticket_id", pre=True, allow_reuse=True)
+    def normalize_ticket_id(cls, value):
+        return str(value)
+
+
+class SearchReviewTicketUpdateRes(BaseModel):
+    ticket_id: str
+    review_status: str
+    issue_type: str | None = None
+    review_remark: str | None = None
+    resolution_remark: str | None = None
+    correct_item_code: str | None = None
+    correct_item_name: str | None = None
+    message: str
+
+    @validator("ticket_id", pre=True, allow_reuse=True)
+    def normalize_ticket_id(cls, value):
+        return str(value)
+
+
+class SearchReviewTicketSummaryRes(BaseModel):
+    total: int
+    open_count: int
+    reviewing_count: int
+    resolved_count: int
+    closed_count: int
+    missing_index_count: int
+    precision_issue_count: int
+    system_bug_count: int
 
 
 class ItemSuggestReq(BaseModel):

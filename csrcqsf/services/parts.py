@@ -670,6 +670,7 @@ async def delete_v2_index(item_id: str):
 async def search_v2_by_text(
     query_text: str,
     top_k: int = 10,
+    search_equipment: str = "web",
     # use_image_vector: bool = False
 ):
     """
@@ -689,7 +690,8 @@ async def search_v2_by_text(
     """
     result = await RailwayPartsManager.search_v2_by_text(
         query_text=query_text,
-        top_k=top_k
+        top_k=top_k,
+        search_equipment=search_equipment,
         # use_image_vector=use_image_vector
     )
     return result
@@ -699,7 +701,8 @@ async def search_v2_by_text(
 async def search_v2_by_image(
     file: UploadFile = File(...),
     top_k: int = 10,
-    search_mode: str = "hybrid"
+    search_mode: str = "hybrid",
+    search_equipment: str = Form("web"),
 ):
     """
     使用新算法进行图像检索（上传图片文件）
@@ -725,7 +728,8 @@ async def search_v2_by_image(
     result = await RailwayPartsManager.search_v2_by_image(
         file=file,
         top_k=top_k,
-        search_mode=search_mode
+        search_mode=search_mode,
+        search_equipment=search_equipment,
     )
     return result
 
@@ -740,8 +744,9 @@ async def search_v2_by_image(
 - `page`: 页码，从 1 开始
 - `pageSize`: 每页数量
 - `search_type`: 检索类型筛选，支持 `all`、`text`、`image`
+- `search_equipment`: 检索设备筛选，支持 `all`、`web`、`terminal`
 - `keyword`: 关键词筛选，会匹配查询文本、检索结果物料编码/名称、人工纠正物料编码
-- `status`: 校验状态筛选，支持 `all`、`pending`、`correct`、`wrong`、`partial`
+- `status`: 校验状态筛选，支持 `all`、`pending`、`correct`、`wrong`
 - `date_from`: 开始日期，格式 `YYYY-MM-DD`
 - `date_to`: 结束日期，格式 `YYYY-MM-DD`
 """)
@@ -771,7 +776,7 @@ async def summary_v2_search_history():
     return await RailwayPartsManager.summary_v2_search_history()
 
 
-@parts_router.post('/v2/search/history/verify', tags=["算法-向量检索V2"], summary='V2检索历史校验提交', responses={
+@parts_router.post('/v2/search/history/verify', tags=["算法-向量检索V2"], summary='V2检索历史校验提交', deprecated=True, responses={
     200: {
         'model': SearchHistoryVerifyRes
     }
@@ -790,6 +795,92 @@ async def verify_v2_search_history(req: SearchHistoryVerifyReq):
         correct_item_code=req.correct_item_code,
         remark=req.remark,
     )
+
+
+@parts_router.post('/v2/search/history/feedback', tags=["算法-向量检索V2"], summary='V2检索历史用户反馈提交', responses={
+    200: {
+        'model': SearchHistoryFeedbackRes
+    }
+}, description="""
+请求体字段说明：
+
+- `history_id`: 检索历史ID
+- `feedback_result`: 用户反馈结果，支持 `correct`、`wrong`
+- `remark`: 反馈备注
+""")
+async def submit_v2_search_feedback(req: SearchHistoryFeedbackReq):
+    return await RailwayPartsManager.submit_v2_search_feedback(
+        history_id=int(req.history_id),
+        feedback_result=req.feedback_result,
+        remark=req.remark,
+    )
+
+
+@parts_router.post('/v2/search/review-ticket/list', tags=["算法-向量检索V2"], summary='V2技术部核验清单分页查询', responses={
+    200: {
+        'model': SearchReviewTicketListRes
+    }
+}, description="""
+请求体字段说明：
+
+- `page`: 页码，从 1 开始
+- `pageSize`: 每页数量
+- `review_status`: 核验单状态筛选，支持 `all`、`open`、`reviewing`、`resolved`、`closed`
+- `issue_type`: 问题类型，支持 `missing_index`、`precision_issue`、`system_bug`
+- `search_equipment`: 检索设备筛选，支持 `all`、`web`、`terminal`
+- `keyword`: 关键词筛选
+- `date_from`: 开始日期，格式 `YYYY-MM-DD`
+- `date_to`: 结束日期，格式 `YYYY-MM-DD`
+""")
+async def list_v2_search_review_tickets(req: SearchReviewTicketListReq):
+    return await RailwayPartsManager.list_v2_search_review_tickets(req)
+
+
+@parts_router.post('/v2/search/review-ticket/detail', tags=["算法-向量检索V2"], summary='V2技术部核验单详情', responses={
+    200: {
+        'model': SearchReviewTicketDetailRes
+    }
+}, description="""
+请求体字段说明：
+
+- `ticket_id`: 核验单ID
+""")
+async def get_v2_search_review_ticket_detail(req: SearchReviewTicketDetailReq):
+    return await RailwayPartsManager.get_v2_search_review_ticket_detail(ticket_id=int(req.ticket_id))
+
+
+@parts_router.post('/v2/search/review-ticket/update', tags=["算法-向量检索V2"], summary='V2技术部核验单更新', responses={
+    200: {
+        'model': SearchReviewTicketUpdateRes
+    }
+}, description="""
+请求体字段说明：
+
+- `ticket_id`: 核验单ID
+- `review_status`: 目标状态，支持 `reviewing`、`resolved`、`closed`
+- `issue_type`: 问题类型，支持 `missing_index`、`precision_issue`、`system_bug`
+- `review_remark`: 核验备注
+- `resolution_remark`: 解决备注
+- `correct_item_code`: 可选，纠正后的物料编码
+""")
+async def update_v2_search_review_ticket(req: SearchReviewTicketUpdateReq):
+    return await RailwayPartsManager.update_v2_search_review_ticket(
+        ticket_id=int(req.ticket_id),
+        review_status=req.review_status,
+        issue_type=req.issue_type,
+        review_remark=req.review_remark,
+        resolution_remark=req.resolution_remark,
+        correct_item_code=req.correct_item_code,
+    )
+
+
+@parts_router.post('/v2/search/review-ticket/summary', tags=["算法-向量检索V2"], summary='V2技术部核验单统计', responses={
+    200: {
+        'model': SearchReviewTicketSummaryRes
+    }
+})
+async def summary_v2_search_review_ticket():
+    return await RailwayPartsManager.summary_v2_search_review_ticket()
 
 
 @parts_router.post('/item/suggest', tags=["业务-配件管理"], summary='物料编码联想', responses={

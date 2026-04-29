@@ -109,6 +109,41 @@ def test_search_v2_by_text_persists_query_text_after_success():
     session.commit.assert_awaited()
 
 
+def test_search_v2_by_text_persists_search_equipment_and_pending_feedback():
+    session = AsyncMock()
+
+    def _add(obj):
+        session.added = obj
+
+    session.add = MagicMock(side_effect=_add)
+    fake_hit = {
+        "entity": {
+            "item_id": 1935558010375340032,
+            "item_name": "螺栓M8X22",
+            "item_code": "11010150131",
+            "image_url": "bfr-ai-files/bolt.jpg",
+        },
+        "distance": 0.98,
+    }
+    fake_item = SimpleNamespace(
+        id=1935558010375340032,
+        item_code="11010150131",
+        item_name="螺栓M8X22",
+    )
+
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+
+    with patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)):
+        manager_cls.return_value.search_by_text = AsyncMock(return_value=[fake_hit])
+        asyncio.run(RailwayPartsManager.search_v2_by_text("螺栓", top_k=5, search_equipment="web"))
+
+    assert isinstance(session.added, SearchHistory)
+    assert session.added.search_equipment == "web"
+    assert session.added.verify_status == "pending"
+
+
 def test_search_v2_by_image_uploads_query_image_and_persists_path():
     session = AsyncMock()
 
@@ -198,6 +233,9 @@ def test_list_v2_search_history_uses_explicit_query_fields_and_unknown_fallback(
         time_created=datetime(2026, 4, 23, 12, 0, 0),
         query_text="螺栓",
         query_image=None,
+        search_equipment="web",
+        verify_remark="用户确认正确",
+        verified_at=datetime(2026, 4, 23, 12, 5, 0),
         search_results=SearchResults(items=[]),
         inquery_id=None,
         inquery_num=None,
@@ -211,6 +249,9 @@ def test_list_v2_search_history_uses_explicit_query_fields_and_unknown_fallback(
         time_created=datetime(2026, 4, 23, 12, 1, 0),
         query_text=None,
         query_image="bfr-search-history-files/query-images/20260427/2_query.png",
+        search_equipment="terminal",
+        verify_remark="用户存在疑惑",
+        verified_at=datetime(2026, 4, 23, 12, 6, 0),
         search_results=SearchResults(items=[{"item_id": "1", "item_code": "x", "item_name": "螺栓M8X22", "similar": 0.9, "image_url": "bfr-ai-files/1960224080514424832.jpg"}]),
         inquery_id=None,
         inquery_num=None,
@@ -224,6 +265,9 @@ def test_list_v2_search_history_uses_explicit_query_fields_and_unknown_fallback(
         time_created=datetime(2026, 4, 23, 12, 2, 0),
         query_text=None,
         query_image=None,
+        search_equipment=None,
+        verify_remark=None,
+        verified_at=None,
         search_results=SearchResults(items=[]),
         inquery_id=None,
         inquery_num=None,
@@ -235,7 +279,8 @@ def test_list_v2_search_history_uses_explicit_query_fields_and_unknown_fallback(
     page_result = SimpleNamespace(total=3, data=[text_history, image_history, legacy_history])
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
-         patch.object(parts_module.SearchHistory, "list_search_history", AsyncMock(return_value=page_result)):
+         patch.object(parts_module.SearchHistory, "list_search_history", AsyncMock(return_value=page_result)), \
+         patch.object(parts_module.SearchReviewTicket, "list_latest_by_history_ids", AsyncMock(return_value={})):
         res = asyncio.run(
             RailwayPartsManager.list_v2_search_history(SearchHistoryListReq(page=1, pageSize=10))
         )
@@ -243,8 +288,14 @@ def test_list_v2_search_history_uses_explicit_query_fields_and_unknown_fallback(
     assert res.total == 3
     assert res.items[0].search_type == "text"
     assert res.items[0].query_text == "螺栓"
+    assert res.items[0].search_equipment == "web"
+    assert res.items[0].feedback_remark == "用户确认正确"
+    assert res.items[0].feedback_at == "2026-04-23 12:05:00"
     assert res.items[1].search_type == "image"
     assert res.items[1].query_image.endswith("2_query.png")
+    assert res.items[1].search_equipment == "terminal"
+    assert res.items[1].feedback_remark == "用户存在疑惑"
+    assert res.items[1].feedback_at == "2026-04-23 12:06:00"
     assert res.items[1].result.items[0].item_name == "螺栓M8X22"
     assert res.items[1].result.items[0].image_url == "bfr-ai-files/1960224080514424832.jpg"
     assert res.items[2].search_type == "unknown"
@@ -279,7 +330,8 @@ def test_list_v2_search_history_backfills_missing_result_item_name_from_items_ta
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
          patch.object(parts_module.SearchHistory, "list_search_history", AsyncMock(return_value=page_result)), \
-         patch.object(parts_module.Items, "get_item_by_id_list", _yield_items):
+         patch.object(parts_module.Items, "get_item_by_id_list", _yield_items), \
+         patch.object(parts_module.SearchReviewTicket, "list_latest_by_history_ids", AsyncMock(return_value={})):
         res = asyncio.run(
             RailwayPartsManager.list_v2_search_history(SearchHistoryListReq(page=1, pageSize=10))
         )

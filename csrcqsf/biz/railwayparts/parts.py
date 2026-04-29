@@ -18,6 +18,7 @@ from csrcqsf.models.search_history import (
     SearchHistory,
     SearchResultItem,
     SearchResults,
+    SearchReviewTicket,
 )
 from csrcqsf.models.sgo_models import SgoMaterielMasterplate
 # 导入Milvus向量检索管理器
@@ -1149,6 +1150,7 @@ class RailwayPartsManager:
         history_id: int,
         query_text: str | None,
         query_image: str | None,
+        search_equipment: str,
         search_items: list[SearchItem],
     ) -> None:
         top1 = search_items[0] if search_items else None
@@ -1177,6 +1179,10 @@ class RailwayPartsManager:
                         search_parameter=None,
                         query_text=query_text,
                         query_image=query_image,
+                        search_equipment=search_equipment,
+                        verify_status="pending",
+                        verify_remark=None,
+                        verified_at=None,
                         correct_item_name=None,
                         correct_item_code=None,
                         search_results=search_results,
@@ -1188,10 +1194,12 @@ class RailwayPartsManager:
 
     @classmethod
     def _normalize_review_status(cls, status: str | None) -> str:
+        if status == "partial":
+            return "wrong"
         return status or "pending"
 
     @classmethod
-    def _build_search_history_item(cls, row):
+    def _build_search_history_item(cls, row, latest_ticket=None):
         if row.query_image:
             search_type = "image"
         elif row.query_text:
@@ -1199,12 +1207,23 @@ class RailwayPartsManager:
         else:
             search_type = "unknown"
 
+        has_open_review_ticket = False
+        latest_ticket_id = None
+        latest_review_status = None
+        latest_issue_type = None
+        if latest_ticket is not None:
+            has_open_review_ticket = getattr(latest_ticket, "review_status", None) != "closed"
+            latest_ticket_id = getattr(latest_ticket, "id", None)
+            latest_review_status = getattr(latest_ticket, "review_status", None)
+            latest_issue_type = getattr(latest_ticket, "issue_type", None)
+
         return SearchHistoryListItem(
             history_id=row.id,
             search_type=search_type,
             time_created=date_to_str(row.time_created),
             query_text=row.query_text,
             query_image=row.query_image,
+            search_equipment=getattr(row, "search_equipment", None),
             status=cls._normalize_review_status(getattr(row, "verify_status", None)),
             result=row.search_results,
             inquery_id=row.inquery_id,
@@ -1213,8 +1232,56 @@ class RailwayPartsManager:
             search_item_code=row.search_result_item_code,
             correct_item_name=row.correct_item_name,
             correct_item_code=row.correct_item_code,
+            feedback_remark=getattr(row, "verify_remark", None),
+            feedback_at=date_to_str(row.verified_at) if getattr(row, "verified_at", None) else None,
             verify_remark=getattr(row, "verify_remark", None),
             verified_at=date_to_str(row.verified_at) if getattr(row, "verified_at", None) else None,
+            has_open_review_ticket=has_open_review_ticket,
+            latest_ticket_id=str(latest_ticket_id) if latest_ticket_id is not None else None,
+            latest_review_status=latest_review_status,
+            latest_issue_type=latest_issue_type,
+        )
+
+    @classmethod
+    def _build_search_review_ticket_item(cls, row):
+        return SearchReviewTicketItem(
+            ticket_id=row.id,
+            history_id=row.history_id,
+            review_status=row.review_status,
+            issue_type=row.issue_type,
+            time_created=date_to_str(row.time_created),
+            time_updated=date_to_str(row.time_updated),
+            query_text=getattr(row, "query_text", None),
+            query_image=getattr(row, "query_image", None),
+            search_equipment=getattr(row, "search_equipment", None),
+            search_item_name=getattr(row, "search_result_item_name", None),
+            search_item_code=getattr(row, "search_result_item_code", None),
+            feedback_remark=getattr(row, "verify_remark", None),
+            correct_item_name=getattr(row, "correct_item_name", None),
+            correct_item_code=getattr(row, "correct_item_code", None),
+        )
+
+    @classmethod
+    def _build_search_review_ticket_detail(cls, ticket, history):
+        return SearchReviewTicketDetailRes(
+            ticket_id=ticket.id,
+            history_id=ticket.history_id,
+            review_status=ticket.review_status,
+            issue_type=ticket.issue_type,
+            review_remark=ticket.review_remark,
+            resolution_remark=ticket.resolution_remark,
+            review_started_at=date_to_str(ticket.review_started_at) if ticket.review_started_at else None,
+            resolved_at=date_to_str(ticket.resolved_at) if ticket.resolved_at else None,
+            closed_at=date_to_str(ticket.closed_at) if ticket.closed_at else None,
+            query_text=getattr(history, "query_text", None),
+            query_image=getattr(history, "query_image", None),
+            search_equipment=getattr(history, "search_equipment", None),
+            result=getattr(history, "search_results", None),
+            search_item_name=getattr(history, "search_result_item_name", None),
+            search_item_code=getattr(history, "search_result_item_code", None),
+            feedback_remark=getattr(history, "verify_remark", None),
+            correct_item_name=getattr(history, "correct_item_name", None),
+            correct_item_code=getattr(history, "correct_item_code", None),
         )
 
     @classmethod
@@ -1261,18 +1328,26 @@ class RailwayPartsManager:
                 page=req.page,
                 per_page=req.per_page,
                 search_type=req.search_type,
+                search_equipment=req.search_equipment,
                 keyword=req.keyword,
                 status=req.status,
                 date_from=req.date_from,
                 date_to=req.date_to,
             )
             await cls._enrich_search_history_result_item_names(session, page_result.data)
+            latest_ticket_map = await SearchReviewTicket.list_latest_by_history_ids(
+                session,
+                [int(row.id) for row in page_result.data],
+            )
 
         return SearchHistoryListRes(
             total=page_result.total,
             page=req.page,
             pageSize=req.per_page,
-            items=[cls._build_search_history_item(row) for row in page_result.data],
+            items=[
+                cls._build_search_history_item(row, latest_ticket_map.get(int(row.id)))
+                for row in page_result.data
+            ],
         )
 
     @classmethod
@@ -1281,24 +1356,167 @@ class RailwayPartsManager:
             row = await SearchHistory.get_history_by_id(session, history_id)
             if row is not None:
                 await cls._enrich_search_history_result_item_names(session, [row])
+                latest_ticket_map = await SearchReviewTicket.list_latest_by_history_ids(session, [history_id])
+                latest_ticket = latest_ticket_map.get(history_id)
+            else:
+                latest_ticket = None
 
         if row is None:
             raise Exception(f"history_id={history_id} 的记录不存在")
 
-        return cls._build_search_history_item(row)
+        return cls._build_search_history_item(row, latest_ticket)
 
     @classmethod
     async def summary_v2_search_history(cls):
         async with SessionLocal() as session:
             result = await SearchHistory.summarize_review_status(session)
+            open_ticket_count = await SearchReviewTicket.count_open_tickets(session)
 
-        total, pending_count, correct_count, wrong_count, partial_count = result.one()
+        total, pending_count, correct_count, wrong_count = result.one()
         return SearchHistorySummaryRes(
             total=int(total or 0),
             pending_count=int(pending_count or 0),
             correct_count=int(correct_count or 0),
             wrong_count=int(wrong_count or 0),
-            partial_count=int(partial_count or 0),
+            open_ticket_count=int(open_ticket_count or 0),
+        )
+
+    @classmethod
+    async def list_v2_search_review_tickets(cls, req: SearchReviewTicketListReq):
+        async with SessionLocal() as session:
+            page_result = await SearchReviewTicket.list_tickets(
+                session,
+                page=req.page,
+                per_page=req.per_page,
+                review_status=req.review_status,
+                issue_type=req.issue_type,
+                search_equipment=req.search_equipment,
+                keyword=req.keyword,
+                date_from=req.date_from,
+                date_to=req.date_to,
+            )
+
+        return SearchReviewTicketListRes(
+            total=page_result.total,
+            page=req.page,
+            pageSize=req.per_page,
+            items=[cls._build_search_review_ticket_item(row) for row in page_result.data],
+        )
+
+    @classmethod
+    async def get_v2_search_review_ticket_detail(cls, ticket_id: int):
+        async with SessionLocal() as session:
+            ticket = await SearchReviewTicket.get_by_id(session, ticket_id)
+            if ticket is None:
+                raise Exception(f"ticket_id={ticket_id} 的记录不存在")
+
+            history = await SearchHistory.get_history_by_id(session, int(ticket.history_id))
+            if history is None:
+                raise Exception(f"history_id={ticket.history_id} 的记录不存在")
+
+            await cls._enrich_search_history_result_item_names(session, [history])
+
+        return cls._build_search_review_ticket_detail(ticket, history)
+
+    @classmethod
+    async def summary_v2_search_review_ticket(cls):
+        async with SessionLocal() as session:
+            result = await SearchReviewTicket.summarize_tickets(session)
+
+        total, open_count, reviewing_count, resolved_count, closed_count, missing_index_count, precision_issue_count, system_bug_count = result.one()
+        return SearchReviewTicketSummaryRes(
+            total=int(total or 0),
+            open_count=int(open_count or 0),
+            reviewing_count=int(reviewing_count or 0),
+            resolved_count=int(resolved_count or 0),
+            closed_count=int(closed_count or 0),
+            missing_index_count=int(missing_index_count or 0),
+            precision_issue_count=int(precision_issue_count or 0),
+            system_bug_count=int(system_bug_count or 0),
+        )
+
+    @classmethod
+    async def update_v2_search_review_ticket(
+        cls,
+        *,
+        ticket_id: int,
+        review_status: str,
+        issue_type: str | None,
+        review_remark: str | None,
+        resolution_remark: str | None,
+        correct_item_code: str | None,
+    ):
+        allowed_review_status = {"reviewing", "resolved", "closed"}
+        allowed_issue_types = {None, "missing_index", "precision_issue", "system_bug"}
+        if review_status not in allowed_review_status:
+            raise Exception(f"review_status={review_status} 不支持")
+        if issue_type not in allowed_issue_types:
+            raise Exception(f"issue_type={issue_type} 不支持")
+
+        now = datetime.now()
+        correct_item_name = None
+
+        async with SessionLocal() as session:
+            ticket = await SearchReviewTicket.get_by_id(session, ticket_id)
+            if ticket is None:
+                raise Exception(f"ticket_id={ticket_id} 的记录不存在")
+
+            history = None
+            if correct_item_code:
+                item = await Items.get_item_by_item_code(session, correct_item_code)
+                if item is None:
+                    raise Exception(f"物料编码 {correct_item_code} 不存在")
+                correct_item_name = item.item_name
+                history = await SearchHistory.get_history_by_id(session, int(ticket.history_id))
+                if history is None:
+                    raise Exception(f"history_id={ticket.history_id} 的记录不存在")
+
+                await SearchHistory.update_review_result(
+                    session,
+                    int(ticket.history_id),
+                    verify_status="wrong",
+                    correct_item_code=correct_item_code,
+                    correct_item_name=correct_item_name,
+                    verify_remark=resolution_remark or review_remark,
+                    verified_at=now,
+                )
+
+            review_started_at = ticket.review_started_at
+            resolved_at = ticket.resolved_at
+            closed_at = ticket.closed_at
+            if review_status == "reviewing":
+                review_started_at = review_started_at or now
+                resolved_at = None
+                closed_at = None
+            elif review_status == "resolved":
+                review_started_at = review_started_at or now
+                resolved_at = now
+                closed_at = None
+            elif review_status == "closed":
+                closed_at = now
+
+            await SearchReviewTicket.update_ticket(
+                session,
+                ticket_id,
+                review_status=review_status,
+                issue_type=issue_type,
+                review_remark=review_remark,
+                resolution_remark=resolution_remark,
+                review_started_at=review_started_at,
+                resolved_at=resolved_at,
+                closed_at=closed_at,
+            )
+            await session.commit()
+
+        return SearchReviewTicketUpdateRes(
+            ticket_id=ticket_id,
+            review_status=review_status,
+            issue_type=issue_type,
+            review_remark=review_remark,
+            resolution_remark=resolution_remark,
+            correct_item_code=correct_item_code,
+            correct_item_name=correct_item_name,
+            message="核验单更新成功",
         )
 
     @classmethod
@@ -1394,7 +1612,12 @@ class RailwayPartsManager:
         )
     
     @classmethod
-    async def search_v2_by_text(cls, query_text: str, top_k: int = 10):
+    async def search_v2_by_text(
+        cls,
+        query_text: str,
+        top_k: int = 10,
+        search_equipment: str = "web",
+    ):
         """
         使用新算法进行文本检索
         
@@ -1433,6 +1656,7 @@ class RailwayPartsManager:
             history_id=history_id,
             query_text=query_text,
             query_image=None,
+            search_equipment=search_equipment,
             search_items=search_items,
         )
         return SearchRes(data=search_items)
@@ -1442,7 +1666,8 @@ class RailwayPartsManager:
         cls,
         file,
         top_k: int = 10,
-        search_mode: str = "hybrid"
+        search_mode: str = "hybrid",
+        search_equipment: str = "web",
     ):
         """
         使用新算法进行图像检索
@@ -1514,6 +1739,61 @@ class RailwayPartsManager:
             history_id=history_id,
             query_text=None,
             query_image=query_image,
+            search_equipment=search_equipment,
             search_items=search_items,
         )
         return SearchRes(data=search_items)
+
+    @classmethod
+    async def submit_v2_search_feedback(
+        cls,
+        *,
+        history_id: int,
+        feedback_result: str,
+        remark: str | None,
+    ):
+        if feedback_result not in {"correct", "wrong"}:
+            raise Exception("feedback_result 仅支持 correct 或 wrong")
+
+        feedback_at = datetime.now()
+        ticket_id = None
+        ticket_created = False
+
+        async with SessionLocal() as session:
+            history = await SearchHistory.get_history_by_id(session, history_id)
+            if history is None:
+                raise Exception(f"history_id={history_id} 的记录不存在")
+
+            active_ticket = await SearchReviewTicket.get_active_by_history_id(session, history_id)
+            if feedback_result == "correct" and active_ticket is not None:
+                raise Exception("当前记录已进入技术部核验流程，暂不支持改回正确")
+
+            await SearchHistory.update_feedback(
+                session,
+                history_id,
+                verify_status=feedback_result,
+                verify_remark=remark,
+                verified_at=feedback_at,
+            )
+
+            if feedback_result == "wrong":
+                if active_ticket is None:
+                    active_ticket = await SearchReviewTicket.create_ticket(
+                        session,
+                        ticket_id=get_id(),
+                        history_id=history_id,
+                    )
+                    ticket_created = True
+                ticket_id = active_ticket.id
+
+            await session.commit()
+
+        return SearchHistoryFeedbackRes(
+            history_id=history_id,
+            verify_status=feedback_result,
+            feedback_remark=remark,
+            feedback_at=date_to_str(feedback_at),
+            ticket_id=ticket_id,
+            ticket_created=ticket_created,
+            message="用户反馈提交成功",
+        )

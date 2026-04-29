@@ -1,3 +1,5 @@
+import inspect
+
 from csrcqsf.biz.railwayparts.api_models import (
     ItemSuggestReq,
     ItemSuggestRes,
@@ -8,7 +10,7 @@ from csrcqsf.biz.railwayparts.api_models import (
     SearchHistorySummaryRes,
     SearchHistoryVerifyReq,
 )
-from csrcqsf.models.search_history import SearchHistory
+from csrcqsf.models.search_history import SearchHistory, SearchReviewTicket
 
 
 def dump_model(model):
@@ -29,6 +31,40 @@ def test_search_history_table_has_review_status_columns():
     assert "verify_status" in columns
     assert "verify_remark" in columns
     assert "verified_at" in columns
+
+
+def test_search_history_table_has_search_equipment_column():
+    columns = list(SearchHistory.__table__.columns.keys())
+    assert "search_equipment" in columns
+
+
+def test_search_review_ticket_table_has_required_columns():
+    columns = list(SearchReviewTicket.__table__.columns.keys())
+
+    assert "history_id" in columns
+    assert "review_status" in columns
+    assert "issue_type" in columns
+    assert "review_remark" in columns
+    assert "resolution_remark" in columns
+    assert "review_started_at" in columns
+    assert "resolved_at" in columns
+    assert "closed_at" in columns
+
+
+def test_search_history_and_review_ticket_helpers_exist():
+    assert hasattr(SearchHistory, "update_feedback")
+    assert hasattr(SearchReviewTicket, "get_active_by_history_id")
+    assert hasattr(SearchReviewTicket, "create_ticket")
+    assert hasattr(SearchReviewTicket, "list_tickets")
+    assert hasattr(SearchReviewTicket, "summarize_tickets")
+
+
+def test_search_review_ticket_helpers_follow_async_pattern():
+    assert inspect.iscoroutinefunction(SearchReviewTicket.get_active_by_history_id)
+    assert inspect.iscoroutinefunction(SearchReviewTicket.create_ticket)
+    assert inspect.iscoroutinefunction(SearchReviewTicket.get_by_id)
+    assert inspect.iscoroutinefunction(SearchReviewTicket.list_tickets)
+    assert inspect.iscoroutinefunction(SearchReviewTicket.summarize_tickets)
 
 
 def test_search_history_list_request_accepts_review_filters():
@@ -98,7 +134,7 @@ def test_review_console_request_and_response_models_serialize():
         pending_count=4,
         correct_count=3,
         wrong_count=2,
-        partial_count=1,
+        open_ticket_count=1,
     )
     suggest = ItemSuggestRes(
         items=[{"item_id": "1", "item_code": "19010036737", "item_name": "钢丝绳"}]
@@ -112,6 +148,20 @@ def test_review_console_request_and_response_models_serialize():
     assert dump_model(suggest)["items"][0]["item_code"] == "19010036737"
 
 
+def test_search_history_summary_response_replaces_partial_with_open_ticket_count():
+    summary = SearchHistorySummaryRes(
+        total=8,
+        pending_count=2,
+        correct_count=3,
+        wrong_count=2,
+        open_ticket_count=1,
+    )
+    data = dump_model(summary)
+
+    assert data["open_ticket_count"] == 1
+    assert "partial_count" not in data
+
+
 def test_review_console_request_models_expose_openapi_examples_and_descriptions():
     list_schema = dump_schema(SearchHistoryListReq)
     detail_schema = dump_schema(SearchHistoryDetailReq)
@@ -120,7 +170,8 @@ def test_review_console_request_models_expose_openapi_examples_and_descriptions(
     delete_schema = dump_schema(SearchHistoryDeleteReq)
 
     assert list_schema["properties"]["search_type"]["description"] == "检索类型筛选：all 全部，text 文本检索，image 图片检索"
-    assert list_schema["properties"]["status"]["description"] == "校验状态筛选：all 全部，pending 待校验，correct 正确，wrong 错误，partial 部分正确"
+    assert list_schema["properties"]["search_equipment"]["description"] == "检索设备筛选：all 全部，web WEB端，terminal 手持终端"
+    assert list_schema["properties"]["status"]["description"] == "校验状态筛选：all 全部，pending 待校验，correct 正确，wrong 错误"
     assert list_schema["example"]["search_type"] == "image"
     assert list_schema["example"]["status"] == "pending"
 

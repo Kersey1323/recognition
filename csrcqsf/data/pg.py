@@ -84,6 +84,15 @@ async def db_migrate():
             ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP WITHOUT TIME ZONE
         """))
         await conn.execute(text("""
+            ALTER TABLE parts.search_history
+            ADD COLUMN IF NOT EXISTS search_equipment VARCHAR(50)
+        """))
+        await conn.execute(text("""
+            UPDATE parts.search_history
+            SET verify_status = 'wrong'
+            WHERE verify_status = 'partial'
+        """))
+        await conn.execute(text("""
             ALTER TABLE parts.reconstruction_records
             ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITHOUT TIME ZONE,
             ADD COLUMN IF NOT EXISTS elapsed_sec DOUBLE PRECISION

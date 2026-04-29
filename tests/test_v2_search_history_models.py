@@ -1,6 +1,16 @@
 from csrcqsf.biz.railwayparts.api_models import (
+    SearchHistoryFeedbackReq,
+    SearchHistoryFeedbackRes,
     SearchHistoryListItem,
     SearchHistoryListReq,
+    SearchReviewTicketListReq,
+    SearchReviewTicketListRes,
+    SearchReviewTicketDetailReq,
+    SearchReviewTicketDetailRes,
+    SearchReviewTicketUpdateReq,
+    SearchReviewTicketUpdateRes,
+    SearchReviewTicketSummaryRes,
+    SearchReviewTicketItem,
     V2IndexDeleteRes,
 )
 
@@ -19,6 +29,12 @@ def test_search_history_list_request_accepts_page_size_alias():
 
     assert req.page == 2
     assert req.per_page == 20
+
+
+def test_search_history_list_request_accepts_search_equipment_filter():
+    req = SearchHistoryListReq(page=1, pageSize=10, search_equipment="terminal")
+
+    assert req.search_equipment == "terminal"
 
 
 def test_search_history_list_item_serializes_explicit_query_fields():
@@ -56,6 +72,167 @@ def test_search_history_list_item_serializes_explicit_query_fields():
     assert data["result"]["items"][0]["item_id"] == str(BIG_ITEM_ID)
     assert data["result"]["items"][0]["item_name"] == "螺栓M8X22"
     assert data["result"]["items"][0]["image_url"] == "bfr-ai-files/bolt.jpg"
+
+
+def test_search_history_list_item_serializes_review_ticket_summary_fields():
+    item = SearchHistoryListItem(
+        history_id=BIG_ITEM_ID,
+        search_type="text",
+        time_created="2026-04-23 10:00:00",
+        query_text="螺栓",
+        query_image=None,
+        search_equipment="terminal",
+        feedback_remark="识别错误",
+        feedback_at="2026-04-23 10:05:00",
+        has_open_review_ticket=True,
+        latest_ticket_id="3001",
+        latest_review_status="reviewing",
+        latest_issue_type="precision_issue",
+        search_item_name="螺栓M8X22",
+        search_item_code="11010150131",
+        correct_item_name=None,
+        correct_item_code=None,
+        result=None,
+        inquery_id=None,
+        inquery_num=None,
+    )
+    data = dump_model(item)
+
+    assert data["search_equipment"] == "terminal"
+    assert data["feedback_remark"] == "识别错误"
+    assert data["feedback_at"] == "2026-04-23 10:05:00"
+    assert data["has_open_review_ticket"] is True
+    assert data["latest_ticket_id"] == "3001"
+    assert data["latest_review_status"] == "reviewing"
+    assert data["latest_issue_type"] == "precision_issue"
+
+
+def test_feedback_and_review_ticket_request_models_serialize():
+    feedback_req = SearchHistoryFeedbackReq(
+        history_id="1001",
+        feedback_result="wrong",
+        remark="结果错误",
+    )
+    feedback_res = SearchHistoryFeedbackRes(
+        history_id="1001",
+        verify_status="wrong",
+        feedback_remark="结果错误",
+        feedback_at="2026-04-23 11:00:00",
+        ticket_id="5001",
+        ticket_created=True,
+        message="提交成功",
+    )
+    ticket_req = SearchReviewTicketListReq(
+        page=1,
+        pageSize=10,
+        review_status="open",
+        issue_type="precision_issue",
+        search_equipment="terminal",
+        keyword="钢丝绳",
+        date_from="2026-04-20",
+        date_to="2026-04-28",
+    )
+    ticket_item = SearchReviewTicketItem(
+        ticket_id="5001",
+        history_id="1001",
+        review_status="open",
+        issue_type="precision_issue",
+        time_created="2026-04-23 11:00:00",
+        time_updated="2026-04-23 12:00:00",
+        query_text="钢丝绳",
+        query_image=None,
+        search_equipment="terminal",
+        search_item_name="钢丝绳",
+        search_item_code="19010036737",
+        feedback_remark="结果错误",
+        correct_item_name=None,
+        correct_item_code=None,
+    )
+
+    assert dump_model(feedback_req)["feedback_result"] == "wrong"
+    assert dump_model(feedback_res)["ticket_id"] == "5001"
+    assert ticket_req.review_status == "open"
+    assert dump_model(ticket_item)["issue_type"] == "precision_issue"
+    assert dump_model(ticket_item)["search_equipment"] == "terminal"
+
+
+def test_review_ticket_contract_models_serialize():
+    detail_req = SearchReviewTicketDetailReq(ticket_id="5001")
+    detail_res = SearchReviewTicketDetailRes(
+        ticket_id="5001",
+        history_id="1001",
+        review_status="reviewing",
+        issue_type="precision_issue",
+        review_remark="已接单核验",
+        resolution_remark="已修复精度问题",
+        review_started_at="2026-04-23 11:30:00",
+        resolved_at="2026-04-23 12:00:00",
+        closed_at=None,
+        query_text="钢丝绳",
+        query_image=None,
+        search_equipment="terminal",
+        result=None,
+        search_item_name="钢丝绳",
+        search_item_code="19010036737",
+        feedback_remark="结果错误",
+        correct_item_name=None,
+        correct_item_code=None,
+    )
+    list_item = SearchReviewTicketItem(
+        ticket_id="5001",
+        history_id="1001",
+        review_status="reviewing",
+        issue_type="precision_issue",
+        time_created="2026-04-23 11:00:00",
+        time_updated="2026-04-23 12:00:00",
+        query_text="钢丝绳",
+        query_image=None,
+        search_equipment="terminal",
+        search_item_name="钢丝绳",
+        search_item_code="19010036737",
+        feedback_remark="结果错误",
+        correct_item_name=None,
+        correct_item_code=None,
+    )
+    list_res = SearchReviewTicketListRes(total=1, page=1, pageSize=10, items=[list_item])
+    update_req = SearchReviewTicketUpdateReq(
+        ticket_id="5001",
+        review_status="resolved",
+        issue_type="precision_issue",
+        review_remark="已接单核验",
+        resolution_remark="已修复",
+        correct_item_code="19010036737",
+    )
+    update_res = SearchReviewTicketUpdateRes(
+        ticket_id="5001",
+        review_status="resolved",
+        issue_type="precision_issue",
+        review_remark="已接单核验",
+        resolution_remark="已修复",
+        correct_item_code="19010036737",
+        correct_item_name="钢丝绳",
+        message="更新成功",
+    )
+    summary_res = SearchReviewTicketSummaryRes(
+        total=5,
+        open_count=2,
+        reviewing_count=1,
+        resolved_count=1,
+        closed_count=1,
+        missing_index_count=1,
+        precision_issue_count=3,
+        system_bug_count=1,
+    )
+
+    assert detail_req.ticket_id == "5001"
+    assert dump_model(list_res)["items"][0]["ticket_id"] == "5001"
+    assert dump_model(update_req)["review_status"] == "resolved"
+    assert dump_model(update_req)["review_remark"] == "已接单核验"
+    assert dump_model(update_req)["resolution_remark"] == "已修复"
+    assert dump_model(update_req)["correct_item_code"] == "19010036737"
+    assert dump_model(update_res)["message"] == "更新成功"
+    assert dump_model(summary_res)["open_count"] == 2
+    assert dump_model(summary_res)["precision_issue_count"] == 3
 
 
 def test_v2_index_delete_response_serializes_item_id_as_string():
