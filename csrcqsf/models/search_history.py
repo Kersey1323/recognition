@@ -24,12 +24,18 @@ class SearchParameters(BaseModel):
     lower_rate: float = 0.8
 
 
+class MatchedImage(BaseModel):
+    image_url: str
+    rate: float
+
+
 class SearchResultItem(BaseModel):
     item_id: str
     item_code: str
     item_name: str | None = None
     similar: float
     image_url: str | None = None
+    matched_images: list[MatchedImage] = []
 
 
 class SearchResults(BaseModel):

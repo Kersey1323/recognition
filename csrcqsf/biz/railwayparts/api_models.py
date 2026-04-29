@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from bfrcommon.api_models import PageReq, PageRes
 from pydantic import Field, validator
 from csrcqsf.models.sgo import ImageSourceType
-from csrcqsf.models.search_history import SearchParameters, SearchResults
+from csrcqsf.models.search_history import MatchedImage, SearchParameters, SearchResults
 from enum import Enum
 
 
@@ -264,6 +264,7 @@ class SearchItem(BaseModel):
     item_name: str = ''
     image_url: str = ''
     rate: float = 0
+    matched_images: list[MatchedImage] = []
 
 class SearchRes(BaseModel):
     data: list[SearchItem] = []

@@ -15,6 +15,7 @@ from csrcqsf.data.pg import SessionLocal
 from csrcqsf.data.mdpdb import sgo_sessionLocal
 from csrcqsf.data.minio import ensure_minio_bucket, minio_instance, parse_minio_path
 from csrcqsf.models.search_history import (
+    MatchedImage,
     SearchHistory,
     SearchResultItem,
     SearchResults,
@@ -1162,6 +1163,10 @@ class RailwayPartsManager:
                     item_name=item.item_name,
                     similar=item.rate,
                     image_url=item.image_url,
+                    matched_images=[
+                        MatchedImage(image_url=matched.image_url, rate=matched.rate)
+                        for matched in item.matched_images
+                    ],
                 )
                 for item in search_items
             ]
@@ -1191,6 +1196,51 @@ class RailwayPartsManager:
                 await session.commit()
         except Exception:
             logger.exception("V2检索历史写入失败")
+
+    @classmethod
+    def _aggregate_v2_search_items(cls, search_items: list[SearchItem]) -> list[SearchItem]:
+        grouped: dict[str, dict] = {}
+
+        for index, item in enumerate(search_items):
+            bucket = grouped.setdefault(
+                str(item.item_id),
+                {
+                    "best_item": item,
+                    "first_index": index,
+                    "matched_images": [],
+                },
+            )
+            bucket["matched_images"].append(
+                (index, MatchedImage(image_url=item.image_url, rate=item.rate))
+            )
+            if item.rate > bucket["best_item"].rate:
+                bucket["best_item"] = item
+
+        aggregated_items: list[SearchItem] = []
+        for item_id, bucket in grouped.items():
+            best_item = bucket["best_item"]
+            matched_images = [
+                image
+                for _, image in sorted(
+                    bucket["matched_images"],
+                    key=lambda pair: (-pair[1].rate, pair[0]),
+                )
+            ]
+            aggregated_items.append(
+                SearchItem(
+                    item_id=str(item_id),
+                    item_code=best_item.item_code,
+                    item_name=best_item.item_name,
+                    image_url=best_item.image_url,
+                    rate=best_item.rate,
+                    matched_images=matched_images,
+                )
+            )
+
+        aggregated_items.sort(
+            key=lambda item: (-item.rate, grouped[str(item.item_id)]["first_index"])
+        )
+        return aggregated_items
 
     @classmethod
     def _normalize_review_status(cls, status: str | None) -> str:
@@ -1652,6 +1702,7 @@ class RailwayPartsManager:
                         image_url=image_url,
                         rate=result['distance']
                     ))
+        search_items = cls._aggregate_v2_search_items(search_items)
         await cls._persist_v2_search_history(
             history_id=history_id,
             query_text=query_text,
@@ -1735,6 +1786,7 @@ class RailwayPartsManager:
                     image_url=image_url,
                     rate=result['distance']
                 ))
+        search_items = cls._aggregate_v2_search_items(search_items)
         await cls._persist_v2_search_history(
             history_id=history_id,
             query_text=None,

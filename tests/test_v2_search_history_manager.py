@@ -74,38 +74,70 @@ def test_search_v2_by_text_persists_query_text_after_success():
 
     session.add = MagicMock(side_effect=_add)
 
-    fake_hit = {
-        "entity": {
-            "item_id": 1935558010375340032,
-            "item_name": "螺栓M8X22",
-            "item_code": "11010150131",
-            "image_url": "bfr-ai-files/bolt.jpg",
+    fake_hits = [
+        {
+            "entity": {
+                "item_id": 1,
+                "item_name": "制动2",
+                "item_code": "40000728845",
+                "image_url": "bfr-ai-files/a.jpg",
+            },
+            "distance": 0.95,
         },
-        "distance": 0.98,
+        {
+            "entity": {
+                "item_id": 1,
+                "item_name": "制动2",
+                "item_code": "40000728845",
+                "image_url": "bfr-ai-files/b.jpg",
+            },
+            "distance": 0.98,
+        },
+        {
+            "entity": {
+                "item_id": 2,
+                "item_name": "制动控制器",
+                "item_code": "19010025620",
+                "image_url": "bfr-ai-files/c.jpg",
+            },
+            "distance": 0.91,
+        },
+    ]
+    fake_items = {
+        1: SimpleNamespace(id=1, item_code="40000728845", item_name="制动2"),
+        2: SimpleNamespace(id=2, item_code="19010025620", item_name="制动控制器"),
     }
-    fake_item = SimpleNamespace(
-        id=1935558010375340032,
-        item_code="11010150131",
-        item_name="螺栓M8X22",
-    )
 
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
 
+    async def _get_item_by_id(session, item_id):
+        return fake_items[item_id]
+
     with patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
          patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)):
-        manager_cls.return_value.search_by_text = AsyncMock(return_value=[fake_hit])
-        result = asyncio.run(RailwayPartsManager.search_v2_by_text("螺栓", top_k=5))
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(side_effect=_get_item_by_id)):
+        manager_cls.return_value.search_by_text = AsyncMock(return_value=fake_hits)
+        result = asyncio.run(RailwayPartsManager.search_v2_by_text("制动盘", top_k=10))
 
-    assert result.data[0].item_code == "11010150131"
+    assert len(result.data) == 2
+    assert result.data[0].item_id == "1"
+    assert result.data[0].item_code == "40000728845"
+    assert result.data[0].image_url == "bfr-ai-files/b.jpg"
+    assert result.data[0].rate == 0.98
+    assert [img.image_url for img in result.data[0].matched_images] == [
+        "bfr-ai-files/b.jpg",
+        "bfr-ai-files/a.jpg",
+    ]
     assert isinstance(session.added, SearchHistory)
-    assert session.added.search_result_item_code == "11010150131"
-    assert session.added.query_text == "螺栓"
+    assert session.added.search_result_item_code == "40000728845"
+    assert session.added.query_text == "制动盘"
     assert session.added.query_image is None
     assert session.added.search_parameter is None
-    assert session.added.search_results.items[0].item_id == str(fake_item.id)
-    assert session.added.search_results.items[0].item_name == "螺栓M8X22"
-    assert session.added.search_results.items[0].image_url == "bfr-ai-files/bolt.jpg"
+    assert session.added.search_results.items[0].item_id == "1"
+    assert session.added.search_results.items[0].item_name == "制动2"
+    assert session.added.search_results.items[0].image_url == "bfr-ai-files/b.jpg"
+    assert session.added.search_results.items[0].matched_images[0].image_url == "bfr-ai-files/b.jpg"
+    assert len(session.added.search_results.items) == 2
     session.commit.assert_awaited()
 
 
@@ -155,15 +187,35 @@ def test_search_v2_by_image_uploads_query_image_and_persists_path():
         filename="query image.png",
         read=AsyncMock(return_value=_make_upload_bytes()),
     )
-    fake_hit = {
-        "entity": {
-            "item_id": 1935558010375340032,
-            "item_name": "螺栓M8X22",
-            "item_code": "11010150131",
-            "image_url": "bfr-ai-files/bolt.jpg",
+    fake_hits = [
+        {
+            "entity": {
+                "item_id": 1,
+                "item_name": "制动2",
+                "item_code": "40000728845",
+                "image_url": "bfr-ai-files/a.jpg",
+            },
+            "distance": 0.93,
         },
-        "distance": 0.98,
-    }
+        {
+            "entity": {
+                "item_id": 1,
+                "item_name": "制动2",
+                "item_code": "40000728845",
+                "image_url": "bfr-ai-files/b.jpg",
+            },
+            "distance": 0.97,
+        },
+        {
+            "entity": {
+                "item_id": 2,
+                "item_name": "制动控制器",
+                "item_code": "19010025620",
+                "image_url": "bfr-ai-files/c.jpg",
+            },
+            "distance": 0.90,
+        },
+    ]
 
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
 
@@ -174,13 +226,17 @@ def test_search_v2_by_image_uploads_query_image_and_persists_path():
              "_upload_v2_search_query_image",
              AsyncMock(return_value="bfr-search-history-files/query-images/20260427/1_query_image.png"),
          ):
-        manager_cls.return_value.search_by_image = AsyncMock(return_value=[fake_hit])
-        result = asyncio.run(RailwayPartsManager.search_v2_by_image(upload_file, top_k=5))
+        manager_cls.return_value.search_by_image = AsyncMock(return_value=fake_hits)
+        result = asyncio.run(RailwayPartsManager.search_v2_by_image(upload_file, top_k=10))
 
-    assert result.data[0].item_code == "11010150131"
+    assert len(result.data) == 2
+    assert result.data[0].item_code == "40000728845"
+    assert result.data[0].image_url == "bfr-ai-files/b.jpg"
+    assert len(result.data[0].matched_images) == 2
     assert session.added.query_text is None
     assert session.added.query_image == "bfr-search-history-files/query-images/20260427/1_query_image.png"
-    assert session.added.search_results.items[0].image_url == "bfr-ai-files/bolt.jpg"
+    assert session.added.search_results.items[0].image_url == "bfr-ai-files/b.jpg"
+    assert session.added.search_results.items[0].matched_images[1].image_url == "bfr-ai-files/a.jpg"
     session.commit.assert_awaited()
 
 

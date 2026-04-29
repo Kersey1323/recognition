@@ -231,7 +231,7 @@ def test_get_v2_search_history_detail_returns_full_record():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     fake_history = SimpleNamespace(
         id=1,
-        query_text="钢丝绳",
+        query_text="制动盘",
         query_image=None,
         verify_status="correct",
         verify_remark="人工确认",
@@ -240,19 +240,24 @@ def test_get_v2_search_history_detail_returns_full_record():
         search_results=SearchResults(
             items=[
                 {
-                    "item_id": "101",
-                    "item_code": "19010036737",
-                    "similar": 0.91,
-                    "image_url": "bfr-ai-files/demo.jpg",
+                    "item_id": "1950361513125318656",
+                    "item_code": "40000728845",
+                    "item_name": "制动2",
+                    "similar": 0.9584,
+                    "image_url": "bfr-ai-files/b.jpg",
+                    "matched_images": [
+                        {"image_url": "bfr-ai-files/b.jpg", "rate": 0.9584},
+                        {"image_url": "bfr-ai-files/a.jpg", "rate": 0.95},
+                    ],
                 }
             ]
         ),
         inquery_id=None,
         inquery_num=None,
-        search_result_item_name="钢丝绳",
-        search_result_item_code="19010036737",
-        correct_item_name="钢丝绳",
-        correct_item_code="19010036737",
+        search_result_item_name="制动2",
+        search_result_item_code="40000728845",
+        correct_item_name="制动2",
+        correct_item_code="40000728845",
     )
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
@@ -263,7 +268,9 @@ def test_get_v2_search_history_detail_returns_full_record():
     assert detail.history_id == "1"
     assert detail.status == "correct"
     assert detail.verify_remark == "人工确认"
-    assert detail.result.items[0].image_url == "bfr-ai-files/demo.jpg"
+    assert detail.result.items[0].image_url == "bfr-ai-files/b.jpg"
+    assert len(detail.result.items[0].matched_images) == 2
+    assert detail.result.items[0].matched_images[1].image_url == "bfr-ai-files/a.jpg"
 
 
 def test_summary_v2_search_history_uses_open_ticket_count_instead_of_partial():

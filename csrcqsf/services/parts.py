@@ -678,7 +678,8 @@ async def search_v2_by_text(
     
     参数：
     - query_text: 查询文本（如"制动盘"）
-    - top_k: 返回结果数量
+    - top_k: 参与聚合的图片命中数量，仍按图片结果窗口工作
+    - search_equipment: 检索来源，支持 `web`、`terminal`
     - use_image_vector: 是否使用 image_vector 字段（可选）
         - False（默认）: 使用 text_vector 字段进行文本匹配
         - True: 使用 image_vector 字段进行图像内容语义匹配
@@ -686,7 +687,10 @@ async def search_v2_by_text(
     算法：
     - 使用 SigLIP 提取文本特征
     - 在 PARTS_SIGLIP_SO400M_1152D_V1 集合中检索
-    - 返回最相似的配件
+    - 返回结果按 item_id 聚合为候选配件列表
+    - image_url: 当前候选配件的代表图
+    - rate: 当前候选配件命中图片中的最高分
+    - matched_images: 当前候选配件在本次检索中命中的图片列表
     """
     result = await RailwayPartsManager.search_v2_by_text(
         query_text=query_text,
@@ -709,11 +713,12 @@ async def search_v2_by_image(
     
     参数：
     - file: 上传的图片文件（支持 jpg, png, jpeg 等格式）
-    - top_k: 返回结果数量
+    - top_k: 参与聚合的图片命中数量，仍按图片结果窗口工作
     - search_mode: 检索模式
         - "siglip": SigLIP 模式 - 使用 image_vector 字段，简单快速
         - "dinov2": DINOv2 两阶段检索 - global_vector 粗排 + patch_tokens 精排
         - "hybrid": 混合检索（推荐）- RRF 融合 + Patch Token 精排
+    - search_equipment: 检索来源，支持 `web`、`terminal`
     
     算法流程（hybrid模式）：
     1. 粗排：SigLIP + DINOv2 全局特征 RRF 融合
@@ -724,6 +729,10 @@ async def search_v2_by_image(
     - siglip 模式：默认使用 text_vector 进行文本匹配，image_vector 是可选字段
     - dinov2 模式：两阶段检索，适合需要精确匹配视觉细节的场景
     - hybrid 模式：推荐使用，融合两个模型的优势
+    - 返回结果按 item_id 聚合为候选配件列表
+    - image_url: 当前候选配件的代表图
+    - rate: 当前候选配件命中图片中的最高分
+    - matched_images: 当前候选配件在本次检索中命中的图片列表
     """
     result = await RailwayPartsManager.search_v2_by_image(
         file=file,
@@ -816,7 +825,7 @@ async def submit_v2_search_feedback(req: SearchHistoryFeedbackReq):
     )
 
 
-@parts_router.post('/v2/search/review-ticket/list', tags=["算法-向量检索V2"], summary='V2技术部核验清单分页查询', responses={
+@parts_router.post('/v2/search/reviewTicket/list', tags=["算法-向量检索V2"], summary='V2技术部核验清单分页查询', responses={
     200: {
         'model': SearchReviewTicketListRes
     }
@@ -836,7 +845,7 @@ async def list_v2_search_review_tickets(req: SearchReviewTicketListReq):
     return await RailwayPartsManager.list_v2_search_review_tickets(req)
 
 
-@parts_router.post('/v2/search/review-ticket/detail', tags=["算法-向量检索V2"], summary='V2技术部核验单详情', responses={
+@parts_router.post('/v2/search/reviewTicket/detail', tags=["算法-向量检索V2"], summary='V2技术部核验单详情', responses={
     200: {
         'model': SearchReviewTicketDetailRes
     }
@@ -849,7 +858,7 @@ async def get_v2_search_review_ticket_detail(req: SearchReviewTicketDetailReq):
     return await RailwayPartsManager.get_v2_search_review_ticket_detail(ticket_id=int(req.ticket_id))
 
 
-@parts_router.post('/v2/search/review-ticket/update', tags=["算法-向量检索V2"], summary='V2技术部核验单更新', responses={
+@parts_router.post('/v2/search/reviewTicket/update', tags=["算法-向量检索V2"], summary='V2技术部核验单更新', responses={
     200: {
         'model': SearchReviewTicketUpdateRes
     }
@@ -874,7 +883,7 @@ async def update_v2_search_review_ticket(req: SearchReviewTicketUpdateReq):
     )
 
 
-@parts_router.post('/v2/search/review-ticket/summary', tags=["算法-向量检索V2"], summary='V2技术部核验单统计', responses={
+@parts_router.post('/v2/search/reviewTicket/summary', tags=["算法-向量检索V2"], summary='V2技术部核验单统计', responses={
     200: {
         'model': SearchReviewTicketSummaryRes
     }

@@ -130,16 +130,20 @@ def test_get_review_ticket_detail_returns_history_snapshot():
         search_results=SearchResults(
             items=[
                 {
-                    "item_id": "11",
-                    "item_code": "19010030048",
-                    "item_name": "穿墙体接头",
-                    "similar": 0.87,
-                    "image_url": "bfr-ai-files/demo.jpg",
+                    "item_id": "1950361513125318656",
+                    "item_code": "40000728845",
+                    "item_name": "制动2",
+                    "similar": 0.9584,
+                    "image_url": "bfr-ai-files/b.jpg",
+                    "matched_images": [
+                        {"image_url": "bfr-ai-files/b.jpg", "rate": 0.9584},
+                        {"image_url": "bfr-ai-files/a.jpg", "rate": 0.95},
+                    ],
                 }
             ]
         ),
-        search_result_item_name="穿墙体接头",
-        search_result_item_code="19010030048",
+        search_result_item_name="制动2",
+        search_result_item_code="40000728845",
         verify_remark="结果不准",
         correct_item_name=None,
         correct_item_code=None,
@@ -157,7 +161,9 @@ def test_get_review_ticket_detail_returns_history_snapshot():
     assert detail.search_equipment == "web"
     assert detail.query_text == "制动阀"
     assert detail.feedback_remark == "结果不准"
-    assert detail.result.items[0].item_code == "19010030048"
+    assert detail.result.items[0].item_code == "40000728845"
+    assert len(detail.result.items[0].matched_images) == 2
+    assert detail.result.items[0].matched_images[0].image_url == "bfr-ai-files/b.jpg"
 
 
 def test_update_review_ticket_marks_resolved_and_backfills_correct_item():

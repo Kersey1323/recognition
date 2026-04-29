@@ -3,6 +3,7 @@ from csrcqsf.biz.railwayparts.api_models import (
     SearchHistoryFeedbackRes,
     SearchHistoryListItem,
     SearchHistoryListReq,
+    SearchItem,
     SearchReviewTicketListReq,
     SearchReviewTicketListRes,
     SearchReviewTicketDetailReq,
@@ -72,6 +73,63 @@ def test_search_history_list_item_serializes_explicit_query_fields():
     assert data["result"]["items"][0]["item_id"] == str(BIG_ITEM_ID)
     assert data["result"]["items"][0]["item_name"] == "螺栓M8X22"
     assert data["result"]["items"][0]["image_url"] == "bfr-ai-files/bolt.jpg"
+
+
+def test_search_item_serializes_matched_images():
+    item = SearchItem(
+        item_id="1950361513125318656",
+        item_code="40000728845",
+        item_name="制动2",
+        image_url="bfr-ai-files/1960224093814181888.jpg",
+        rate=0.9584,
+        matched_images=[
+            {"image_url": "bfr-ai-files/1960224093814181888.jpg", "rate": 0.9584},
+            {"image_url": "bfr-ai-files/1960224087363723264.jpg", "rate": 0.9584},
+        ],
+    )
+
+    data = dump_model(item)
+
+    assert data["item_id"] == "1950361513125318656"
+    assert len(data["matched_images"]) == 2
+    assert data["matched_images"][0]["image_url"].endswith("1960224093814181888.jpg")
+    assert data["matched_images"][0]["rate"] == 0.9584
+
+
+def test_search_history_list_item_serializes_aggregated_result_items():
+    item = SearchHistoryListItem(
+        history_id=BIG_ITEM_ID,
+        search_type="text",
+        time_created="2026-04-29 10:00:00",
+        query_text="制动盘",
+        query_image=None,
+        search_item_name="制动2",
+        search_item_code="40000728845",
+        correct_item_name=None,
+        correct_item_code=None,
+        result={
+            "items": [
+                {
+                    "item_id": "1950361513125318656",
+                    "item_code": "40000728845",
+                    "item_name": "制动2",
+                    "similar": 0.9584,
+                    "image_url": "bfr-ai-files/1960224093814181888.jpg",
+                    "matched_images": [
+                        {"image_url": "bfr-ai-files/1960224093814181888.jpg", "rate": 0.9584},
+                        {"image_url": "bfr-ai-files/1960224087363723264.jpg", "rate": 0.9584},
+                    ],
+                }
+            ]
+        },
+        inquery_id=None,
+        inquery_num=None,
+    )
+    data = dump_model(item)
+
+    assert data["result"]["items"][0]["item_id"] == "1950361513125318656"
+    assert data["result"]["items"][0]["image_url"].endswith("1960224093814181888.jpg")
+    assert len(data["result"]["items"][0]["matched_images"]) == 2
 
 
 def test_search_history_list_item_serializes_review_ticket_summary_fields():

@@ -49,3 +49,18 @@ def test_review_console_routes_describe_feedback_and_review_ticket_contract():
 
     for fragment in expected_fragments:
         assert fragment in source
+
+
+def test_search_routes_describe_item_aggregation_contract():
+    source = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+
+    expected_fragments = [
+        "summary='V2文本检索'",
+        "- top_k: 参与聚合的图片命中数量",
+        "- 返回结果按 item_id 聚合为候选配件列表",
+        "- matched_images: 当前候选配件在本次检索中命中的图片列表",
+        "summary='V2图像检索'",
+    ]
+
+    for fragment in expected_fragments:
+        assert fragment in source
