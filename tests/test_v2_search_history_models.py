@@ -256,6 +256,8 @@ def test_review_ticket_contract_models_serialize():
         history_id="1001",
         review_status="reviewing",
         issue_type="precision_issue",
+        time_created="2026-04-23 11:00:00",
+        time_updated="2026-04-23 12:00:00",
         review_remark="已接单核验",
         resolution_remark="已修复精度问题",
         review_started_at="2026-04-23 11:30:00",
@@ -318,6 +320,8 @@ def test_review_ticket_contract_models_serialize():
     )
 
     assert detail_req.ticket_id == "5001"
+    assert dump_model(detail_res)["time_created"] == "2026-04-23 11:00:00"
+    assert dump_model(detail_res)["time_updated"] == "2026-04-23 12:00:00"
     assert dump_model(list_res)["items"][0]["ticket_id"] == "5001"
     assert dump_model(update_req)["review_status"] == "resolved"
     assert dump_model(update_req)["review_remark"] == "已接单核验"

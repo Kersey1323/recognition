@@ -1318,6 +1318,8 @@ class RailwayPartsManager:
             history_id=ticket.history_id,
             review_status=ticket.review_status,
             issue_type=ticket.issue_type,
+            time_created=date_to_str(ticket.time_created) if getattr(ticket, "time_created", None) else None,
+            time_updated=date_to_str(ticket.time_updated) if getattr(ticket, "time_updated", None) else None,
             review_remark=ticket.review_remark,
             resolution_remark=ticket.resolution_remark,
             review_started_at=date_to_str(ticket.review_started_at) if ticket.review_started_at else None,

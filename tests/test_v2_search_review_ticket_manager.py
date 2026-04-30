@@ -116,6 +116,8 @@ def test_get_review_ticket_detail_returns_history_snapshot():
         history_id=102,
         review_status="reviewing",
         issue_type="system_bug",
+        time_created=datetime(2026, 4, 29, 10, 5, 0),
+        time_updated=datetime(2026, 4, 29, 10, 20, 0),
         review_remark="已接单",
         resolution_remark=None,
         review_started_at=datetime(2026, 4, 29, 10, 10, 0),
@@ -158,6 +160,8 @@ def test_get_review_ticket_detail_returns_history_snapshot():
     assert detail.history_id == "102"
     assert detail.review_status == "reviewing"
     assert detail.issue_type == "system_bug"
+    assert detail.time_created == "2026-04-29 10:05:00"
+    assert detail.time_updated == "2026-04-29 10:20:00"
     assert detail.search_equipment == "web"
     assert detail.query_text == "制动阀"
     assert detail.feedback_remark == "结果不准"

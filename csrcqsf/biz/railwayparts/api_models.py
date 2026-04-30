@@ -575,6 +575,8 @@ class SearchReviewTicketDetailRes(BaseModel):
     history_id: str
     review_status: str
     issue_type: str | None = None
+    time_created: str | None = None
+    time_updated: str | None = None
     review_remark: str | None = None
     resolution_remark: str | None = None
     review_started_at: str | None = None
