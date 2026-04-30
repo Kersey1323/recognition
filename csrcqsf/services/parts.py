@@ -668,9 +668,10 @@ async def delete_v2_index(item_id: str):
 
 @parts_router.post('/v2/search/text', tags=["算法-向量检索V2"], summary='V2文本检索')
 async def search_v2_by_text(
-    query_text: str,
-    top_k: int = 10,
-    search_equipment: str = "web",
+    req: SearchTextReq | None = None,
+    query_text: str | None = None,
+    top_k: int | None = None,
+    search_equipment: str | None = None,
     # use_image_vector: bool = False
 ):
     """
@@ -691,11 +692,19 @@ async def search_v2_by_text(
     - image_url: 当前候选配件的代表图
     - rate: 当前候选配件命中图片中的最高分
     - matched_images: 当前候选配件在本次检索中命中的图片列表
+    - history_id: 本次检索生成的历史ID，可直接用于后续反馈/校验链路
     """
+    if req is None:
+        req = SearchTextReq(
+            query_text=query_text,
+            top_k=top_k if top_k is not None else 10,
+            search_equipment=search_equipment or "web",
+        )
+
     result = await RailwayPartsManager.search_v2_by_text(
-        query_text=query_text,
-        top_k=top_k,
-        search_equipment=search_equipment,
+        query_text=req.query_text,
+        top_k=req.top_k,
+        search_equipment=req.search_equipment,
         # use_image_vector=use_image_vector
     )
     return result
@@ -733,6 +742,7 @@ async def search_v2_by_image(
     - image_url: 当前候选配件的代表图
     - rate: 当前候选配件命中图片中的最高分
     - matched_images: 当前候选配件在本次检索中命中的图片列表
+    - history_id: 本次检索生成的历史ID，可直接用于后续反馈/校验链路
     """
     result = await RailwayPartsManager.search_v2_by_image(
         file=file,

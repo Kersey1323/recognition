@@ -258,6 +258,29 @@ class DeleteImageIndexedReq(BaseModel):
     image_file_url: list[str] = []
 
 
+class SearchTextReq(BaseModel):
+    query_text: str = Field(description="查询文本", example="制动盘")
+    top_k: int = Field(
+        default=10,
+        description="参与聚合的图片命中数量，仍按图片结果窗口工作",
+        example=5,
+    )
+    search_equipment: str = Field(
+        default="web",
+        description="检索来源，支持 `web`、`terminal`",
+        example="web",
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "query_text": "制动盘",
+                "top_k": 5,
+                "search_equipment": "web",
+            }
+        }
+
+
 class SearchItem(BaseModel):
     item_id: str = 0
     item_code: str = ''
@@ -267,6 +290,7 @@ class SearchItem(BaseModel):
     matched_images: list[MatchedImage] = []
 
 class SearchRes(BaseModel):
+    history_id: str | None = None
     data: list[SearchItem] = []
     message: str | None 
 

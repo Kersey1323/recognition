@@ -1710,7 +1710,7 @@ class RailwayPartsManager:
             search_equipment=search_equipment,
             search_items=search_items,
         )
-        return SearchRes(data=search_items)
+        return SearchRes(history_id=str(history_id), data=search_items)
  
     @classmethod
     async def search_v2_by_image(
@@ -1794,7 +1794,7 @@ class RailwayPartsManager:
             search_equipment=search_equipment,
             search_items=search_items,
         )
-        return SearchRes(data=search_items)
+        return SearchRes(history_id=str(history_id), data=search_items)
 
     @classmethod
     async def submit_v2_search_feedback(

@@ -1,4 +1,6 @@
 from csrcqsf.biz.railwayparts.api_models import (
+    SearchRes,
+    SearchTextReq,
     SearchHistoryFeedbackReq,
     SearchHistoryFeedbackRes,
     SearchHistoryListItem,
@@ -94,6 +96,39 @@ def test_search_item_serializes_matched_images():
     assert len(data["matched_images"]) == 2
     assert data["matched_images"][0]["image_url"].endswith("1960224093814181888.jpg")
     assert data["matched_images"][0]["rate"] == 0.9584
+
+
+def test_search_text_request_model_serializes_request_body_fields():
+    req = SearchTextReq(query_text="制动盘", top_k=5)
+
+    data = dump_model(req)
+
+    assert data == {
+        "query_text": "制动盘",
+        "top_k": 5,
+        "search_equipment": "web",
+    }
+
+
+def test_search_response_serializes_history_id():
+    res = SearchRes(
+        history_id="2048696242753638400",
+        data=[
+            SearchItem(
+                item_id="1950361513125318656",
+                item_code="40000728845",
+                item_name="制动2",
+                image_url="bfr-ai-files/1960224093814181888.jpg",
+                rate=0.9584,
+            )
+        ],
+        message=None,
+    )
+
+    data = dump_model(res)
+
+    assert data["history_id"] == "2048696242753638400"
+    assert data["data"][0]["item_id"] == "1950361513125318656"
 
 
 def test_search_history_list_item_serializes_aggregated_result_items():

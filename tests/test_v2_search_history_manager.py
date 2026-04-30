@@ -114,11 +114,13 @@ def test_search_v2_by_text_persists_query_text_after_success():
         return fake_items[item_id]
 
     with patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "get_id", return_value=2048696242753638400), \
          patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.Items, "get_item_by_id", AsyncMock(side_effect=_get_item_by_id)):
         manager_cls.return_value.search_by_text = AsyncMock(return_value=fake_hits)
         result = asyncio.run(RailwayPartsManager.search_v2_by_text("制动盘", top_k=10))
 
+    assert result.history_id == "2048696242753638400"
     assert len(result.data) == 2
     assert result.data[0].item_id == "1"
     assert result.data[0].item_code == "40000728845"
@@ -220,6 +222,7 @@ def test_search_v2_by_image_uploads_query_image_and_persists_path():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
 
     with patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "get_id", return_value=2048696242753638400), \
          patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(
              RailwayPartsManager,
@@ -229,6 +232,7 @@ def test_search_v2_by_image_uploads_query_image_and_persists_path():
         manager_cls.return_value.search_by_image = AsyncMock(return_value=fake_hits)
         result = asyncio.run(RailwayPartsManager.search_v2_by_image(upload_file, top_k=10))
 
+    assert result.history_id == "2048696242753638400"
     assert len(result.data) == 2
     assert result.data[0].item_code == "40000728845"
     assert result.data[0].image_url == "bfr-ai-files/b.jpg"
