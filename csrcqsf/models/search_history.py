@@ -50,8 +50,12 @@ class SearchHistoryItem(BaseModel):
     inquery_num: str | None
     search_item_name: str | None
     search_item_code: str | None
+    correct_item_id: str | None = None
     correct_item_name: str | None
     correct_item_code: str | None
+    correct_image_url: str | None = None
+    correct_rank: int | None = None
+    correct_source: str | None = None
     history_id: str
 
 
@@ -70,8 +74,18 @@ class SearchHistory(Base):
     verify_status: Mapped[str] = mapped_column(String(50), nullable=True)
     verify_remark: Mapped[str] = mapped_column(String(500), nullable=True)
     verified_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    ranking_feedback_type: Mapped[str] = mapped_column(String(50), nullable=True)
+    selected_item_id: Mapped[int] = mapped_column(BIGINT, nullable=True)
+    selected_item_code: Mapped[str] = mapped_column(String(200), nullable=True)
+    selected_item_name: Mapped[str] = mapped_column(String(200), nullable=True)
+    selected_rank: Mapped[int] = mapped_column(INT, nullable=True)
+    selected_image_url: Mapped[str] = mapped_column(String(1000), nullable=True)
+    correct_item_id: Mapped[int] = mapped_column(BIGINT, nullable=True)
     correct_item_name: Mapped[str] = mapped_column(String(200), nullable=True)
     correct_item_code: Mapped[str] = mapped_column(String(200), nullable=True)
+    correct_image_url: Mapped[str] = mapped_column(String(1000), nullable=True)
+    correct_rank: Mapped[int] = mapped_column(INT, nullable=True)
+    correct_source: Mapped[str] = mapped_column(String(50), nullable=True)
     search_results: Mapped[SearchResults] = mapped_column(
         PydanticType(SearchResults), nullable=True)
 
@@ -160,15 +174,23 @@ class SearchHistory(Base):
         history_id: int,
         *,
         verify_status: str,
+        correct_item_id: int | None,
         correct_item_code: str | None,
         correct_item_name: str | None,
+        correct_image_url: str | None,
+        correct_rank: int | None,
+        correct_source: str | None,
         verify_remark: str | None,
         verified_at: datetime,
     ):
         stmt = update(cls).where(cls.id == history_id).values(
             verify_status=verify_status,
+            correct_item_id=correct_item_id,
             correct_item_code=correct_item_code,
             correct_item_name=correct_item_name,
+            correct_image_url=correct_image_url,
+            correct_rank=correct_rank,
+            correct_source=correct_source,
             verify_remark=verify_remark,
             verified_at=verified_at,
         )
@@ -184,11 +206,35 @@ class SearchHistory(Base):
         verify_status: str | None,
         verify_remark: str | None,
         verified_at: datetime | None,
+        ranking_feedback_type: str | None,
+        selected_item_id: int | None,
+        selected_item_code: str | None,
+        selected_item_name: str | None,
+        selected_rank: int | None,
+        selected_image_url: str | None,
+        correct_item_id: int | None,
+        correct_item_code: str | None,
+        correct_item_name: str | None,
+        correct_image_url: str | None,
+        correct_rank: int | None,
+        correct_source: str | None,
     ):
         stmt = update(cls).where(cls.id == history_id).values(
             verify_status=verify_status,
             verify_remark=verify_remark,
             verified_at=verified_at,
+            ranking_feedback_type=ranking_feedback_type,
+            selected_item_id=selected_item_id,
+            selected_item_code=selected_item_code,
+            selected_item_name=selected_item_name,
+            selected_rank=selected_rank,
+            selected_image_url=selected_image_url,
+            correct_item_id=correct_item_id,
+            correct_item_code=correct_item_code,
+            correct_item_name=correct_item_name,
+            correct_image_url=correct_image_url,
+            correct_rank=correct_rank,
+            correct_source=correct_source,
         )
         await session.execute(stmt)
         await session.flush()
@@ -271,8 +317,12 @@ class SearchReviewTicket(Base):
             SearchHistory.search_result_item_name.label("search_result_item_name"),
             SearchHistory.search_result_item_code.label("search_result_item_code"),
             SearchHistory.verify_remark.label("verify_remark"),
+            SearchHistory.correct_item_id.label("correct_item_id"),
             SearchHistory.correct_item_name.label("correct_item_name"),
             SearchHistory.correct_item_code.label("correct_item_code"),
+            SearchHistory.correct_image_url.label("correct_image_url"),
+            SearchHistory.correct_rank.label("correct_rank"),
+            SearchHistory.correct_source.label("correct_source"),
         ).join(SearchHistory, SearchHistory.id == cls.history_id)
         if review_status != "all":
             stmt = stmt.where(cls.review_status == review_status)
@@ -301,7 +351,21 @@ class SearchReviewTicket(Base):
         stmt = stmt.order_by(cls.time_created.desc()).limit(per_page).offset(offset)
         rows = (await session.execute(stmt)).all()
         merged_rows = []
-        for ticket, query_text, query_image, history_search_equipment, search_item_name, search_item_code, verify_remark, correct_item_name, correct_item_code in rows:
+        for (
+            ticket,
+            query_text,
+            query_image,
+            history_search_equipment,
+            search_item_name,
+            search_item_code,
+            verify_remark,
+            correct_item_id,
+            correct_item_name,
+            correct_item_code,
+            correct_image_url,
+            correct_rank,
+            correct_source,
+        ) in rows:
             merged_rows.append(
                 SimpleNamespace(
                     id=ticket.id,
@@ -321,8 +385,12 @@ class SearchReviewTicket(Base):
                     search_result_item_name=search_item_name,
                     search_result_item_code=search_item_code,
                     verify_remark=verify_remark,
+                    correct_item_id=correct_item_id,
                     correct_item_name=correct_item_name,
                     correct_item_code=correct_item_code,
+                    correct_image_url=correct_image_url,
+                    correct_rank=correct_rank,
+                    correct_source=correct_source,
                 )
             )
         return PageQueryResult(total=total, data=merged_rows)

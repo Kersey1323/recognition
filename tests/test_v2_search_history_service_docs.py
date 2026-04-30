@@ -30,6 +30,7 @@ def test_review_console_routes_describe_feedback_and_review_ticket_contract():
     expected_fragments = [
         "summary='V2检索历史用户反馈提交'",
         "- `feedback_result`: 用户反馈结果，支持 `correct`、`wrong`",
+        "- `selected_item_id`: 可选，用户最终确认正确的配件ID",
         "summary='V2技术部核验清单分页查询'",
         "- `review_status`: 核验单状态筛选，支持 `all`、`open`、`reviewing`、`resolved`、`closed`",
         "- `search_equipment`: 检索设备筛选，支持 `all`、`web`、`terminal`",
@@ -49,6 +50,31 @@ def test_review_console_routes_describe_feedback_and_review_ticket_contract():
 
     for fragment in expected_fragments:
         assert fragment in source
+
+
+def test_feedback_route_docs_only_describe_selected_item_id():
+    source = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+
+    expected_fragments = [
+        "- `selected_item_id`: 可选，用户最终确认正确的配件ID；后端会自动反推该候选在本次结果中的原始排名，并补齐物料编码、名称和代表图",
+        "correct_item_id",
+        "correct_image_url",
+        "correct_rank",
+        "correct_source",
+    ]
+
+    unexpected_fragments = [
+        "effective_item_id",
+        "effective_item_code",
+        "effective_item_name",
+        "feedback_source",
+        "- `selected_item_code`:",
+    ]
+
+    for fragment in expected_fragments:
+        assert fragment in source
+    for fragment in unexpected_fragments:
+        assert fragment not in source
 
 
 def test_search_routes_describe_item_aggregation_contract():

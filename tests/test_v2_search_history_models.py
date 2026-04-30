@@ -249,6 +249,78 @@ def test_feedback_and_review_ticket_request_models_serialize():
     assert dump_model(ticket_item)["search_equipment"] == "terminal"
 
 
+def test_search_history_feedback_request_accepts_optional_selected_fields():
+    req = SearchHistoryFeedbackReq(
+        history_id="1001",
+        feedback_result="correct",
+        remark="第二个结果才是正确的",
+        selected_item_id="1950361513125318656",
+    )
+
+    data = dump_model(req)
+
+    assert data["selected_item_id"] == "1950361513125318656"
+    assert "selected_item_code" not in data
+    assert "selected_rank" not in data
+    assert "selected_image_url" not in data
+
+
+def test_search_history_list_item_serializes_only_correct_item_fields_publicly():
+    item = SearchHistoryListItem(
+        history_id="1001",
+        search_type="text",
+        time_created="2026-04-30 17:00:00",
+        query_text="制动盘",
+        query_image=None,
+        status="correct",
+        result=None,
+        inquery_id=None,
+        inquery_num=None,
+        search_item_name="制动2",
+        search_item_code="40000728845",
+        correct_item_id="1950361513125318656",
+        correct_item_code="40000728845",
+        correct_item_name="制动2",
+        correct_image_url="bfr-ai-files/1960224080514424832.jpg",
+        correct_rank=2,
+        correct_source="user_selected",
+        ranking_feedback_type="topk_correct",
+    )
+    data = dump_model(item)
+
+    assert data["correct_item_id"] == "1950361513125318656"
+    assert data["correct_rank"] == 2
+    assert data["correct_source"] == "user_selected"
+    assert data["ranking_feedback_type"] == "topk_correct"
+    assert "effective_item_id" not in data
+    assert "selected_item_id" not in data
+
+
+def test_search_history_feedback_response_no_longer_exposes_selected_or_effective_fields():
+    res = SearchHistoryFeedbackRes(
+        history_id="1001",
+        verify_status="correct",
+        ranking_feedback_type="topk_correct",
+        feedback_remark="第二个结果才对",
+        feedback_at="2026-04-30 18:00:00",
+        correct_item_id="2",
+        correct_item_code="B",
+        correct_item_name="正确候选",
+        correct_image_url="bfr-ai-files/top2.jpg",
+        correct_rank=2,
+        correct_source="user_selected",
+        ticket_id=None,
+        ticket_created=False,
+        message="用户反馈提交成功",
+    )
+
+    data = dump_model(res)
+
+    assert data["correct_item_id"] == "2"
+    assert "selected_item_id" not in data
+    assert "effective_item_id" not in data
+
+
 def test_review_ticket_contract_models_serialize():
     detail_req = SearchReviewTicketDetailReq(ticket_id="5001")
     detail_res = SearchReviewTicketDetailRes(

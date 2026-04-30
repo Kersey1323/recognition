@@ -88,6 +88,22 @@ async def db_migrate():
             ADD COLUMN IF NOT EXISTS search_equipment VARCHAR(50)
         """))
         await conn.execute(text("""
+            ALTER TABLE parts.search_history
+            ADD COLUMN IF NOT EXISTS ranking_feedback_type VARCHAR(50),
+            ADD COLUMN IF NOT EXISTS selected_item_id BIGINT,
+            ADD COLUMN IF NOT EXISTS selected_item_code VARCHAR(200),
+            ADD COLUMN IF NOT EXISTS selected_item_name VARCHAR(200),
+            ADD COLUMN IF NOT EXISTS selected_rank INT,
+            ADD COLUMN IF NOT EXISTS selected_image_url VARCHAR(1000)
+        """))
+        await conn.execute(text("""
+            ALTER TABLE parts.search_history
+            ADD COLUMN IF NOT EXISTS correct_item_id BIGINT,
+            ADD COLUMN IF NOT EXISTS correct_image_url VARCHAR(1000),
+            ADD COLUMN IF NOT EXISTS correct_rank INT,
+            ADD COLUMN IF NOT EXISTS correct_source VARCHAR(50)
+        """))
+        await conn.execute(text("""
             UPDATE parts.search_history
             SET verify_status = 'wrong'
             WHERE verify_status = 'partial'

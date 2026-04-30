@@ -768,6 +768,17 @@ async def search_v2_by_image(
 - `status`: 校验状态筛选，支持 `all`、`pending`、`correct`、`wrong`
 - `date_from`: 开始日期，格式 `YYYY-MM-DD`
 - `date_to`: 结束日期，格式 `YYYY-MM-DD`
+
+返回值补充说明：
+
+- `search_item_*`: 系统当前 top1 推荐结果
+- `correct_item_id`: 当前最终确认结果的配件ID；未确认时为空
+- `correct_item_code`: 当前最终确认结果的物料编码；未确认时为空
+- `correct_item_name`: 当前最终确认结果的物料名称；未确认时为空
+- `correct_image_url`: 当前最终确认结果的代表图；未确认时为空
+- `correct_rank`: 当前最终确认结果在原始候选中的排名；未召回时为空
+- `correct_source`: `none`、`user_selected`、`review_resolved`
+- `ranking_feedback_type`: 真实反馈类型，支持 `top1_correct`、`topk_correct`、`no_correct_match`
 """)
 async def list_v2_search_history(req: SearchHistoryListReq):
     return await RailwayPartsManager.list_v2_search_history(req)
@@ -781,6 +792,10 @@ async def list_v2_search_history(req: SearchHistoryListReq):
 请求体字段说明：
 
 - `history_id`: 检索历史ID
+
+返回值补充说明：
+
+- 同样返回 `search_item_*`、`correct_item_*`、`correct_source`、`ranking_feedback_type`
 """)
 async def get_v2_search_history_detail(req: SearchHistoryDetailReq):
     return await RailwayPartsManager.get_v2_search_history_detail(int(req.history_id))
@@ -826,12 +841,14 @@ async def verify_v2_search_history(req: SearchHistoryVerifyReq):
 - `history_id`: 检索历史ID
 - `feedback_result`: 用户反馈结果，支持 `correct`、`wrong`
 - `remark`: 反馈备注
+- `selected_item_id`: 可选，用户最终确认正确的配件ID；后端会自动反推该候选在本次结果中的原始排名，并补齐物料编码、名称和代表图
 """)
 async def submit_v2_search_feedback(req: SearchHistoryFeedbackReq):
     return await RailwayPartsManager.submit_v2_search_feedback(
         history_id=int(req.history_id),
         feedback_result=req.feedback_result,
         remark=req.remark,
+        selected_item_id=req.selected_item_id,
     )
 
 

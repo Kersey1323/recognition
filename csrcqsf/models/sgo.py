@@ -212,6 +212,11 @@ class SgoItemImages(Base):
             yield data
 
     @classmethod
+    async def get_first_image_by_item_id(cls, session: AsyncSession, item_id: int):
+        stmt = select(cls).where(cls.item_id == item_id).order_by(cls.id.asc()).limit(1)
+        return await session.scalar(stmt)
+
+    @classmethod
     async def create_images(cls, session: AsyncSession, item_id: int, images: list[str]):
         datas = []
         for image in images:

@@ -356,8 +356,13 @@ class SearchHistoryListItem(BaseModel):
     inquery_num: str | None
     search_item_name: str | None
     search_item_code: str | None
+    correct_item_id: str | None = None
     correct_item_name: str | None
     correct_item_code: str | None
+    correct_image_url: str | None = None
+    correct_rank: int | None = None
+    correct_source: str | None = None
+    ranking_feedback_type: str | None = None
     verify_remark: str | None = None
     verified_at: str | None = None
     search_equipment: str | None = None
@@ -370,6 +375,12 @@ class SearchHistoryListItem(BaseModel):
 
     @validator("history_id", pre=True, allow_reuse=True)
     def normalize_history_id(cls, value):
+        return str(value)
+
+    @validator("correct_item_id", pre=True, allow_reuse=True)
+    def normalize_optional_item_id(cls, value):
+        if value is None:
+            return None
         return str(value)
 
 
@@ -430,14 +441,24 @@ class SearchHistoryVerifyReq(BaseModel):
 class SearchHistoryVerifyRes(BaseModel):
     history_id: str
     status: str
+    correct_item_id: str | None = None
     correct_item_code: str | None = None
     correct_item_name: str | None = None
+    correct_image_url: str | None = None
+    correct_rank: int | None = None
+    correct_source: str | None = None
     verify_remark: str | None = None
     verified_at: str | None = None
     message: str
 
     @validator("history_id", pre=True, allow_reuse=True)
     def normalize_history_id(cls, value):
+        return str(value)
+
+    @validator("correct_item_id", pre=True, allow_reuse=True)
+    def normalize_correct_item_id(cls, value):
+        if value is None:
+            return None
         return str(value)
 
 
@@ -460,6 +481,11 @@ class SearchHistoryFeedbackReq(BaseModel):
         description="反馈备注",
         example="识别错误，建议技术部核验",
     )
+    selected_item_id: str | None = Field(
+        default=None,
+        description="用户最终确认正确的配件ID",
+        example="1950361513125318656",
+    )
 
     @validator("history_id", pre=True, allow_reuse=True)
     def normalize_history_id(cls, value):
@@ -478,8 +504,15 @@ class SearchHistoryFeedbackReq(BaseModel):
 class SearchHistoryFeedbackRes(BaseModel):
     history_id: str
     verify_status: str
+    ranking_feedback_type: str | None = None
     feedback_remark: str | None = None
     feedback_at: str | None = None
+    correct_item_id: str | None = None
+    correct_item_code: str | None = None
+    correct_item_name: str | None = None
+    correct_image_url: str | None = None
+    correct_rank: int | None = None
+    correct_source: str | None = None
     ticket_id: str | None = None
     ticket_created: bool = False
     message: str
@@ -490,6 +523,12 @@ class SearchHistoryFeedbackRes(BaseModel):
 
     @validator("ticket_id", pre=True, allow_reuse=True)
     def normalize_ticket_id(cls, value):
+        if value is None:
+            return None
+        return str(value)
+
+    @validator("correct_item_id", pre=True, allow_reuse=True)
+    def normalize_optional_item_id(cls, value):
         if value is None:
             return None
         return str(value)
@@ -543,8 +582,12 @@ class SearchReviewTicketItem(BaseModel):
     search_item_name: str | None = None
     search_item_code: str | None = None
     feedback_remark: str | None = None
+    correct_item_id: str | None = None
     correct_item_name: str | None = None
     correct_item_code: str | None = None
+    correct_image_url: str | None = None
+    correct_rank: int | None = None
+    correct_source: str | None = None
 
     @validator("ticket_id", pre=True, allow_reuse=True)
     def normalize_ticket_id(cls, value):
@@ -552,6 +595,12 @@ class SearchReviewTicketItem(BaseModel):
 
     @validator("history_id", pre=True, allow_reuse=True)
     def normalize_history_id(cls, value):
+        return str(value)
+
+    @validator("correct_item_id", pre=True, allow_reuse=True)
+    def normalize_correct_item_id(cls, value):
+        if value is None:
+            return None
         return str(value)
 
 
@@ -589,8 +638,12 @@ class SearchReviewTicketDetailRes(BaseModel):
     search_item_name: str | None = None
     search_item_code: str | None = None
     feedback_remark: str | None = None
+    correct_item_id: str | None = None
     correct_item_name: str | None = None
     correct_item_code: str | None = None
+    correct_image_url: str | None = None
+    correct_rank: int | None = None
+    correct_source: str | None = None
 
     @validator("ticket_id", pre=True, allow_reuse=True)
     def normalize_ticket_id(cls, value):
@@ -598,6 +651,12 @@ class SearchReviewTicketDetailRes(BaseModel):
 
     @validator("history_id", pre=True, allow_reuse=True)
     def normalize_history_id(cls, value):
+        return str(value)
+
+    @validator("correct_item_id", pre=True, allow_reuse=True)
+    def normalize_correct_item_id(cls, value):
+        if value is None:
+            return None
         return str(value)
 
 
@@ -623,12 +682,22 @@ class SearchReviewTicketUpdateRes(BaseModel):
     issue_type: str | None = None
     review_remark: str | None = None
     resolution_remark: str | None = None
+    correct_item_id: str | None = None
     correct_item_code: str | None = None
     correct_item_name: str | None = None
+    correct_image_url: str | None = None
+    correct_rank: int | None = None
+    correct_source: str | None = None
     message: str
 
     @validator("ticket_id", pre=True, allow_reuse=True)
     def normalize_ticket_id(cls, value):
+        return str(value)
+
+    @validator("correct_item_id", pre=True, allow_reuse=True)
+    def normalize_correct_item_id(cls, value):
+        if value is None:
+            return None
         return str(value)
 
 

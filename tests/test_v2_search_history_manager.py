@@ -397,3 +397,92 @@ def test_list_v2_search_history_backfills_missing_result_item_name_from_items_ta
         )
 
     assert res.items[0].result.items[0].item_name == "螺栓M8X22"
+
+
+def test_build_search_history_item_leaves_correct_result_empty_without_feedback():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    row = SimpleNamespace(
+        id=1,
+        time_created=datetime(2026, 4, 30, 17, 0, 0),
+        query_text="制动盘",
+        query_image=None,
+        search_equipment="web",
+        verify_status="pending",
+        verify_remark=None,
+        verified_at=None,
+        search_results=parts_module.SearchResults(
+            items=[
+                {
+                    "item_id": "1950361513125318656",
+                    "item_code": "40000728845",
+                    "item_name": "制动2",
+                    "similar": 0.95,
+                    "image_url": "bfr-ai-files/top1.jpg",
+                }
+            ]
+        ),
+        ranking_feedback_type=None,
+        selected_item_id=None,
+        selected_item_code=None,
+        selected_item_name=None,
+        selected_rank=None,
+        selected_image_url=None,
+        correct_item_id=None,
+        inquery_id=None,
+        inquery_num=None,
+        search_result_item_name="制动2",
+        search_result_item_code="40000728845",
+        correct_item_code=None,
+        correct_item_name=None,
+        correct_image_url=None,
+        correct_rank=None,
+        correct_source=None,
+    )
+
+    item = RailwayPartsManager._build_search_history_item(row)
+
+    assert item.search_item_name == "制动2"
+    assert item.search_item_code == "40000728845"
+    assert item.correct_item_id is None
+    assert item.correct_item_name is None
+    assert item.correct_source == "none"
+    assert "effective_item_id" not in item.__fields__
+
+
+def test_build_search_history_item_uses_unified_correct_result_fields():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    row = SimpleNamespace(
+        id=1,
+        time_created=datetime(2026, 4, 30, 17, 0, 0),
+        query_text="制动盘",
+        query_image=None,
+        search_equipment="web",
+        verify_status="correct",
+        verify_remark="第二个结果才对",
+        verified_at=datetime(2026, 4, 30, 17, 5, 0),
+        search_results=parts_module.SearchResults(items=[]),
+        ranking_feedback_type="topk_correct",
+        selected_item_id=1950361513125318656,
+        selected_item_code="40000728845",
+        selected_item_name="制动2",
+        selected_rank=2,
+        selected_image_url="bfr-ai-files/selected.jpg",
+        correct_item_id=1950361513125318656,
+        inquery_id=None,
+        inquery_num=None,
+        search_result_item_name="制动2",
+        search_result_item_code="40000728845",
+        correct_item_name="制动2",
+        correct_item_code="40000728845",
+        correct_image_url="bfr-ai-files/selected.jpg",
+        correct_rank=2,
+        correct_source="user_selected",
+    )
+
+    item = RailwayPartsManager._build_search_history_item(row)
+
+    assert item.ranking_feedback_type == "topk_correct"
+    assert item.correct_item_id == "1950361513125318656"
+    assert item.correct_rank == 2
+    assert item.correct_image_url == "bfr-ai-files/selected.jpg"
+    assert item.correct_source == "user_selected"

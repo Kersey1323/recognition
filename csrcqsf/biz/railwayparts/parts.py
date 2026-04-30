@@ -1249,6 +1249,146 @@ class RailwayPartsManager:
         return status or "pending"
 
     @classmethod
+    def _get_search_result_candidates(cls, history) -> list[SearchResultItem]:
+        search_results = getattr(history, "search_results", None)
+        if search_results is None:
+            return []
+        return list(search_results.items or [])
+
+    @classmethod
+    def _resolve_correct_result_from_history(cls, row) -> dict:
+        correct_item_id = getattr(row, "correct_item_id", None)
+        return {
+            "correct_item_id": str(correct_item_id) if correct_item_id is not None else None,
+            "correct_item_code": getattr(row, "correct_item_code", None),
+            "correct_item_name": getattr(row, "correct_item_name", None),
+            "correct_image_url": getattr(row, "correct_image_url", None),
+            "correct_rank": getattr(row, "correct_rank", None),
+            "correct_source": getattr(row, "correct_source", None) or "none",
+        }
+
+    @classmethod
+    def _resolve_feedback_correct_fields(
+        cls,
+        history,
+        *,
+        feedback_result: str,
+        resolved_selected: dict,
+    ) -> dict:
+        if feedback_result == "correct":
+            return {
+                "correct_item_id": resolved_selected["selected_item_id"],
+                "correct_item_code": resolved_selected["selected_item_code"],
+                "correct_item_name": resolved_selected["selected_item_name"],
+                "correct_image_url": resolved_selected["selected_image_url"],
+                "correct_rank": resolved_selected["selected_rank"],
+                "correct_source": "user_selected",
+            }
+
+        if getattr(history, "correct_source", None) == "review_resolved":
+            return {
+                "correct_item_id": getattr(history, "correct_item_id", None),
+                "correct_item_code": getattr(history, "correct_item_code", None),
+                "correct_item_name": getattr(history, "correct_item_name", None),
+                "correct_image_url": getattr(history, "correct_image_url", None),
+                "correct_rank": getattr(history, "correct_rank", None),
+                "correct_source": "review_resolved",
+            }
+
+        return {
+            "correct_item_id": None,
+            "correct_item_code": None,
+            "correct_item_name": None,
+            "correct_image_url": None,
+            "correct_rank": None,
+            "correct_source": "none",
+        }
+
+    @classmethod
+    def _match_correct_item_in_history_results(
+        cls,
+        history,
+        *,
+        item_id: int | None = None,
+        item_code: str | None = None,
+    ):
+        for index, candidate in enumerate(cls._get_search_result_candidates(history), start=1):
+            if item_id is not None and str(candidate.item_id) == str(item_id):
+                return candidate, index
+            if item_code is not None and candidate.item_code == item_code:
+                return candidate, index
+        return None, None
+
+    @classmethod
+    async def _resolve_correct_image_url(
+        cls,
+        session,
+        *,
+        item_id: int,
+        history=None,
+        item_code: str | None = None,
+    ):
+        candidate, rank = cls._match_correct_item_in_history_results(
+            history,
+            item_id=item_id,
+            item_code=item_code,
+        )
+        if candidate is not None:
+            return candidate.image_url, rank
+
+        first_image = await SgoItemImages.get_first_image_by_item_id(session, item_id)
+        return (first_image.image_url if first_image else None), None
+
+    @classmethod
+    def _resolve_selected_feedback_candidate(
+        cls,
+        history,
+        *,
+        feedback_result: str,
+        selected_item_id: str | None,
+    ) -> dict:
+        if feedback_result == "wrong":
+            return {
+                "ranking_feedback_type": "no_correct_match",
+                "selected_item_id": None,
+                "selected_item_code": None,
+                "selected_item_name": None,
+                "selected_rank": None,
+                "selected_image_url": None,
+            }
+
+        candidates = cls._get_search_result_candidates(history)
+        if not candidates:
+            raise Exception("当前检索结果为空，无法提交 correct 排序反馈")
+
+        rank = 1
+        candidate = candidates[0]
+        if selected_item_id is not None:
+            matched_candidate = None
+            for index, row in enumerate(candidates, start=1):
+                if str(row.item_id) == str(selected_item_id):
+                    matched_candidate = row
+                    rank = index
+                    break
+            if matched_candidate is None:
+                raise Exception(f"selected_item_id={selected_item_id} 不在该次检索候选结果中")
+            candidate = matched_candidate
+
+        resolved_item_id = str(candidate.item_id)
+        resolved_item_code = candidate.item_code
+        resolved_item_name = candidate.item_name
+        resolved_image_url = candidate.image_url
+
+        return {
+            "ranking_feedback_type": "top1_correct" if rank == 1 else "topk_correct",
+            "selected_item_id": int(resolved_item_id),
+            "selected_item_code": resolved_item_code,
+            "selected_item_name": resolved_item_name,
+            "selected_rank": rank,
+            "selected_image_url": resolved_image_url,
+        }
+
+    @classmethod
     def _build_search_history_item(cls, row, latest_ticket=None):
         if row.query_image:
             search_type = "image"
@@ -1267,6 +1407,8 @@ class RailwayPartsManager:
             latest_review_status = getattr(latest_ticket, "review_status", None)
             latest_issue_type = getattr(latest_ticket, "issue_type", None)
 
+        correct_fields = cls._resolve_correct_result_from_history(row)
+
         return SearchHistoryListItem(
             history_id=row.id,
             search_type=search_type,
@@ -1280,8 +1422,7 @@ class RailwayPartsManager:
             inquery_num=row.inquery_num,
             search_item_name=row.search_result_item_name,
             search_item_code=row.search_result_item_code,
-            correct_item_name=row.correct_item_name,
-            correct_item_code=row.correct_item_code,
+            ranking_feedback_type=getattr(row, "ranking_feedback_type", None),
             feedback_remark=getattr(row, "verify_remark", None),
             feedback_at=date_to_str(row.verified_at) if getattr(row, "verified_at", None) else None,
             verify_remark=getattr(row, "verify_remark", None),
@@ -1290,6 +1431,7 @@ class RailwayPartsManager:
             latest_ticket_id=str(latest_ticket_id) if latest_ticket_id is not None else None,
             latest_review_status=latest_review_status,
             latest_issue_type=latest_issue_type,
+            **correct_fields,
         )
 
     @classmethod
@@ -1307,8 +1449,12 @@ class RailwayPartsManager:
             search_item_name=getattr(row, "search_result_item_name", None),
             search_item_code=getattr(row, "search_result_item_code", None),
             feedback_remark=getattr(row, "verify_remark", None),
+            correct_item_id=getattr(row, "correct_item_id", None),
             correct_item_name=getattr(row, "correct_item_name", None),
             correct_item_code=getattr(row, "correct_item_code", None),
+            correct_image_url=getattr(row, "correct_image_url", None),
+            correct_rank=getattr(row, "correct_rank", None),
+            correct_source=getattr(row, "correct_source", None) or "none",
         )
 
     @classmethod
@@ -1332,8 +1478,12 @@ class RailwayPartsManager:
             search_item_name=getattr(history, "search_result_item_name", None),
             search_item_code=getattr(history, "search_result_item_code", None),
             feedback_remark=getattr(history, "verify_remark", None),
+            correct_item_id=getattr(history, "correct_item_id", None),
             correct_item_name=getattr(history, "correct_item_name", None),
             correct_item_code=getattr(history, "correct_item_code", None),
+            correct_image_url=getattr(history, "correct_image_url", None),
+            correct_rank=getattr(history, "correct_rank", None),
+            correct_source=getattr(history, "correct_source", None) or "none",
         )
 
     @classmethod
@@ -1506,7 +1656,11 @@ class RailwayPartsManager:
             raise Exception(f"issue_type={issue_type} 不支持")
 
         now = datetime.now()
+        correct_item_id = None
         correct_item_name = None
+        correct_image_url = None
+        correct_rank = None
+        correct_source = None
 
         async with SessionLocal() as session:
             ticket = await SearchReviewTicket.get_by_id(session, ticket_id)
@@ -1518,17 +1672,29 @@ class RailwayPartsManager:
                 item = await Items.get_item_by_item_code(session, correct_item_code)
                 if item is None:
                     raise Exception(f"物料编码 {correct_item_code} 不存在")
+                correct_item_id = int(item.id)
                 correct_item_name = item.item_name
                 history = await SearchHistory.get_history_by_id(session, int(ticket.history_id))
                 if history is None:
                     raise Exception(f"history_id={ticket.history_id} 的记录不存在")
+                correct_image_url, correct_rank = await cls._resolve_correct_image_url(
+                    session,
+                    item_id=correct_item_id,
+                    history=history,
+                    item_code=correct_item_code,
+                )
+                correct_source = "review_resolved"
 
                 await SearchHistory.update_review_result(
                     session,
                     int(ticket.history_id),
                     verify_status="wrong",
+                    correct_item_id=correct_item_id,
                     correct_item_code=correct_item_code,
                     correct_item_name=correct_item_name,
+                    correct_image_url=correct_image_url,
+                    correct_rank=correct_rank,
+                    correct_source=correct_source,
                     verify_remark=resolution_remark or review_remark,
                     verified_at=now,
                 )
@@ -1566,8 +1732,12 @@ class RailwayPartsManager:
             issue_type=issue_type,
             review_remark=review_remark,
             resolution_remark=resolution_remark,
+            correct_item_id=correct_item_id,
             correct_item_code=correct_item_code,
             correct_item_name=correct_item_name,
+            correct_image_url=correct_image_url,
+            correct_rank=correct_rank,
+            correct_source=correct_source,
             message="核验单更新成功",
         )
 
@@ -1587,14 +1757,47 @@ class RailwayPartsManager:
             if history is None:
                 raise Exception(f"history_id={history_id} 的记录不存在")
 
+            correct_item_id = None
+            correct_item_name = None
+            correct_image_url = None
+            correct_rank = None
+            correct_source = None
             if verify_status == "correct" and not correct_item_code:
                 correct_item_code = history.search_result_item_code
                 correct_item_name = history.search_result_item_name
+                matched_candidate, matched_rank = cls._match_correct_item_in_history_results(
+                    history,
+                    item_code=correct_item_code,
+                )
+                if matched_candidate is not None:
+                    correct_item_id = int(matched_candidate.item_id)
+                    correct_image_url = matched_candidate.image_url
+                    correct_rank = matched_rank
+                elif correct_item_code:
+                    item = await Items.get_item_by_item_code(session, correct_item_code)
+                    if item is not None:
+                        correct_item_id = int(item.id)
+                        correct_item_name = item.item_name
+                        correct_image_url, correct_rank = await cls._resolve_correct_image_url(
+                            session,
+                            item_id=correct_item_id,
+                            history=history,
+                            item_code=correct_item_code,
+                        )
+                correct_source = "review_resolved" if correct_item_code else None
             elif correct_item_code:
                 item = await Items.get_item_by_item_code(session, correct_item_code)
                 if item is None:
                     raise Exception(f"物料编码 {correct_item_code} 不存在")
+                correct_item_id = int(item.id)
                 correct_item_name = item.item_name
+                correct_image_url, correct_rank = await cls._resolve_correct_image_url(
+                    session,
+                    item_id=correct_item_id,
+                    history=history,
+                    item_code=correct_item_code,
+                )
+                correct_source = "review_resolved"
             else:
                 correct_item_name = None
 
@@ -1602,8 +1805,12 @@ class RailwayPartsManager:
                 session,
                 history_id,
                 verify_status=verify_status,
+                correct_item_id=correct_item_id,
                 correct_item_code=correct_item_code,
                 correct_item_name=correct_item_name,
+                correct_image_url=correct_image_url,
+                correct_rank=correct_rank,
+                correct_source=correct_source,
                 verify_remark=remark,
                 verified_at=verified_at,
             )
@@ -1612,8 +1819,12 @@ class RailwayPartsManager:
         return SearchHistoryVerifyRes(
             history_id=str(history_id),
             status=verify_status,
+            correct_item_id=correct_item_id,
             correct_item_code=correct_item_code,
             correct_item_name=correct_item_name,
+            correct_image_url=correct_image_url,
+            correct_rank=correct_rank,
+            correct_source=correct_source,
             verify_remark=remark,
             verified_at=date_to_str(verified_at),
             message="校验提交成功",
@@ -1805,22 +2016,30 @@ class RailwayPartsManager:
         history_id: int,
         feedback_result: str,
         remark: str | None,
+        selected_item_id: str | None = None,
     ):
         if feedback_result not in {"correct", "wrong"}:
             raise Exception("feedback_result 仅支持 correct 或 wrong")
 
         feedback_at = datetime.now()
-        ticket_id = None
-        ticket_created = False
 
         async with SessionLocal() as session:
             history = await SearchHistory.get_history_by_id(session, history_id)
             if history is None:
                 raise Exception(f"history_id={history_id} 的记录不存在")
 
+            resolved = cls._resolve_selected_feedback_candidate(
+                history,
+                feedback_result=feedback_result,
+                selected_item_id=selected_item_id,
+            )
+            correct_fields = cls._resolve_feedback_correct_fields(
+                history,
+                feedback_result=feedback_result,
+                resolved_selected=resolved,
+            )
+
             active_ticket = await SearchReviewTicket.get_active_by_history_id(session, history_id)
-            if feedback_result == "correct" and active_ticket is not None:
-                raise Exception("当前记录已进入技术部核验流程，暂不支持改回正确")
 
             await SearchHistory.update_feedback(
                 session,
@@ -1828,8 +2047,22 @@ class RailwayPartsManager:
                 verify_status=feedback_result,
                 verify_remark=remark,
                 verified_at=feedback_at,
+                ranking_feedback_type=resolved["ranking_feedback_type"],
+                selected_item_id=resolved["selected_item_id"],
+                selected_item_code=resolved["selected_item_code"],
+                selected_item_name=resolved["selected_item_name"],
+                selected_rank=resolved["selected_rank"],
+                selected_image_url=resolved["selected_image_url"],
+                correct_item_id=correct_fields["correct_item_id"],
+                correct_item_code=correct_fields["correct_item_code"],
+                correct_item_name=correct_fields["correct_item_name"],
+                correct_image_url=correct_fields["correct_image_url"],
+                correct_rank=correct_fields["correct_rank"],
+                correct_source=correct_fields["correct_source"],
             )
 
+            ticket_id = None
+            ticket_created = False
             if feedback_result == "wrong":
                 if active_ticket is None:
                     active_ticket = await SearchReviewTicket.create_ticket(
@@ -1839,14 +2072,34 @@ class RailwayPartsManager:
                     )
                     ticket_created = True
                 ticket_id = active_ticket.id
+            elif active_ticket is not None and getattr(active_ticket, "review_status", None) != "closed":
+                await SearchReviewTicket.update_ticket(
+                    session,
+                    int(active_ticket.id),
+                    review_status="closed",
+                    issue_type=getattr(active_ticket, "issue_type", None),
+                    review_remark=getattr(active_ticket, "review_remark", None),
+                    resolution_remark=getattr(active_ticket, "resolution_remark", None)
+                    or "用户反馈改为正确，自动关闭核验单",
+                    review_started_at=getattr(active_ticket, "review_started_at", None),
+                    resolved_at=getattr(active_ticket, "resolved_at", None) or feedback_at,
+                    closed_at=feedback_at,
+                )
 
             await session.commit()
 
         return SearchHistoryFeedbackRes(
             history_id=history_id,
             verify_status=feedback_result,
+            ranking_feedback_type=resolved["ranking_feedback_type"],
             feedback_remark=remark,
             feedback_at=date_to_str(feedback_at),
+            correct_item_id=str(correct_fields["correct_item_id"]) if correct_fields["correct_item_id"] is not None else None,
+            correct_item_code=correct_fields["correct_item_code"],
+            correct_item_name=correct_fields["correct_item_name"],
+            correct_image_url=correct_fields["correct_image_url"],
+            correct_rank=correct_fields["correct_rank"],
+            correct_source=correct_fields["correct_source"],
             ticket_id=ticket_id,
             ticket_created=ticket_created,
             message="用户反馈提交成功",

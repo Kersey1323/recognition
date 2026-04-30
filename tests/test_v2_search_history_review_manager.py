@@ -69,6 +69,57 @@ def test_search_review_ticket_helpers_exist():
     assert hasattr(SearchReviewTicket, "summarize_tickets")
 
 
+def test_search_history_table_has_ranking_feedback_columns():
+    columns = list(SearchHistory.__table__.columns.keys())
+
+    assert "ranking_feedback_type" in columns
+    assert "selected_item_id" in columns
+    assert "selected_item_code" in columns
+    assert "selected_item_name" in columns
+    assert "selected_rank" in columns
+    assert "selected_image_url" in columns
+
+
+def test_search_history_update_feedback_accepts_ranking_feedback_fields():
+    code_names = SearchHistory.update_feedback.__code__.co_varnames
+
+    assert "ranking_feedback_type" in code_names
+    assert "selected_item_id" in code_names
+    assert "selected_item_code" in code_names
+    assert "selected_item_name" in code_names
+    assert "selected_rank" in code_names
+    assert "selected_image_url" in code_names
+
+
+def test_search_history_table_has_unified_correct_result_columns():
+    columns = list(SearchHistory.__table__.columns.keys())
+
+    assert "correct_item_id" in columns
+    assert "correct_image_url" in columns
+    assert "correct_rank" in columns
+    assert "correct_source" in columns
+
+
+def test_search_history_update_methods_accept_unified_correct_result_fields():
+    feedback_vars = SearchHistory.update_feedback.__code__.co_varnames
+    review_vars = SearchHistory.update_review_result.__code__.co_varnames
+
+    assert "correct_item_id" in feedback_vars
+    assert "correct_image_url" in feedback_vars
+    assert "correct_rank" in feedback_vars
+    assert "correct_source" in feedback_vars
+    assert "correct_item_id" in review_vars
+    assert "correct_image_url" in review_vars
+    assert "correct_rank" in review_vars
+    assert "correct_source" in review_vars
+
+
+def test_sgo_item_images_has_first_image_lookup_helper():
+    from csrcqsf.models.sgo import SgoItemImages
+
+    assert hasattr(SgoItemImages, "get_first_image_by_item_id")
+
+
 def test_search_review_ticket_summarize_uses_required_status_and_issue_types():
     session = AsyncMock()
     session.execute = AsyncMock(return_value=MagicMock())
@@ -293,6 +344,17 @@ def test_verify_v2_search_history_autofills_correct_item_when_status_is_correct(
     session = AsyncMock()
     fake_history = SimpleNamespace(
         id=1,
+        search_results=parts_module.SearchResults(
+            items=[
+                {
+                    "item_id": "2",
+                    "item_code": "19010036737",
+                    "item_name": "钢丝绳",
+                    "similar": 0.97,
+                    "image_url": "bfr-ai-files/steel-rope.jpg",
+                }
+            ]
+        ),
         search_result_item_code="19010036737",
         search_result_item_name="钢丝绳",
     )
@@ -309,8 +371,12 @@ def test_verify_v2_search_history_autofills_correct_item_when_status_is_correct(
             )
         )
 
+    assert update_mock.await_args.kwargs["correct_item_id"] == 2
     assert update_mock.await_args.kwargs["correct_item_code"] == "19010036737"
     assert update_mock.await_args.kwargs["correct_item_name"] == "钢丝绳"
+    assert update_mock.await_args.kwargs["correct_image_url"] == "bfr-ai-files/steel-rope.jpg"
+    assert update_mock.await_args.kwargs["correct_rank"] == 1
+    assert update_mock.await_args.kwargs["correct_source"] == "review_resolved"
     assert res.status == "correct"
 
 
@@ -319,14 +385,17 @@ def test_verify_v2_search_history_uses_lookup_item_for_partial():
     session = AsyncMock()
     fake_history = SimpleNamespace(
         id=1,
+        search_results=parts_module.SearchResults(items=[]),
         search_result_item_code="19010036737",
         search_result_item_name="钢丝绳",
     )
     fake_item = SimpleNamespace(id=2, item_code="19010030048", item_name="穿墙体接头")
+    fake_image = SimpleNamespace(image_url="bfr-ai-files/cross-wall.jpg")
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=fake_history)), \
          patch.object(parts_module.Items, "get_item_by_item_code", AsyncMock(return_value=fake_item)), \
+         patch.object(parts_module.SgoItemImages, "get_first_image_by_item_id", AsyncMock(return_value=fake_image)), \
          patch.object(parts_module.SearchHistory, "update_review_result", AsyncMock()) as update_mock:
         res = asyncio.run(
             RailwayPartsManager.verify_v2_search_history(
@@ -337,8 +406,95 @@ def test_verify_v2_search_history_uses_lookup_item_for_partial():
             )
         )
 
+    assert update_mock.await_args.kwargs["correct_item_id"] == 2
     assert update_mock.await_args.kwargs["correct_item_name"] == "穿墙体接头"
+    assert update_mock.await_args.kwargs["correct_image_url"] == "bfr-ai-files/cross-wall.jpg"
+    assert update_mock.await_args.kwargs["correct_rank"] is None
+    assert update_mock.await_args.kwargs["correct_source"] == "review_resolved"
     assert res.correct_item_code == "19010030048"
+
+
+def test_update_review_ticket_writes_review_resolved_correct_result_from_matched_candidate():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    fake_ticket = SimpleNamespace(id=5001, history_id=1001, review_started_at=None, resolved_at=None, closed_at=None)
+    fake_history = SimpleNamespace(
+        id=1001,
+        search_results=parts_module.SearchResults(
+            items=[
+                {
+                    "item_id": "7",
+                    "item_code": "A7",
+                    "item_name": "系统第一名",
+                    "similar": 0.95,
+                    "image_url": "bfr-ai-files/top1.jpg",
+                },
+                {
+                    "item_id": "9",
+                    "item_code": "X9",
+                    "item_name": "技术部确认结果",
+                    "similar": 0.90,
+                    "image_url": "bfr-ai-files/top2.jpg",
+                },
+            ]
+        ),
+    )
+    fake_item = SimpleNamespace(id=9, item_code="X9", item_name="技术部确认结果")
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.SearchReviewTicket, "get_by_id", AsyncMock(return_value=fake_ticket)), \
+         patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=fake_history)), \
+         patch.object(parts_module.Items, "get_item_by_item_code", AsyncMock(return_value=fake_item)), \
+         patch.object(parts_module.SearchHistory, "update_review_result", AsyncMock()) as update_mock, \
+         patch.object(parts_module.SearchReviewTicket, "update_ticket", AsyncMock()):
+        res = asyncio.run(
+            RailwayPartsManager.update_v2_search_review_ticket(
+                ticket_id=5001,
+                review_status="resolved",
+                issue_type="precision_issue",
+                review_remark="已核验",
+                resolution_remark="第二名才是正确结果",
+                correct_item_code="X9",
+            )
+        )
+
+    assert update_mock.await_args.kwargs["correct_item_id"] == 9
+    assert update_mock.await_args.kwargs["correct_image_url"] == "bfr-ai-files/top2.jpg"
+    assert update_mock.await_args.kwargs["correct_rank"] == 2
+    assert update_mock.await_args.kwargs["correct_source"] == "review_resolved"
+    assert res.correct_item_code == "X9"
+
+
+def test_update_review_ticket_uses_first_item_image_when_correct_item_not_in_candidates():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    fake_ticket = SimpleNamespace(id=5002, history_id=1002, review_started_at=None, resolved_at=None, closed_at=None)
+    fake_history = SimpleNamespace(id=1002, search_results=parts_module.SearchResults(items=[]))
+    fake_item = SimpleNamespace(id=12, item_code="Y12", item_name="召回外正确结果")
+    fake_image = SimpleNamespace(image_url="bfr-ai-files/fallback.jpg")
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.SearchReviewTicket, "get_by_id", AsyncMock(return_value=fake_ticket)), \
+         patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=fake_history)), \
+         patch.object(parts_module.Items, "get_item_by_item_code", AsyncMock(return_value=fake_item)), \
+         patch.object(parts_module.SgoItemImages, "get_first_image_by_item_id", AsyncMock(return_value=fake_image)), \
+         patch.object(parts_module.SearchHistory, "update_review_result", AsyncMock()) as update_mock, \
+         patch.object(parts_module.SearchReviewTicket, "update_ticket", AsyncMock()):
+        asyncio.run(
+            RailwayPartsManager.update_v2_search_review_ticket(
+                ticket_id=5002,
+                review_status="resolved",
+                issue_type="missing_index",
+                review_remark="已核验",
+                resolution_remark="原始候选未召回到正确结果",
+                correct_item_code="Y12",
+            )
+        )
+
+    assert update_mock.await_args.kwargs["correct_item_id"] == 12
+    assert update_mock.await_args.kwargs["correct_image_url"] == "bfr-ai-files/fallback.jpg"
+    assert update_mock.await_args.kwargs["correct_rank"] is None
+    assert update_mock.await_args.kwargs["correct_source"] == "review_resolved"
 
 
 def test_suggest_items_returns_lightweight_candidates():

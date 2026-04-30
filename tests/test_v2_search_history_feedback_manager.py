@@ -58,7 +58,21 @@ def test_submit_feedback_correct_updates_history_without_creating_ticket():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     session = AsyncMock()
     now = datetime(2026, 4, 29, 9, 0, 0)
-    history = SimpleNamespace(id=1001)
+    history = SimpleNamespace(
+        id=1001,
+        correct_source=None,
+        search_results=parts_module.SearchResults(
+            items=[
+                {
+                    "item_id": "1950361513125318656",
+                    "item_code": "40000728845",
+                    "item_name": "制动2",
+                    "similar": 0.95,
+                    "image_url": "bfr-ai-files/top1.jpg",
+                }
+            ]
+        ),
+    )
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=history)), \
@@ -71,15 +85,29 @@ def test_submit_feedback_correct_updates_history_without_creating_ticket():
                 history_id=1001,
                 feedback_result="correct",
                 remark="用户确认正确",
+                selected_item_id=None,
             )
         )
 
     assert update_mock.await_args.kwargs["verify_status"] == "correct"
     assert update_mock.await_args.kwargs["verify_remark"] == "用户确认正确"
     assert update_mock.await_args.kwargs["verified_at"] == now
+    assert update_mock.await_args.kwargs["ranking_feedback_type"] == "top1_correct"
+    assert update_mock.await_args.kwargs["selected_item_id"] == 1950361513125318656
+    assert update_mock.await_args.kwargs["selected_item_code"] == "40000728845"
+    assert update_mock.await_args.kwargs["correct_item_id"] == 1950361513125318656
+    assert update_mock.await_args.kwargs["correct_item_code"] == "40000728845"
+    assert update_mock.await_args.kwargs["correct_item_name"] == "制动2"
+    assert update_mock.await_args.kwargs["correct_image_url"] == "bfr-ai-files/top1.jpg"
+    assert update_mock.await_args.kwargs["correct_rank"] == 1
+    assert update_mock.await_args.kwargs["correct_source"] == "user_selected"
     create_ticket_mock.assert_not_awaited()
     assert res.history_id == "1001"
     assert res.verify_status == "correct"
+    assert res.ranking_feedback_type == "top1_correct"
+    assert res.correct_item_id == "1950361513125318656"
+    assert res.correct_rank == 1
+    assert res.correct_source == "user_selected"
     assert res.ticket_id is None
     assert res.ticket_created is False
     session.commit.assert_awaited()
@@ -89,7 +117,11 @@ def test_submit_feedback_wrong_creates_ticket_when_no_active_ticket():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     session = AsyncMock()
     now = datetime(2026, 4, 29, 9, 10, 0)
-    history = SimpleNamespace(id=1002)
+    history = SimpleNamespace(
+        id=1002,
+        correct_source="user_selected",
+        search_results=parts_module.SearchResults(items=[]),
+    )
     new_ticket = SimpleNamespace(id=3001)
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
@@ -104,10 +136,16 @@ def test_submit_feedback_wrong_creates_ticket_when_no_active_ticket():
                 history_id=1002,
                 feedback_result="wrong",
                 remark="识别错误",
+                selected_item_id=None,
             )
         )
 
     assert update_mock.await_args.kwargs["verify_status"] == "wrong"
+    assert update_mock.await_args.kwargs["ranking_feedback_type"] == "no_correct_match"
+    assert update_mock.await_args.kwargs["selected_item_id"] is None
+    assert update_mock.await_args.kwargs["correct_item_id"] is None
+    assert update_mock.await_args.kwargs["correct_item_code"] is None
+    assert update_mock.await_args.kwargs["correct_source"] == "none"
     create_ticket_mock.assert_awaited_once()
     assert res.ticket_id == "3001"
     assert res.ticket_created is True
@@ -118,7 +156,16 @@ def test_submit_feedback_wrong_reuses_active_ticket():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     session = AsyncMock()
     now = datetime(2026, 4, 29, 9, 20, 0)
-    history = SimpleNamespace(id=1003)
+    history = SimpleNamespace(
+        id=1003,
+        correct_item_id=9,
+        correct_item_code="X9",
+        correct_item_name="技术部确认结果",
+        correct_image_url="bfr-ai-files/review.jpg",
+        correct_rank=None,
+        correct_source="review_resolved",
+        search_results=parts_module.SearchResults(items=[]),
+    )
     active_ticket = SimpleNamespace(id=3555)
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
@@ -132,14 +179,92 @@ def test_submit_feedback_wrong_reuses_active_ticket():
                 history_id=1003,
                 feedback_result="wrong",
                 remark="仍有问题",
+                selected_item_id=None,
             )
         )
 
     assert update_mock.await_args.kwargs["verify_status"] == "wrong"
+    assert update_mock.await_args.kwargs["ranking_feedback_type"] == "no_correct_match"
+    assert update_mock.await_args.kwargs["correct_item_id"] == 9
+    assert update_mock.await_args.kwargs["correct_item_code"] == "X9"
+    assert update_mock.await_args.kwargs["correct_source"] == "review_resolved"
     create_ticket_mock.assert_not_awaited()
     assert res.ticket_id == "3555"
     assert res.ticket_created is False
     session.commit.assert_awaited()
+
+
+def test_submit_feedback_correct_ranked_selection_closes_active_review_ticket():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    now = datetime(2026, 4, 30, 18, 10, 0)
+    history = SimpleNamespace(
+        id=1002,
+        correct_source=None,
+        search_results=parts_module.SearchResults(
+            items=[
+                {
+                    "item_id": "1",
+                    "item_code": "A",
+                    "item_name": "错误候选",
+                    "similar": 0.95,
+                    "image_url": "bfr-ai-files/top1.jpg",
+                },
+                {
+                    "item_id": "2",
+                    "item_code": "B",
+                    "item_name": "正确候选",
+                    "similar": 0.94,
+                    "image_url": "bfr-ai-files/top2.jpg",
+                },
+            ]
+        ),
+    )
+    active_ticket = SimpleNamespace(
+        id=3001,
+        review_status="open",
+        issue_type="precision_issue",
+        resolution_remark=None,
+        review_remark="用户先前反馈错误",
+        review_started_at=None,
+        resolved_at=None,
+        closed_at=None,
+    )
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=history)), \
+         patch.object(parts_module.SearchHistory, "update_feedback", AsyncMock()) as update_mock, \
+         patch.object(parts_module.SearchReviewTicket, "get_active_by_history_id", AsyncMock(return_value=active_ticket)), \
+         patch.object(parts_module.SearchReviewTicket, "update_ticket", AsyncMock()) as update_ticket_mock, \
+         patch.object(parts_module, "datetime", SimpleNamespace(now=MagicMock(return_value=now))):
+        res = asyncio.run(
+            RailwayPartsManager.submit_v2_search_feedback(
+                history_id=1002,
+                feedback_result="correct",
+                remark="第二名才是正确结果",
+                selected_item_id="2",
+            )
+        )
+
+    assert update_mock.await_args.kwargs["ranking_feedback_type"] == "topk_correct"
+    assert update_mock.await_args.kwargs["selected_item_id"] == 2
+    assert update_mock.await_args.kwargs["selected_item_code"] == "B"
+    assert update_mock.await_args.kwargs["selected_item_name"] == "正确候选"
+    assert update_mock.await_args.kwargs["selected_rank"] == 2
+    assert update_mock.await_args.kwargs["selected_image_url"] == "bfr-ai-files/top2.jpg"
+    assert update_mock.await_args.kwargs["correct_item_id"] == 2
+    assert update_mock.await_args.kwargs["correct_item_code"] == "B"
+    assert update_mock.await_args.kwargs["correct_item_name"] == "正确候选"
+    assert update_mock.await_args.kwargs["correct_image_url"] == "bfr-ai-files/top2.jpg"
+    assert update_mock.await_args.kwargs["correct_rank"] == 2
+    assert update_mock.await_args.kwargs["correct_source"] == "user_selected"
+    assert update_ticket_mock.await_args.kwargs["review_status"] == "closed"
+    assert update_ticket_mock.await_args.kwargs["resolved_at"] == now
+    assert update_ticket_mock.await_args.kwargs["closed_at"] == now
+    assert res.correct_item_id == "2"
+    assert res.correct_rank == 2
+    assert res.correct_source == "user_selected"
+    assert res.ticket_id is None
 
 
 def test_submit_feedback_rejects_unknown_feedback_result():
@@ -151,6 +276,7 @@ def test_submit_feedback_rejects_unknown_feedback_result():
                 history_id=1004,
                 feedback_result="foo",
                 remark="非法状态",
+                selected_item_id=None,
             )
         )
     except Exception as exc:
