@@ -9,6 +9,7 @@ from csrcqsf.biz.railwayparts.api_models import (
     SearchHistoryListReq,
     SearchHistorySummaryRes,
     SearchHistoryVerifyReq,
+    SearchReviewTicketUpdateReq,
 )
 from csrcqsf.models.search_history import SearchHistory, SearchReviewTicket
 
@@ -85,6 +86,12 @@ def test_search_history_list_request_accepts_review_filters():
     assert req.date_to == "2026-04-28"
 
 
+def test_search_history_list_request_accepts_user_misjudged_status():
+    req = SearchHistoryListReq(page=1, pageSize=10, status="user_misjudged")
+
+    assert req.status == "user_misjudged"
+
+
 def test_search_history_list_item_serializes_status_and_result_image_urls():
     item = SearchHistoryListItem(
         history_id=1,
@@ -134,6 +141,7 @@ def test_review_console_request_and_response_models_serialize():
         pending_count=4,
         correct_count=3,
         wrong_count=2,
+        user_misjudged_count=1,
         open_ticket_count=1,
     )
     suggest = ItemSuggestRes(
@@ -145,6 +153,7 @@ def test_review_console_request_and_response_models_serialize():
     assert delete_req.history_id_list == ["1", "2"]
     assert suggest_req.limit == 5
     assert dump_model(summary)["pending_count"] == 4
+    assert dump_model(summary)["user_misjudged_count"] == 1
     assert dump_model(suggest)["items"][0]["item_code"] == "19010036737"
 
 
@@ -154,11 +163,13 @@ def test_search_history_summary_response_replaces_partial_with_open_ticket_count
         pending_count=2,
         correct_count=3,
         wrong_count=2,
+        user_misjudged_count=1,
         open_ticket_count=1,
     )
     data = dump_model(summary)
 
     assert data["open_ticket_count"] == 1
+    assert data["user_misjudged_count"] == 1
     assert "partial_count" not in data
 
 
@@ -166,20 +177,22 @@ def test_review_console_request_models_expose_openapi_examples_and_descriptions(
     list_schema = dump_schema(SearchHistoryListReq)
     detail_schema = dump_schema(SearchHistoryDetailReq)
     verify_schema = dump_schema(SearchHistoryVerifyReq)
+    review_update_schema = dump_schema(SearchReviewTicketUpdateReq)
     suggest_schema = dump_schema(ItemSuggestReq)
     delete_schema = dump_schema(SearchHistoryDeleteReq)
 
     assert list_schema["properties"]["search_type"]["description"] == "检索类型筛选：all 全部，text 文本检索，image 图片检索"
     assert list_schema["properties"]["search_equipment"]["description"] == "检索设备筛选：all 全部，web WEB端，terminal 手持终端"
-    assert list_schema["properties"]["status"]["description"] == "校验状态筛选：all 全部，pending 待校验，correct 正确，wrong 错误"
+    assert list_schema["properties"]["status"]["description"] == "校验状态筛选：all 全部，pending 待校验，correct 正确，wrong 错误，user_misjudged 用户误判"
     assert list_schema["example"]["search_type"] == "image"
     assert list_schema["example"]["status"] == "pending"
 
     assert detail_schema["properties"]["history_id"]["description"] == "检索历史ID"
     assert detail_schema["example"]["history_id"] == "2048696242753638400"
 
-    assert verify_schema["properties"]["verify_status"]["description"] == "校验结果：correct 正确，wrong 错误，partial 部分正确"
+    assert "user_misjudged 用户误判" in verify_schema["properties"]["verify_status"]["description"]
     assert verify_schema["example"]["correct_item_code"] == "19010036737"
+    assert review_update_schema["properties"]["verify_status"]["description"] == "最终校验结果：wrong 错误，user_misjudged 用户误判"
 
     assert suggest_schema["properties"]["keyword"]["description"] == "联想关键词，可输入物料编码或物料名称片段"
     assert suggest_schema["example"]["limit"] == 10

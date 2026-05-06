@@ -1,6 +1,7 @@
 from pydantic import ValidationError
 
 from csrcqsf.biz.railwayparts.api_models import (
+    CreateItemReq,
     CreateItemImagesReq,
     CreateItemImagesRes,
     UpdateItemReq,
@@ -60,6 +61,31 @@ def test_update_item_request_supports_partial_update_and_blank_parent_as_none():
     assert req.id == str(BIG_ITEM_ID)
     assert req.height == 0
     assert req.parent_item_id is None
+
+
+def test_create_item_request_supports_missing_or_blank_parent_as_none():
+    req_without_parent = CreateItemReq(
+        item_name="测试配件",
+        obj_url=None,
+        item_code="A001",
+        height=1,
+        length=2,
+        width=3,
+        weight=4,
+    )
+    req_with_blank_parent = CreateItemReq(
+        item_name="测试配件",
+        obj_url=None,
+        item_code="A001",
+        height=1,
+        length=2,
+        width=3,
+        weight=4,
+        parent_item_id="",
+    )
+
+    assert req_without_parent.parent_item_id is None
+    assert req_with_blank_parent.parent_item_id is None
 
 
 def test_update_item_request_forbids_obj_url():

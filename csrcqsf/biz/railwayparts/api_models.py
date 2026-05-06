@@ -24,7 +24,13 @@ class CreateItemReq(BaseModel):
     length: float | None
     width: float | None
     weight: float | None = None
-    parent_item_id: str | None
+    parent_item_id: str | None = None
+
+    @validator("parent_item_id", pre=True, allow_reuse=True)
+    def normalize_parent_item_id(cls, value):
+        if value in ("", None):
+            return None
+        return str(value)
 
 
 class ListItemReq(PageReq):
@@ -315,7 +321,7 @@ class SearchHistoryListReq(PageReq):
     )
     status: str = Field(
         default="all",
-        description="校验状态筛选：all 全部，pending 待校验，correct 正确，wrong 错误",
+        description="校验状态筛选：all 全部，pending 待校验，correct 正确，wrong 错误，user_misjudged 用户误判",
         example="pending",
     )
     date_from: str | None = Field(
@@ -409,7 +415,7 @@ class SearchHistoryDetailReq(BaseModel):
 class SearchHistoryVerifyReq(BaseModel):
     history_id: str = Field(description="检索历史ID", example="2048696242753638400")
     verify_status: str = Field(
-        description="校验结果：correct 正确，wrong 错误，partial 部分正确",
+        description="校验结果：correct 正确，wrong 错误，user_misjudged 用户误判，partial 部分正确（兼容旧值）",
         example="correct",
     )
     correct_item_code: str | None = Field(
@@ -467,6 +473,7 @@ class SearchHistorySummaryRes(BaseModel):
     pending_count: int
     correct_count: int
     wrong_count: int
+    user_misjudged_count: int
     open_ticket_count: int
 
 
@@ -666,6 +673,11 @@ class SearchReviewTicketUpdateReq(BaseModel):
         description="核验单状态：reviewing 核验中，resolved 已解决，closed 已关闭",
         example="resolved",
     )
+    verify_status: str | None = Field(
+        default=None,
+        description="最终校验结果：wrong 错误，user_misjudged 用户误判",
+        example="wrong",
+    )
     issue_type: str | None = Field(default=None, description="问题类型", example="precision_issue")
     review_remark: str | None = Field(default=None, description="核验备注", example="已接单核验")
     resolution_remark: str | None = Field(default=None, description="解决备注", example="已修复")
@@ -679,6 +691,7 @@ class SearchReviewTicketUpdateReq(BaseModel):
 class SearchReviewTicketUpdateRes(BaseModel):
     ticket_id: str
     review_status: str
+    verify_status: str | None = None
     issue_type: str | None = None
     review_remark: str | None = None
     resolution_remark: str | None = None

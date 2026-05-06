@@ -202,6 +202,7 @@ def test_update_review_ticket_marks_resolved_and_backfills_correct_item():
             RailwayPartsManager.update_v2_search_review_ticket(
                 ticket_id=7003,
                 review_status="resolved",
+                verify_status=None,
                 issue_type="precision_issue",
                 review_remark="核验完成",
                 resolution_remark="已回填正确结果",
@@ -227,6 +228,7 @@ def test_update_review_ticket_rejects_open_status():
             RailwayPartsManager.update_v2_search_review_ticket(
                 ticket_id=7004,
                 review_status="open",
+                verify_status=None,
                 issue_type=None,
                 review_remark=None,
                 resolution_remark=None,
@@ -263,6 +265,7 @@ def test_update_review_ticket_reviewing_clears_resolved_and_closed_timestamps():
             RailwayPartsManager.update_v2_search_review_ticket(
                 ticket_id=7005,
                 review_status="reviewing",
+                verify_status=None,
                 issue_type="system_bug",
                 review_remark="重新核验",
                 resolution_remark=None,
@@ -273,6 +276,64 @@ def test_update_review_ticket_reviewing_clears_resolved_and_closed_timestamps():
     assert ticket_update_mock.await_args.kwargs["resolved_at"] is None
     assert ticket_update_mock.await_args.kwargs["closed_at"] is None
     assert res.review_status == "reviewing"
+
+
+def test_update_review_ticket_supports_user_misjudged_result():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    now = datetime(2026, 4, 29, 10, 45, 0)
+    ticket = SimpleNamespace(
+        id=7006,
+        history_id=106,
+        review_status="open",
+        issue_type="precision_issue",
+        review_remark=None,
+        resolution_remark=None,
+        review_started_at=None,
+        resolved_at=None,
+        closed_at=None,
+    )
+    history = SimpleNamespace(
+        id=106,
+        search_result_item_code="19010036737",
+        search_result_item_name="钢丝绳",
+        search_results=SearchResults(
+            items=[
+                {
+                    "item_id": "9",
+                    "item_code": "19010036737",
+                    "item_name": "钢丝绳",
+                    "similar": 0.98,
+                    "image_url": "bfr-ai-files/rope.jpg",
+                }
+            ]
+        ),
+    )
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.SearchReviewTicket, "get_by_id", AsyncMock(return_value=ticket)), \
+         patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=history)), \
+         patch.object(parts_module.SearchHistory, "update_review_result", AsyncMock()) as history_update_mock, \
+         patch.object(parts_module.SearchReviewTicket, "update_ticket", AsyncMock()) as ticket_update_mock, \
+         patch.object(parts_module, "datetime", SimpleNamespace(now=MagicMock(return_value=now))):
+        res = asyncio.run(
+            RailwayPartsManager.update_v2_search_review_ticket(
+                ticket_id=7006,
+                review_status="resolved",
+                verify_status="user_misjudged",
+                issue_type="precision_issue",
+                review_remark="核验完成",
+                resolution_remark="用户误判",
+                correct_item_code=None,
+            )
+        )
+
+    history_update_mock.assert_awaited_once()
+    assert history_update_mock.await_args.kwargs["verify_status"] == "user_misjudged"
+    ticket_update_mock.assert_awaited_once()
+    assert res.ticket_id == "7006"
+    assert res.review_status == "resolved"
+    assert res.verify_status == "user_misjudged"
 
 
 def test_summary_review_tickets_maps_status_and_issue_type_counts():

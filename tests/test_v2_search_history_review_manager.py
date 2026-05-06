@@ -55,6 +55,25 @@ def test_search_history_list_helper_treats_partial_as_wrong_filter():
     assert "verify_status = 'partial'" in sql
 
 
+def test_search_history_list_helper_supports_user_misjudged_filter():
+    session = AsyncMock()
+    session.scalars = AsyncMock(return_value=SimpleNamespace(all=lambda: []))
+
+    with patch("csrcqsf.models.search_history.async_get_count", AsyncMock(return_value=0)):
+        asyncio.run(
+            SearchHistory.list_search_history(
+                session=session,
+                page=1,
+                per_page=10,
+                status="user_misjudged",
+            )
+        )
+
+    stmt = session.scalars.await_args.args[0]
+    sql = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+    assert "verify_status = 'user_misjudged'" in sql
+
+
 def test_search_history_detail_summary_and_verify_helpers_exist():
     assert hasattr(SearchHistory, "get_history_by_id")
     assert hasattr(SearchHistory, "summarize_review_status")
@@ -327,7 +346,7 @@ def test_get_v2_search_history_detail_returns_full_record():
 def test_summary_v2_search_history_uses_open_ticket_count_instead_of_partial():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     fake_result = MagicMock()
-    fake_result.one.return_value = (10, 4, 3, 2)
+    fake_result.one.return_value = (10, 4, 3, 2, 1)
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
          patch.object(parts_module.SearchHistory, "summarize_review_status", AsyncMock(return_value=fake_result)), \
@@ -336,6 +355,7 @@ def test_summary_v2_search_history_uses_open_ticket_count_instead_of_partial():
 
     assert summary.total == 10
     assert summary.pending_count == 4
+    assert summary.user_misjudged_count == 1
     assert summary.open_ticket_count == 2
 
 
@@ -414,6 +434,48 @@ def test_verify_v2_search_history_uses_lookup_item_for_partial():
     assert res.correct_item_code == "19010030048"
 
 
+def test_verify_v2_search_history_marks_user_misjudged_with_original_top1():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    fake_history = SimpleNamespace(
+        id=1,
+        search_results=parts_module.SearchResults(
+            items=[
+                {
+                    "item_id": "2",
+                    "item_code": "19010036737",
+                    "item_name": "钢丝绳",
+                    "similar": 0.97,
+                    "image_url": "bfr-ai-files/steel-rope.jpg",
+                }
+            ]
+        ),
+        search_result_item_code="19010036737",
+        search_result_item_name="钢丝绳",
+    )
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=fake_history)), \
+         patch.object(parts_module.SearchHistory, "update_review_result", AsyncMock()) as update_mock:
+        res = asyncio.run(
+            RailwayPartsManager.verify_v2_search_history(
+                history_id=1,
+                verify_status="user_misjudged",
+                correct_item_code=None,
+                remark="用户误判，系统原结果正确",
+            )
+        )
+
+    assert update_mock.await_args.kwargs["verify_status"] == "user_misjudged"
+    assert update_mock.await_args.kwargs["correct_item_id"] == 2
+    assert update_mock.await_args.kwargs["correct_item_code"] == "19010036737"
+    assert update_mock.await_args.kwargs["correct_item_name"] == "钢丝绳"
+    assert update_mock.await_args.kwargs["correct_image_url"] == "bfr-ai-files/steel-rope.jpg"
+    assert update_mock.await_args.kwargs["correct_rank"] == 1
+    assert update_mock.await_args.kwargs["correct_source"] == "review_resolved"
+    assert res.status == "user_misjudged"
+
+
 def test_update_review_ticket_writes_review_resolved_correct_result_from_matched_candidate():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     session = AsyncMock()
@@ -464,6 +526,53 @@ def test_update_review_ticket_writes_review_resolved_correct_result_from_matched
     assert update_mock.await_args.kwargs["correct_source"] == "review_resolved"
     assert res.correct_item_code == "X9"
 
+
+def test_update_review_ticket_marks_user_misjudged_with_original_top1():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    fake_ticket = SimpleNamespace(id=5003, history_id=1003, review_started_at=None, resolved_at=None, closed_at=None)
+    fake_history = SimpleNamespace(
+        id=1003,
+        search_result_item_code="19010036737",
+        search_result_item_name="钢丝绳",
+        search_results=parts_module.SearchResults(
+            items=[
+                {
+                    "item_id": "2",
+                    "item_code": "19010036737",
+                    "item_name": "钢丝绳",
+                    "similar": 0.97,
+                    "image_url": "bfr-ai-files/steel-rope.jpg",
+                }
+            ]
+        ),
+    )
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.SearchReviewTicket, "get_by_id", AsyncMock(return_value=fake_ticket)), \
+         patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=fake_history)), \
+         patch.object(parts_module.SearchHistory, "update_review_result", AsyncMock()) as update_mock, \
+         patch.object(parts_module.SearchReviewTicket, "update_ticket", AsyncMock()):
+        res = asyncio.run(
+            RailwayPartsManager.update_v2_search_review_ticket(
+                ticket_id=5003,
+                review_status="resolved",
+                verify_status="user_misjudged",
+                issue_type="precision_issue",
+                review_remark="已核验",
+                resolution_remark="用户误判，系统原结果正确",
+                correct_item_code=None,
+            )
+        )
+
+    assert update_mock.await_args.kwargs["verify_status"] == "user_misjudged"
+    assert update_mock.await_args.kwargs["correct_item_id"] == 2
+    assert update_mock.await_args.kwargs["correct_item_code"] == "19010036737"
+    assert update_mock.await_args.kwargs["correct_item_name"] == "钢丝绳"
+    assert update_mock.await_args.kwargs["correct_image_url"] == "bfr-ai-files/steel-rope.jpg"
+    assert update_mock.await_args.kwargs["correct_rank"] == 1
+    assert update_mock.await_args.kwargs["correct_source"] == "review_resolved"
+    assert res.verify_status == "user_misjudged"
 
 def test_update_review_ticket_uses_first_item_image_when_correct_item_not_in_candidates():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()

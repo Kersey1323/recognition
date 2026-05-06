@@ -68,7 +68,7 @@ class ItemsParent(Base):
         await session.execute(stmt)
         await session.flush()
 
-        if parent_item_id is None:
+        if parent_item_id is None or parent_item_id <= 0:
             return
 
         session.add(cls(item_id=item_id, parent_item_id=parent_item_id))
@@ -80,6 +80,7 @@ class Items(Base):
     item_name: Mapped[str] = mapped_column(String(100), nullable=False)
     item_code: Mapped[str] = mapped_column(
         String(100), nullable=False, unique=True)
+    parent_item_id: Mapped[int] = mapped_column(BIGINT, nullable=False, default=0)
     obj_url: Mapped[str] = mapped_column(String(200), nullable=True)
     height: Mapped[float] = mapped_column(DECIMAL, nullable=True)
     long: Mapped[float] = mapped_column(DECIMAL, nullable=True)
@@ -330,6 +331,7 @@ class Items(Base):
         fields: set[str],
         item_name: str | None = None,
         item_code: str | None = None,
+        parent_item_id: int | None = None,
         height: float | None = None,
         length: float | None = None,
         width: float | None = None,
@@ -340,6 +342,8 @@ class Items(Base):
             values["item_name"] = item_name
         if "item_code" in fields:
             values["item_code"] = item_code
+        if "parent_item_id" in fields:
+            values["parent_item_id"] = parent_item_id
         if "height" in fields:
             values["height"] = height
         if "length" in fields:

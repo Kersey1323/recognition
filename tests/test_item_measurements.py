@@ -350,6 +350,83 @@ def test_update_item_uses_partial_fields_and_skips_blank_parent():
     session.commit.assert_awaited()
 
 
+def test_create_item_defaults_parent_item_id_to_zero():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+
+    class _AsyncSessionContext:
+        def __init__(self, session):
+            self.session = session
+
+        async def __aenter__(self):
+            return self.session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module, "get_id", return_value=2023080809420000001), \
+         patch.object(parts_module.Items, "create_item", AsyncMock()) as create_mock, \
+         patch.object(parts_module.ItemsParent, "replace_parent_relations", AsyncMock()) as replace_parent_mock:
+        asyncio.run(
+            parts_module.RailwayPartsManager.create_item(
+                item_name="测试配件",
+                item_code="A001",
+                height=1,
+                length=2,
+                width=3,
+                weight=4,
+                parent_item_id=None,
+            )
+        )
+
+    item = create_mock.await_args.kwargs["item"]
+    assert item.parent_item_id == 0
+    replace_parent_mock.assert_awaited_once_with(
+        session=session,
+        item_id=2023080809420000001,
+        parent_item_id=0,
+    )
+    session.commit.assert_awaited()
+
+
+def test_update_item_allows_top_level_parent_zero_and_clears_relation():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    fake_item = SimpleNamespace(id=101, item_code="A001")
+
+    class _AsyncSessionContext:
+        def __init__(self, session):
+            self.session = session
+
+        async def __aenter__(self):
+            return self.session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)) as get_item_mock, \
+         patch.object(parts_module.Items, "update_item_fields", AsyncMock()) as update_mock, \
+         patch.object(parts_module.ItemsParent, "replace_parent_relations", AsyncMock()) as replace_parent_mock:
+        asyncio.run(
+            parts_module.RailwayPartsManager.update_item(
+                item_id=101,
+                update_fields={"parent_item_id"},
+                parent_item_id=0,
+            )
+        )
+
+    get_item_mock.assert_awaited_once_with(session=session, item_id=101)
+    assert update_mock.await_args.kwargs["values"] == {"parent_item_id": 0}
+    replace_parent_mock.assert_awaited_once_with(
+        session=session,
+        item_id=101,
+        parent_item_id=0,
+    )
+    session.commit.assert_awaited()
+
+
 def test_update_item_updates_parent_relation_when_selected():
     parts_module = _import_railway_parts_manager()
     session = AsyncMock()

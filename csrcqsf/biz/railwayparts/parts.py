@@ -73,6 +73,7 @@ class RailwayPartsManager:
         length: float = None,
         width: float = None,
         weight: float = None,
+        parent_item_id: int | None = None,
     ):
         """
         创建配件实体
@@ -85,21 +86,42 @@ class RailwayPartsManager:
         
         数据库操作：Items.create_item() in models/item.py
         """
-        item = Items(
-            item_name=item_name,
-            item_code=item_code,
-            obj_url=obj_url,
-            height=height,
-            long=length,
-            width=width,
-            weight=weight,
-            id=get_id()
-        )
         async with SessionLocal() as session:
+            normalized_parent_item_id = cls._normalize_parent_item_id(parent_item_id)
+            if normalized_parent_item_id > 0:
+                parent_item = await Items.get_item_by_id(
+                    session=session,
+                    item_id=normalized_parent_item_id,
+                )
+                if parent_item is None:
+                    raise Exception(f'id为{normalized_parent_item_id}的父配件不存在')
+
+            item = Items(
+                item_name=item_name,
+                item_code=item_code,
+                parent_item_id=normalized_parent_item_id,
+                obj_url=obj_url,
+                height=height,
+                long=length,
+                width=width,
+                weight=weight,
+                id=get_id()
+            )
             await Items.create_item(session=session, item=item)
+            await ItemsParent.replace_parent_relations(
+                session=session,
+                item_id=item.id,
+                parent_item_id=normalized_parent_item_id,
+            )
             # if len(pic_urls) > 0:
             #     await ItemImage.create_images(session=session, item_id=item.id, images=pic_urls)
             await session.commit()
+
+    @staticmethod
+    def _normalize_parent_item_id(parent_item_id: int | None) -> int:
+        if parent_item_id is None or parent_item_id <= 0:
+            return 0
+        return parent_item_id
 
     @classmethod
     async def index_pics(cls, item_id: int):
@@ -141,6 +163,8 @@ class RailwayPartsManager:
             if item is None:
                 raise Exception(f'id为{item_id}的配件不存在')
 
+            normalized_parent_item_id = cls._normalize_parent_item_id(parent_item_id)
+
             if "item_name" in update_fields and (item_name is None or str(item_name).strip() == ""):
                 raise Exception("配件名称不能为空")
 
@@ -152,15 +176,16 @@ class RailwayPartsManager:
                 if item_by_code is not None:
                     raise Exception(f"物料编码:{item_code}已经存在了")
 
-            if "parent_item_id" in update_fields:
-                parent_item = await Items.get_item_by_id(session=session, item_id=parent_item_id)
+            if "parent_item_id" in update_fields and normalized_parent_item_id > 0:
+                parent_item = await Items.get_item_by_id(session=session, item_id=normalized_parent_item_id)
                 if parent_item is None:
-                    raise Exception(f'id为{parent_item_id}的父配件不存在')
+                    raise Exception(f'id为{normalized_parent_item_id}的父配件不存在')
 
             values = Items.build_item_updates(
                 fields=update_fields,
                 item_name=item_name,
                 item_code=item_code,
+                parent_item_id=normalized_parent_item_id,
                 height=height,
                 length=length,
                 width=width,
@@ -171,7 +196,7 @@ class RailwayPartsManager:
                 await ItemsParent.replace_parent_relations(
                     session=session,
                     item_id=item_id,
-                    parent_item_id=parent_item_id,
+                    parent_item_id=normalized_parent_item_id,
                 )
             await session.commit()
 
@@ -1340,6 +1365,47 @@ class RailwayPartsManager:
         return (first_image.image_url if first_image else None), None
 
     @classmethod
+    async def _resolve_system_top1_correct_fields(cls, session, history) -> dict:
+        correct_item_code = getattr(history, "search_result_item_code", None)
+        correct_item_name = getattr(history, "search_result_item_name", None)
+        if not correct_item_code:
+            raise Exception("当前记录没有系统推荐结果，无法标记为用户误判")
+
+        correct_item_id = None
+        correct_image_url = None
+        correct_rank = None
+
+        matched_candidate, matched_rank = cls._match_correct_item_in_history_results(
+            history,
+            item_code=correct_item_code,
+        )
+        if matched_candidate is not None:
+            correct_item_id = int(matched_candidate.item_id)
+            correct_item_name = correct_item_name or matched_candidate.item_name
+            correct_image_url = matched_candidate.image_url
+            correct_rank = matched_rank
+        else:
+            item = await Items.get_item_by_item_code(session, correct_item_code)
+            if item is not None:
+                correct_item_id = int(item.id)
+                correct_item_name = correct_item_name or item.item_name
+                correct_image_url, correct_rank = await cls._resolve_correct_image_url(
+                    session,
+                    item_id=correct_item_id,
+                    history=history,
+                    item_code=correct_item_code,
+                )
+
+        return {
+            "correct_item_id": correct_item_id,
+            "correct_item_code": correct_item_code,
+            "correct_item_name": correct_item_name,
+            "correct_image_url": correct_image_url,
+            "correct_rank": correct_rank,
+            "correct_source": "review_resolved",
+        }
+
+    @classmethod
     def _resolve_selected_feedback_candidate(
         cls,
         history,
@@ -1574,12 +1640,13 @@ class RailwayPartsManager:
             result = await SearchHistory.summarize_review_status(session)
             open_ticket_count = await SearchReviewTicket.count_open_tickets(session)
 
-        total, pending_count, correct_count, wrong_count = result.one()
+        total, pending_count, correct_count, wrong_count, user_misjudged_count = result.one()
         return SearchHistorySummaryRes(
             total=int(total or 0),
             pending_count=int(pending_count or 0),
             correct_count=int(correct_count or 0),
             wrong_count=int(wrong_count or 0),
+            user_misjudged_count=int(user_misjudged_count or 0),
             open_ticket_count=int(open_ticket_count or 0),
         )
 
@@ -1643,19 +1710,24 @@ class RailwayPartsManager:
         *,
         ticket_id: int,
         review_status: str,
-        issue_type: str | None,
-        review_remark: str | None,
-        resolution_remark: str | None,
-        correct_item_code: str | None,
+        verify_status: str | None = None,
+        issue_type: str | None = None,
+        review_remark: str | None = None,
+        resolution_remark: str | None = None,
+        correct_item_code: str | None = None,
     ):
         allowed_review_status = {"reviewing", "resolved", "closed"}
+        allowed_verify_status = {None, "wrong", "user_misjudged"}
         allowed_issue_types = {None, "missing_index", "precision_issue", "system_bug"}
         if review_status not in allowed_review_status:
             raise Exception(f"review_status={review_status} 不支持")
+        if verify_status not in allowed_verify_status:
+            raise Exception(f"verify_status={verify_status} 不支持")
         if issue_type not in allowed_issue_types:
             raise Exception(f"issue_type={issue_type} 不支持")
 
         now = datetime.now()
+        resolved_verify_status = verify_status
         correct_item_id = None
         correct_item_name = None
         correct_image_url = None
@@ -1667,28 +1739,58 @@ class RailwayPartsManager:
             if ticket is None:
                 raise Exception(f"ticket_id={ticket_id} 的记录不存在")
 
-            history = None
-            if correct_item_code:
+            history = await SearchHistory.get_history_by_id(session, int(ticket.history_id))
+            if history is None:
+                raise Exception(f"history_id={ticket.history_id} 的记录不存在")
+
+            if review_status == "resolved" and resolved_verify_status == "user_misjudged":
+                correct_fields = await cls._resolve_system_top1_correct_fields(session, history)
+                correct_item_id = correct_fields["correct_item_id"]
+                correct_item_code = correct_fields["correct_item_code"]
+                correct_item_name = correct_fields["correct_item_name"]
+                correct_image_url = correct_fields["correct_image_url"]
+                correct_rank = correct_fields["correct_rank"]
+                correct_source = correct_fields["correct_source"]
+                await SearchHistory.update_review_result(
+                    session,
+                    int(ticket.history_id),
+                    verify_status="user_misjudged",
+                    correct_item_id=correct_item_id,
+                    correct_item_code=correct_item_code,
+                    correct_item_name=correct_item_name,
+                    correct_image_url=correct_image_url,
+                    correct_rank=correct_rank,
+                    correct_source=correct_source,
+                    verify_remark=resolution_remark or review_remark,
+                    verified_at=now,
+                )
+            elif correct_item_code:
+                resolved_verify_status = resolved_verify_status or "wrong"
                 item = await Items.get_item_by_item_code(session, correct_item_code)
                 if item is None:
                     raise Exception(f"物料编码 {correct_item_code} 不存在")
-                correct_item_id = int(item.id)
+                item_id = getattr(item, "id", None)
+                if item_id is None:
+                    matched_candidate, _ = cls._match_correct_item_in_history_results(
+                        history,
+                        item_code=correct_item_code,
+                    )
+                    if matched_candidate is not None:
+                        item_id = int(matched_candidate.item_id)
+                correct_item_id = int(item_id) if item_id is not None else None
                 correct_item_name = item.item_name
-                history = await SearchHistory.get_history_by_id(session, int(ticket.history_id))
-                if history is None:
-                    raise Exception(f"history_id={ticket.history_id} 的记录不存在")
                 correct_image_url, correct_rank = await cls._resolve_correct_image_url(
                     session,
                     item_id=correct_item_id,
                     history=history,
                     item_code=correct_item_code,
-                )
+                ) if correct_item_id is not None else (None, None)
                 correct_source = "review_resolved"
 
                 await SearchHistory.update_review_result(
                     session,
                     int(ticket.history_id),
-                    verify_status="wrong",
+                    verify_status=resolved_verify_status,
                     correct_item_id=correct_item_id,
                     correct_item_code=correct_item_code,
                     correct_item_name=correct_item_name,
@@ -1729,6 +1831,7 @@ class RailwayPartsManager:
         return SearchReviewTicketUpdateRes(
             ticket_id=ticket_id,
             review_status=review_status,
+            verify_status=resolved_verify_status,
             issue_type=issue_type,
             review_remark=review_remark,
             resolution_remark=resolution_remark,
@@ -1762,7 +1865,15 @@ class RailwayPartsManager:
             correct_image_url = None
             correct_rank = None
             correct_source = None
-            if verify_status == "correct" and not correct_item_code:
+            if verify_status == "user_misjudged":
+                correct_fields = await cls._resolve_system_top1_correct_fields(session, history)
+                correct_item_id = correct_fields["correct_item_id"]
+                correct_item_code = correct_fields["correct_item_code"]
+                correct_item_name = correct_fields["correct_item_name"]
+                correct_image_url = correct_fields["correct_image_url"]
+                correct_rank = correct_fields["correct_rank"]
+                correct_source = correct_fields["correct_source"]
+            elif verify_status == "correct" and not correct_item_code:
                 correct_item_code = history.search_result_item_code
                 correct_item_name = history.search_result_item_name
                 matched_candidate, matched_rank = cls._match_correct_item_in_history_results(

@@ -46,7 +46,8 @@ async def create_item(req: CreateItemReq):
     业务逻辑：RailwayPartsManager.create_item() in biz/railwayparts/parts.py
     """
     await RailwayPartsManager.create_item(item_name=req.item_name, item_code=req.item_code, obj_url=req.obj_url,
-                                          height=req.height, length=req.length, width=req.width, weight=req.weight)
+                                          height=req.height, length=req.length, width=req.width, weight=req.weight,
+                                          parent_item_id=int(req.parent_item_id) if req.parent_item_id is not None else None)
 
 
 @parts_router.post('/item_delete',  tags=["业务-配件管理"], summary='删除配件实体', responses={
@@ -765,7 +766,7 @@ async def search_v2_by_image(
 - `search_type`: 检索类型筛选，支持 `all`、`text`、`image`
 - `search_equipment`: 检索设备筛选，支持 `all`、`web`、`terminal`
 - `keyword`: 关键词筛选，会匹配查询文本、检索结果物料编码/名称、人工纠正物料编码
-- `status`: 校验状态筛选，支持 `all`、`pending`、`correct`、`wrong`
+- `status`: 校验状态筛选，支持 `all`、`pending`、`correct`、`wrong`、`user_misjudged`
 - `date_from`: 开始日期，格式 `YYYY-MM-DD`
 - `date_to`: 结束日期，格式 `YYYY-MM-DD`
 
@@ -818,7 +819,7 @@ async def summary_v2_search_history():
 请求体字段说明：
 
 - `history_id`: 检索历史ID
-- `verify_status`: 校验结果，支持 `correct`、`wrong`、`partial`
+- `verify_status`: 校验结果，支持 `correct`、`wrong`、`user_misjudged`、`partial`
 - `correct_item_code`: 人工确认后的正确物料编码；当 `verify_status=correct` 且不传时，默认回填首条检索结果编码
 - `remark`: 人工校验备注
 """)
@@ -894,6 +895,7 @@ async def get_v2_search_review_ticket_detail(req: SearchReviewTicketDetailReq):
 
 - `ticket_id`: 核验单ID
 - `review_status`: 目标状态，支持 `reviewing`、`resolved`、`closed`
+- `verify_status`: 最终校验结果，支持 `wrong`、`user_misjudged`
 - `issue_type`: 问题类型，支持 `missing_index`、`precision_issue`、`system_bug`
 - `review_remark`: 核验备注
 - `resolution_remark`: 解决备注
@@ -903,6 +905,7 @@ async def update_v2_search_review_ticket(req: SearchReviewTicketUpdateReq):
     return await RailwayPartsManager.update_v2_search_review_ticket(
         ticket_id=int(req.ticket_id),
         review_status=req.review_status,
+        verify_status=req.verify_status,
         issue_type=req.issue_type,
         review_remark=req.review_remark,
         resolution_remark=req.resolution_remark,

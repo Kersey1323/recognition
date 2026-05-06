@@ -164,6 +164,7 @@ class SearchHistory(Base):
             func.sum(case((pending_expr, 1), else_=0)),
             func.sum(case((cls.verify_status == "correct", 1), else_=0)),
             func.sum(case((or_(cls.verify_status == "wrong", cls.verify_status == "partial"), 1), else_=0)),
+            func.sum(case((cls.verify_status == "user_misjudged", 1), else_=0)),
         )
         return await session.execute(stmt)
 

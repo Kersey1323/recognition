@@ -66,6 +66,14 @@ async def db_migrate():
         """))
         await conn.execute(text("""
             ALTER TABLE parts.item_info
+            ADD COLUMN IF NOT EXISTS parent_item_id BIGINT NOT NULL DEFAULT 0
+        """))
+        await conn.execute(text("""
+            ALTER TABLE parts.item_info
+            ALTER COLUMN parent_item_id SET DEFAULT 0
+        """))
+        await conn.execute(text("""
+            ALTER TABLE parts.item_info
             ADD COLUMN IF NOT EXISTS source_video_path VARCHAR(500),
             ADD COLUMN IF NOT EXISTS source_video_filename VARCHAR(255),
             ADD COLUMN IF NOT EXISTS source_video_size BIGINT,
