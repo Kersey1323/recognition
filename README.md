@@ -1,264 +1,134 @@
-# 动车配件图像识别系统
+# 铁路配件智能识别系统
 
-基于 FastAPI 的铁路配件智能识别系统，集成了图像识别、3D重建、文档解析等功能。
+基于 FastAPI 的铁路配件智能识别系统，覆盖以下核心能力：
 
-## 项目结构
+- 配件基础管理
+- 图片检索与文本检索
+- V2 向量索引重建
+- 检索历史与技术部核验闭环
+- 配件图片分割与预处理
+- 视频三维重构
 
-```
+## 文档入口
+
+甲方部署、联调和运维建议优先阅读以下文档：
+
+- [部署文档](部署文档.md)
+- [SGO网关与算法服务接口对接说明](SGO网关与算法服务接口对接说明.md)
+
+如果需要查看项目结构，可参考：
+
+- [代码结构说明](docs/代码结构说明.md)
+
+## 技术栈
+
+- FastAPI
+- PostgreSQL
+- Milvus
+- MinIO
+- Redis / Celery / Flower
+- SigLIP
+- DINOv2
+- SAM / SAM3
+- COLMAP / 3D Gaussian Splatting
+
+## 代码结构
+
+```text
 recognition/
-├── csrcqsf/              # 主应用代码
-│   ├── app.py           # FastAPI 应用入口
-│   ├── settings.py      # 配置文件
-│   ├── biz/            # 业务逻辑
-│   ├── data/           # 数据层
-│   ├── models/         # 数据模型
-│   └── services/       # API 服务
-├── scripts/             # 工具脚本（按功能分类）
-│   ├── database/       # 数据库维护
-│   ├── data_processing/ # 数据处理
-│   ├── deployment/     # 部署配置
-│   ├── document/       # 文档处理
-│   ├── embedding/      # 特征提取
-│   ├── minio/         # MinIO管理
-│   ├── reconstruction/ # 3D重建
-│   └── testing/       # 功能测试
-├── tests/              # 单元测试
-├── docs/               # 项目文档
-│   ├── API.md         # API文档
-│   ├── diagrams/      # 架构图
-│   └── archive/       # 历史文档
-├── models/             # AI模型
-│   ├── embedding/     # 嵌入模型
-│   └── resnet/        # ResNet模型
-├── data/              # 数据文件
-│   ├── temp/          # 临时文件
-│   ├── logs/          # 日志
-│   └── video/         # 测试视频
-└── tools/             # 工具HTML
-
-详细重构说明见：docs/重构完成报告.md
+├── csrcqsf/                         # 主应用代码
+│   ├── app.py                       # FastAPI 应用入口
+│   ├── settings.py                  # 配置读取
+│   ├── services/                    # API 路由层
+│   ├── biz/                         # 业务逻辑层
+│   ├── data/                        # 数据访问层
+│   └── models/                      # ORM / 数据模型
+├── tests/                           # 单元测试
+├── scripts/                         # 工具脚本
+├── docs/                            # 项目文档
+└── csrcqsf/biz/railwayparts/reconstruction_server/
+                                     # 三维重构独立服务
 ```
 
-## 环境依赖
+## 快速开始
 
-### Python 依赖 (使用 uv)
+### 1. 安装依赖
+
 ```bash
+cd /home/ubuntu/project-train/recognition
 uv sync
 ```
 
-
-### 模型文件下载
-
-#### 1. ResNet34 模型 (标准模式)
-```bash
-mkdir -p ./models/resnet
-# 放置 pytorch_model.bin 到 ./models/resnet/
-```
-
-#### 2. DINOv2-Large 模型 (高精度模式)
-```bash
-mkdir -p ./models/dinov2
-wget https://dl.fbaipublicfiles.com/dinov2/dinov2_vitl14/dinov2_vitl14_pretrain.pth -O ./models/dinov2/dinov2_vitl14_pretrain.pth
-```
-
-#### 3. Embedding 模型
-```bash
-# 放置 sentence-transformer 模型到 ./models/embedding/
-```
-
-#### 4. SAM 模型 (自动分割)
-```bash
-mkdir -p ./sam_models
-wget https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth -O ./sam_models/sam_vit_h_4b8939.pth
-```
-
-### 3D 重建依赖 (可选)
-
-#### COLMAP
-```bash
-# Ubuntu
-apt install colmap
-
-# 或从源码编译
-# https://colmap.github.io/install.html
-```
-
-#### 3D Gaussian Splatting
-```bash
-git clone https://github.com/graphdeco-inria/gaussian-splatting /opt/gaussian-splatting
-cd /opt/gaussian-splatting && pip install -e .
-export GS_REPO_PATH=/opt/gaussian-splatting
-```
-
-#### SuGaR (Mesh 提取)
-```bash
-git clone https://github.com/Anttwo/SuGaR /opt/SuGaR
-cd /opt/SuGaR && pip install -e .
-export SUGAR_REPO_PATH=/opt/SuGaR
-```
-
-## 运行
+### 2. 配置环境变量
 
 ```bash
-python main.py
+cp .env.example .env
 ```
 
-默认启动后服务地址为：`http://localhost:65432`
+然后按实际环境修改 `.env`，重点包括：
 
-## Celery 与 Flower 启动
+- PostgreSQL
+- Milvus
+- MinIO
+- Redis
+- `MODEL_DIR`
 
-3D 重建 V2 接口依赖 `Redis + Celery Worker + Flower`。如果你要使用以下接口，需要先启动这些后台服务：
+### 3. 准备模型文件
 
-- `POST /railway/parts/v2/reconstruct/train`
-- `POST /railway/parts/v2/reconstruct/video`
-- `GET /railway/parts/v2/reconstruct/status/{task_id}`
+当前项目依赖的模型默认通过 `MODEL_DIR` 指向本地目录。  
+模型放置规范、公司 OSS 上传建议和下载命令，请参考：
 
-### 1. 启动 Redis
-
-```bash
-cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
-redis-server redis.conf
-```
-
-后台启动方式：
-
-```bash
-cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
-nohup redis-server redis.conf > logs/redis.log 2>&1 &
-```
-
-验证 Redis：
-
-```bash
-redis-cli -p 6380 ping
-```
-
-如果返回 `PONG`，说明 Redis 正常。
-
-### 2. 启动 Celery Worker
-
-```bash
-cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
-celery -A celery_app worker --loglevel=info -E
-```
-
-后台启动方式：
-
-```bash
-cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
-nohup celery -A celery_app worker --loglevel=info -E > logs/celery_worker.log 2>&1 &
-```
-
-说明：
-
-- `-E` 很重要，它会启用事件上报，Flower 才能看到任务历史和实时状态。
-- `celery_app.py` 默认使用 `localhost:6380` 的 Redis。
-
-查看 Worker 状态：
-
-```bash
-cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
-celery -A celery_app inspect active
-```
-
-### 3. 启动 Flower
-
-```bash
-cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
-celery -A celery_app flower --port=5555
-```
-
-后台启动方式：
-
-```bash
-cd /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server
-nohup celery -A celery_app flower --port=5555 > logs/flower.log 2>&1 &
-```
-
-启动后访问：
-
-```text
-http://localhost:5555
-```
+- [甲方部署文档 - 公司 OSS 模型准备与下载](docs/甲方部署文档.md)
 
 ### 4. 启动主服务
 
 ```bash
 cd /home/ubuntu/project-train/recognition
+source .venv/bin/activate
 python main.py
 ```
 
-后台启动方式：
+默认地址：
+
+- Swagger: `http://127.0.0.1:65432/docs`
+
+### 5. 按需启动三维重构后台服务
+
+如果需要使用视频三维重构，还需要启动：
+
+- Redis
+- Celery Worker
+- Flower
+- reconstruction_server API
+
+详细步骤见：
+
+- [甲方部署文档](docs/甲方部署文档.md)
+- [reconstruction_server README](csrcqsf/biz/railwayparts/reconstruction_server/README.md)
+- [Celery 说明](csrcqsf/biz/railwayparts/reconstruction_server/docs/README_CELERY.md)
+
+## 常用验证命令
+
+### 验证模型路径
 
 ```bash
-cd /home/ubuntu/project-train/recognition
-nohup python main.py > logs/main_service.log 2>&1 &
+PYTHONPATH=. .venv/bin/python scripts/testing/debug_model_paths.py
 ```
 
-### 5. 推荐启动顺序
+### 验证向量库配置
 
 ```bash
-1. Redis
-2. Celery Worker
-3. Flower
-4. FastAPI 主服务
+PYTHONPATH=. .venv/bin/python scripts/testing/test_vector_db_config.py
 ```
 
-### 6. 常用日志查看
+### 运行相关测试
 
 ```bash
-tail -f /home/ubuntu/project-train/recognition/logs/main_service.log
-tail -f /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server/logs/celery_worker.log
-tail -f /home/ubuntu/project-train/recognition/csrcqsf/biz/railwayparts/reconstruction_server/logs/flower.log
+PYTHONPATH=. .venv/bin/pytest tests/ -q
 ```
 
-## API 文档
+## 说明
 
-启动后访问: `http://localhost:65432/docs`
+- 当前仓库 README 只保留项目简介和导航信息。
+- 甲方实际部署步骤、模型下载、服务启动顺序和故障排查统一维护在 [部署文档](甲方部署文档.md)。
 
-详细API说明见：`docs/API.md`
-
-## 测试
-
-```bash
-# 运行所有测试
-python -m pytest tests/
-
-# 测试API接口
-python tests/test_all_apis.py
-
-# 测试数据库连接
-python tests/test_db_connection.py
-
-# 测试MinIO
-python tests/test_minio.py
-```
-
-## 工具脚本
-
-所有工具脚本位于 `scripts/` 目录，按功能分类：
-
-```bash
-# 数据库维护
-python scripts/database/fix_db_columns.py
-
-# 数据处理
-python scripts/data_processing/sync_image_all.py
-
-# 文档生成
-python scripts/document/gen_word.py
-
-# 特征提取
-python scripts/embedding/embed_word.py
-
-# 3D重建
-python scripts/reconstruction/3d_reconstruction.py
-```
-
-## 配置
-
-- 数据库：PostgreSQL (192.168.100.2:5432)
-- MinIO：192.168.100.2:9000
-- 服务端口：65432
-
-配置文件：`csrcqsf/settings.py`
