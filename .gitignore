@@ -31,3 +31,4 @@ csrcqsf/biz/railwayparts/vector_db/logs/
 csrcqsf/biz/railwayparts/vector_db/checkpoint.json
 
 docs/*
+data/videos/*
