@@ -202,7 +202,6 @@ def test_update_review_ticket_marks_resolved_and_backfills_correct_item():
             RailwayPartsManager.update_v2_search_review_ticket(
                 ticket_id=7003,
                 review_status="resolved",
-                verify_status=None,
                 issue_type="precision_issue",
                 review_remark="核验完成",
                 resolution_remark="已回填正确结果",
@@ -228,7 +227,6 @@ def test_update_review_ticket_rejects_open_status():
             RailwayPartsManager.update_v2_search_review_ticket(
                 ticket_id=7004,
                 review_status="open",
-                verify_status=None,
                 issue_type=None,
                 review_remark=None,
                 resolution_remark=None,
@@ -265,7 +263,6 @@ def test_update_review_ticket_reviewing_clears_resolved_and_closed_timestamps():
             RailwayPartsManager.update_v2_search_review_ticket(
                 ticket_id=7005,
                 review_status="reviewing",
-                verify_status=None,
                 issue_type="system_bug",
                 review_remark="重新核验",
                 resolution_remark=None,
@@ -320,8 +317,7 @@ def test_update_review_ticket_supports_user_misjudged_result():
             RailwayPartsManager.update_v2_search_review_ticket(
                 ticket_id=7006,
                 review_status="resolved",
-                verify_status="user_misjudged",
-                issue_type="precision_issue",
+                issue_type="user_misjudged",
                 review_remark="核验完成",
                 resolution_remark="用户误判",
                 correct_item_code=None,
@@ -339,7 +335,7 @@ def test_update_review_ticket_supports_user_misjudged_result():
 def test_summary_review_tickets_maps_status_and_issue_type_counts():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     fake_result = MagicMock()
-    fake_result.one.return_value = (8, 2, 1, 3, 2, 1, 4, 3)
+    fake_result.one.return_value = (8, 2, 1, 3, 2, 1, 4, 3, 2)
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
          patch.object(parts_module.SearchReviewTicket, "summarize_tickets", AsyncMock(return_value=fake_result)) as summarize_mock:
@@ -354,3 +350,4 @@ def test_summary_review_tickets_maps_status_and_issue_type_counts():
     assert summary.missing_index_count == 1
     assert summary.precision_issue_count == 4
     assert summary.system_bug_count == 3
+    assert summary.user_misjudged_count == 2

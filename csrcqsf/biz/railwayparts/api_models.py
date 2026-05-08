@@ -551,7 +551,7 @@ class SearchReviewTicketListReq(PageReq):
     )
     issue_type: str = Field(
         default="all",
-        description="问题类型筛选：all 全部，missing_index 未建索引，precision_issue 精度问题，system_bug 系统问题",
+        description="问题类型筛选：all 全部，missing_index 未建索引，precision_issue 精度问题，system_bug 系统问题，user_misjudged 用户误判",
         example="precision_issue",
     )
     search_equipment: str = Field(
@@ -673,12 +673,11 @@ class SearchReviewTicketUpdateReq(BaseModel):
         description="核验单状态：reviewing 核验中，resolved 已解决，closed 已关闭",
         example="resolved",
     )
-    verify_status: str | None = Field(
+    issue_type: str | None = Field(
         default=None,
-        description="最终校验结果：wrong 错误，user_misjudged 用户误判",
-        example="wrong",
+        description="问题类型：missing_index 未建索引，precision_issue 精度问题，system_bug 系统问题，user_misjudged 用户误判",
+        example="precision_issue",
     )
-    issue_type: str | None = Field(default=None, description="问题类型", example="precision_issue")
     review_remark: str | None = Field(default=None, description="核验备注", example="已接单核验")
     resolution_remark: str | None = Field(default=None, description="解决备注", example="已修复")
     correct_item_code: str | None = Field(default=None, description="纠正后的物料编码", example="19010036737")
@@ -723,6 +722,7 @@ class SearchReviewTicketSummaryRes(BaseModel):
     missing_index_count: int
     precision_issue_count: int
     system_bug_count: int
+    user_misjudged_count: int
 
 
 class ItemSuggestReq(BaseModel):

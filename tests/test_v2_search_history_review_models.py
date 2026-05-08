@@ -192,7 +192,8 @@ def test_review_console_request_models_expose_openapi_examples_and_descriptions(
 
     assert "user_misjudged 用户误判" in verify_schema["properties"]["verify_status"]["description"]
     assert verify_schema["example"]["correct_item_code"] == "19010036737"
-    assert review_update_schema["properties"]["verify_status"]["description"] == "最终校验结果：wrong 错误，user_misjudged 用户误判"
+    assert "verify_status" not in review_update_schema["properties"]
+    assert review_update_schema["properties"]["issue_type"]["description"] == "问题类型：missing_index 未建索引，precision_issue 精度问题，system_bug 系统问题，user_misjudged 用户误判"
 
     assert suggest_schema["properties"]["keyword"]["description"] == "联想关键词，可输入物料编码或物料名称片段"
     assert suggest_schema["example"]["limit"] == 10

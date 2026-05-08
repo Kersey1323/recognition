@@ -151,6 +151,7 @@ def test_search_review_ticket_summarize_uses_required_status_and_issue_types():
     assert "missing_index" in sql
     assert "precision_issue" in sql
     assert "system_bug" in sql
+    assert "user_misjudged" in sql
     assert "processing" not in sql
     assert "issue_type_count" not in sql
 
@@ -557,8 +558,7 @@ def test_update_review_ticket_marks_user_misjudged_with_original_top1():
             RailwayPartsManager.update_v2_search_review_ticket(
                 ticket_id=5003,
                 review_status="resolved",
-                verify_status="user_misjudged",
-                issue_type="precision_issue",
+                issue_type="user_misjudged",
                 review_remark="已核验",
                 resolution_remark="用户误判，系统原结果正确",
                 correct_item_code=None,

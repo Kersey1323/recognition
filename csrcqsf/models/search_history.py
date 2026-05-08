@@ -459,5 +459,6 @@ class SearchReviewTicket(Base):
             func.sum(case((cls.issue_type == "missing_index", 1), else_=0)),
             func.sum(case((cls.issue_type == "precision_issue", 1), else_=0)),
             func.sum(case((cls.issue_type == "system_bug", 1), else_=0)),
+            func.sum(case((cls.issue_type == "user_misjudged", 1), else_=0)),
         )
         return await session.execute(stmt)

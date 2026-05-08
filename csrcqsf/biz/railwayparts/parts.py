@@ -1692,7 +1692,17 @@ class RailwayPartsManager:
         async with SessionLocal() as session:
             result = await SearchReviewTicket.summarize_tickets(session)
 
-        total, open_count, reviewing_count, resolved_count, closed_count, missing_index_count, precision_issue_count, system_bug_count = result.one()
+        (
+            total,
+            open_count,
+            reviewing_count,
+            resolved_count,
+            closed_count,
+            missing_index_count,
+            precision_issue_count,
+            system_bug_count,
+            user_misjudged_count,
+        ) = result.one()
         return SearchReviewTicketSummaryRes(
             total=int(total or 0),
             open_count=int(open_count or 0),
@@ -1702,6 +1712,7 @@ class RailwayPartsManager:
             missing_index_count=int(missing_index_count or 0),
             precision_issue_count=int(precision_issue_count or 0),
             system_bug_count=int(system_bug_count or 0),
+            user_misjudged_count=int(user_misjudged_count or 0),
         )
 
     @classmethod
@@ -1710,24 +1721,20 @@ class RailwayPartsManager:
         *,
         ticket_id: int,
         review_status: str,
-        verify_status: str | None = None,
         issue_type: str | None = None,
         review_remark: str | None = None,
         resolution_remark: str | None = None,
         correct_item_code: str | None = None,
     ):
         allowed_review_status = {"reviewing", "resolved", "closed"}
-        allowed_verify_status = {None, "wrong", "user_misjudged"}
-        allowed_issue_types = {None, "missing_index", "precision_issue", "system_bug"}
+        allowed_issue_types = {None, "missing_index", "precision_issue", "system_bug", "user_misjudged"}
         if review_status not in allowed_review_status:
             raise Exception(f"review_status={review_status} 不支持")
-        if verify_status not in allowed_verify_status:
-            raise Exception(f"verify_status={verify_status} 不支持")
         if issue_type not in allowed_issue_types:
             raise Exception(f"issue_type={issue_type} 不支持")
 
         now = datetime.now()
-        resolved_verify_status = verify_status
+        resolved_verify_status = "user_misjudged" if issue_type == "user_misjudged" else None
         correct_item_id = None
         correct_item_name = None
         correct_image_url = None

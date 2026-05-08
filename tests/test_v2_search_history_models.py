@@ -365,7 +365,6 @@ def test_review_ticket_contract_models_serialize():
     update_req = SearchReviewTicketUpdateReq(
         ticket_id="5001",
         review_status="resolved",
-        verify_status="wrong",
         issue_type="precision_issue",
         review_remark="已接单核验",
         resolution_remark="已修复",
@@ -390,6 +389,7 @@ def test_review_ticket_contract_models_serialize():
         missing_index_count=1,
         precision_issue_count=3,
         system_bug_count=1,
+        user_misjudged_count=1,
     )
 
     assert detail_req.ticket_id == "5001"
@@ -397,13 +397,14 @@ def test_review_ticket_contract_models_serialize():
     assert dump_model(detail_res)["time_updated"] == "2026-04-23 12:00:00"
     assert dump_model(list_res)["items"][0]["ticket_id"] == "5001"
     assert dump_model(update_req)["review_status"] == "resolved"
-    assert dump_model(update_req)["verify_status"] == "wrong"
+    assert "verify_status" not in dump_model(update_req)
     assert dump_model(update_req)["review_remark"] == "已接单核验"
     assert dump_model(update_req)["resolution_remark"] == "已修复"
     assert dump_model(update_req)["correct_item_code"] == "19010036737"
     assert dump_model(update_res)["message"] == "更新成功"
     assert dump_model(summary_res)["open_count"] == 2
     assert dump_model(summary_res)["precision_issue_count"] == 3
+    assert dump_model(summary_res)["user_misjudged_count"] == 1
 
 
 def test_v2_index_delete_response_serializes_item_id_as_string():

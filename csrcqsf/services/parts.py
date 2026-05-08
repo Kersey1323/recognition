@@ -863,7 +863,7 @@ async def submit_v2_search_feedback(req: SearchHistoryFeedbackReq):
 - `page`: 页码，从 1 开始
 - `pageSize`: 每页数量
 - `review_status`: 核验单状态筛选，支持 `all`、`open`、`reviewing`、`resolved`、`closed`
-- `issue_type`: 问题类型，支持 `missing_index`、`precision_issue`、`system_bug`
+- `issue_type`: 问题类型，支持 `missing_index`、`precision_issue`、`system_bug`、`user_misjudged`
 - `search_equipment`: 检索设备筛选，支持 `all`、`web`、`terminal`
 - `keyword`: 关键词筛选
 - `date_from`: 开始日期，格式 `YYYY-MM-DD`
@@ -895,8 +895,7 @@ async def get_v2_search_review_ticket_detail(req: SearchReviewTicketDetailReq):
 
 - `ticket_id`: 核验单ID
 - `review_status`: 目标状态，支持 `reviewing`、`resolved`、`closed`
-- `verify_status`: 最终校验结果，支持 `wrong`、`user_misjudged`
-- `issue_type`: 问题类型，支持 `missing_index`、`precision_issue`、`system_bug`
+- `issue_type`: 问题类型，支持 `missing_index`、`precision_issue`、`system_bug`、`user_misjudged`
 - `review_remark`: 核验备注
 - `resolution_remark`: 解决备注
 - `correct_item_code`: 可选，纠正后的物料编码
@@ -905,7 +904,6 @@ async def update_v2_search_review_ticket(req: SearchReviewTicketUpdateReq):
     return await RailwayPartsManager.update_v2_search_review_ticket(
         ticket_id=int(req.ticket_id),
         review_status=req.review_status,
-        verify_status=req.verify_status,
         issue_type=req.issue_type,
         review_remark=req.review_remark,
         resolution_remark=req.resolution_remark,
