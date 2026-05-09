@@ -279,6 +279,8 @@ def test_reconstruction_index_rebuild_response_serializes_item_id_as_string():
         item_id=BIG_ITEM_ID,
         limit="all",
         rebuild_existing=True,
+        success_count=3,
+        fail_count=0,
     )
 
     data = dump_model(res)
@@ -286,6 +288,8 @@ def test_reconstruction_index_rebuild_response_serializes_item_id_as_string():
     assert data["item_id"] == str(BIG_ITEM_ID)
     assert isinstance(data["item_id"], str)
     assert data["rebuild_existing"] is True
+    assert data["success_count"] == 3
+    assert data["fail_count"] == 0
 
 
 def test_reconstruction_source_video_response_serializes_item_id_as_string():

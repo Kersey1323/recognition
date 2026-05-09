@@ -228,6 +228,11 @@ class ReconstructionIndexRebuildRes(BaseModel):
     item_id: Optional[str] = Field(None, description='配件ID，字符串返回以避免前端精度丢失')
     limit: Optional[str | int] = Field(None, description='处理数量限制')
     rebuild_existing: bool = Field(False, description='是否重建已存在的索引')
+    success_count: int | None = Field(None, description='成功建立索引的图片数量')
+    fail_count: int | None = Field(None, description='失败的图片数量')
+    total: int | None = Field(None, description='本次处理的图片总数')
+    processed_item_count: int | None = Field(None, description='本次实际处理的配件数量')
+    skipped_existing_count: int | None = Field(None, description='跳过已存在索引的配件数量')
 
     @validator("item_id", pre=True)
     def normalize_item_id(cls, value):

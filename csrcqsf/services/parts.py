@@ -644,10 +644,10 @@ async def rebuild_v2_index(
     - 如果 limit > 100 或未指定 limit，将在后台执行
     - 小批量任务（limit <= 100）会同步执行并返回结果
     """
-    # 判断是否需要后台执行
-    should_background = (limit is None or limit > 100) and background_tasks is not None
-    
     int_item_id = int(item_id) if item_id not in (None, "") else None
+    
+    # 单配件重建默认同步返回最终统计；仅全量/大批量任务走后台
+    should_background = int_item_id is None and (limit is None or limit > 100) and background_tasks is not None
 
     if should_background:
         # 大批量任务放到后台执行
@@ -670,11 +670,17 @@ async def rebuild_v2_index(
             limit=limit,
             rebuild_existing=rebuild_existing,
         )
-        return {
-            'message': 'Index rebuilt successfully',
-            'rebuild_existing': rebuild_existing,
-            'result': result
-        }
+        return ReconstructionIndexRebuildRes(
+            message=f'索引重建完成: 成功={result["success_count"]}, 失败={result["fail_count"]}',
+            item_id=item_id,
+            limit=limit or 'all',
+            rebuild_existing=rebuild_existing,
+            success_count=result["success_count"],
+            fail_count=result["fail_count"],
+            total=result["total"],
+            processed_item_count=result["processed_item_count"],
+            skipped_existing_count=result["skipped_existing_count"],
+        )
 
 
 @parts_router.delete('/v2/index/{item_id}', tags=["算法-向量检索V2"], summary='删除指定配件的V2索引', responses={
