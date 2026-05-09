@@ -363,6 +363,56 @@ def test_list_v2_search_history_uses_explicit_query_fields_and_unknown_fallback(
     assert res.items[2].query_image is None
 
 
+def test_build_search_history_item_prefers_query_images_when_present():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    row = SimpleNamespace(
+        id=1,
+        time_created=datetime(2026, 5, 9, 10, 0, 0),
+        query_text=None,
+        query_image=None,
+        query_images_json=["q1.jpg", "q2.jpg"],
+        search_equipment="web",
+        verify_status="pending",
+        verify_remark=None,
+        verified_at=None,
+        inquery_id=None,
+        inquery_num=None,
+        search_result_item_name="A",
+        search_result_item_code="4001",
+        correct_item_id=None,
+        correct_item_name=None,
+        correct_item_code=None,
+        correct_image_url=None,
+        correct_rank=None,
+        correct_source=None,
+        ranking_feedback_type=None,
+        search_results=parts_module.SearchResults(
+            items=[
+                {
+                    "item_id": "1",
+                    "item_code": "4001",
+                    "item_name": "A",
+                    "similar": 0.99,
+                    "image_url": "a1.jpg",
+                    "matched_images": [
+                        {
+                            "image_url": "a1.jpg",
+                            "rate": 0.99,
+                            "matched_query_indexes": [0, 1],
+                        }
+                    ],
+                }
+            ]
+        ),
+    )
+
+    item = RailwayPartsManager._build_search_history_item(row)
+
+    assert item.search_type == "image"
+    assert item.query_images == ["q1.jpg", "q2.jpg"]
+    assert item.result.items[0].matched_images[0].matched_query_indexes == [0, 1]
+
+
 def test_list_v2_search_history_backfills_missing_result_item_name_from_items_table():
     from csrcqsf.biz.railwayparts.api_models import SearchHistoryListReq
     from csrcqsf.models.search_history import SearchResults

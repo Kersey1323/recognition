@@ -1176,6 +1176,7 @@ class RailwayPartsManager:
         history_id: int,
         query_text: str | None,
         query_image: str | None,
+        query_images: list[str] | None,
         search_equipment: str,
         search_items: list[SearchItem],
     ) -> None:
@@ -1189,7 +1190,13 @@ class RailwayPartsManager:
                     similar=item.rate,
                     image_url=item.image_url,
                     matched_images=[
-                        MatchedImage(image_url=matched.image_url, rate=matched.rate)
+                        MatchedImage(
+                            image_url=matched.image_url,
+                            rate=matched.rate,
+                            matched_query_indexes=list(
+                                getattr(matched, "matched_query_indexes", []) or []
+                            ),
+                        )
                         for matched in item.matched_images
                     ],
                 )
@@ -1209,6 +1216,7 @@ class RailwayPartsManager:
                         search_parameter=None,
                         query_text=query_text,
                         query_image=query_image,
+                        query_images_json=query_images or None,
                         search_equipment=search_equipment,
                         verify_status="pending",
                         verify_remark=None,
@@ -1227,6 +1235,7 @@ class RailwayPartsManager:
         grouped: dict[str, dict] = {}
 
         for index, item in enumerate(search_items):
+            base_matched = item.matched_images[0] if item.matched_images else None
             bucket = grouped.setdefault(
                 str(item.item_id),
                 {
@@ -1236,7 +1245,16 @@ class RailwayPartsManager:
                 },
             )
             bucket["matched_images"].append(
-                (index, MatchedImage(image_url=item.image_url, rate=item.rate))
+                (
+                    index,
+                    MatchedImage(
+                        image_url=item.image_url,
+                        rate=item.rate,
+                        matched_query_indexes=list(
+                            getattr(base_matched, "matched_query_indexes", []) or []
+                        ),
+                    ),
+                )
             )
             if item.rate > bucket["best_item"].rate:
                 bucket["best_item"] = item
@@ -1266,6 +1284,81 @@ class RailwayPartsManager:
             key=lambda item: (-item.rate, grouped[str(item.item_id)]["first_index"])
         )
         return aggregated_items
+
+    @classmethod
+    def _build_search_item_from_hit(cls, hit: dict) -> SearchItem:
+        entity = hit.get("entity", {})
+        rate = float(hit.get("best_similarity", hit.get("distance", 0)) or 0)
+        image_url = entity.get("image_url", "")
+        matched_query_indexes = list(hit.get("matched_query_indexes", []) or [])
+        return SearchItem(
+            item_id=str(entity.get("item_id", "")),
+            item_code=entity.get("item_code", "") or "",
+            item_name=entity.get("item_name", "") or "",
+            image_url=image_url,
+            rate=rate,
+            matched_images=[
+                MatchedImage(
+                    image_url=image_url,
+                    rate=rate,
+                    matched_query_indexes=matched_query_indexes,
+                )
+            ],
+        )
+
+    @classmethod
+    def _fuse_multi_image_search_results(cls, per_query_results: list[list[dict]], rrf_k: int = 60) -> list[dict]:
+        fused_by_image_id: dict[int, dict] = {}
+        next_order = 0
+
+        for query_index, result_list in enumerate(per_query_results):
+            for rank, hit in enumerate(result_list, start=1):
+                entity = hit.get("entity", {})
+                image_id = entity.get("image_id")
+                if image_id is None:
+                    continue
+                image_id = int(image_id)
+                bucket = fused_by_image_id.get(image_id)
+                if bucket is None:
+                    bucket = {
+                        "entity": dict(entity),
+                        "distance": float(hit.get("distance", 0) or 0),
+                        "best_similarity": float(hit.get("distance", 0) or 0),
+                        "rrf_score": 0.0,
+                        "matched_query_indexes": set(),
+                        "first_seen_order": next_order,
+                    }
+                    fused_by_image_id[image_id] = bucket
+                    next_order += 1
+
+                similarity = float(hit.get("distance", 0) or 0)
+                if similarity > bucket["best_similarity"]:
+                    bucket["best_similarity"] = similarity
+                    bucket["distance"] = similarity
+                    bucket["entity"] = dict(entity)
+
+                bucket["rrf_score"] += 1 / (rank + rrf_k)
+                bucket["matched_query_indexes"].add(query_index)
+
+        fused_results = [
+            {
+                "entity": bucket["entity"],
+                "distance": bucket["distance"],
+                "best_similarity": bucket["best_similarity"],
+                "rrf_score": bucket["rrf_score"],
+                "matched_query_indexes": sorted(bucket["matched_query_indexes"]),
+                "first_seen_order": bucket["first_seen_order"],
+            }
+            for bucket in fused_by_image_id.values()
+        ]
+        fused_results.sort(
+            key=lambda item: (
+                -item["rrf_score"],
+                -item["best_similarity"],
+                item["first_seen_order"],
+            )
+        )
+        return fused_results
 
     @classmethod
     def _normalize_review_status(cls, status: str | None) -> str:
@@ -1456,7 +1549,8 @@ class RailwayPartsManager:
 
     @classmethod
     def _build_search_history_item(cls, row, latest_ticket=None):
-        if row.query_image:
+        query_images = list(getattr(row, "query_images_json", None) or [])
+        if row.query_image or query_images:
             search_type = "image"
         elif row.query_text:
             search_type = "text"
@@ -1481,6 +1575,7 @@ class RailwayPartsManager:
             time_created=date_to_str(row.time_created),
             query_text=row.query_text,
             query_image=row.query_image,
+            query_images=query_images,
             search_equipment=getattr(row, "search_equipment", None),
             status=cls._normalize_review_status(getattr(row, "verify_status", None)),
             result=row.search_results,
@@ -1511,6 +1606,7 @@ class RailwayPartsManager:
             time_updated=date_to_str(row.time_updated),
             query_text=getattr(row, "query_text", None),
             query_image=getattr(row, "query_image", None),
+            query_images=list(getattr(row, "query_images_json", None) or []),
             search_equipment=getattr(row, "search_equipment", None),
             search_item_name=getattr(row, "search_result_item_name", None),
             search_item_code=getattr(row, "search_result_item_code", None),
@@ -1539,6 +1635,7 @@ class RailwayPartsManager:
             closed_at=date_to_str(ticket.closed_at) if ticket.closed_at else None,
             query_text=getattr(history, "query_text", None),
             query_image=getattr(history, "query_image", None),
+            query_images=list(getattr(history, "query_images_json", None) or []),
             search_equipment=getattr(history, "search_equipment", None),
             result=getattr(history, "search_results", None),
             search_item_name=getattr(history, "search_result_item_name", None),
@@ -1970,22 +2067,30 @@ class RailwayPartsManager:
             rows = await SearchHistory.delete_history_with_query_images(session, history_id_list)
             await session.commit()
 
-        for history_id, query_image in rows:
-            if not query_image:
-                continue
-            try:
-                bucket, object_name = parse_minio_path(
-                    query_image,
-                    default_bucket=minio_search_history_bucket,
-                )
-                minio_instance.client.remove_object(bucket, object_name)
-            except Exception as exc:
-                logger.warning(
-                    "删除检索历史查询图失败: history_id=%s, path=%s, error=%s",
-                    history_id,
-                    query_image,
-                    exc,
-                )
+        for row in rows:
+            history_id, query_image = row[0], row[1]
+            query_images_json = row[2] if len(row) > 2 else None
+            delete_paths = []
+            if query_image:
+                delete_paths.append(query_image)
+            for image_path in list(query_images_json or []):
+                if image_path:
+                    delete_paths.append(image_path)
+
+            for image_path in delete_paths:
+                try:
+                    bucket, object_name = parse_minio_path(
+                        image_path,
+                        default_bucket=minio_search_history_bucket,
+                    )
+                    minio_instance.client.remove_object(bucket, object_name)
+                except Exception as exc:
+                    logger.warning(
+                        "删除检索历史查询图失败: history_id=%s, path=%s, error=%s",
+                        history_id,
+                        image_path,
+                        exc,
+                    )
 
         return SearchHistoryDeleteRes(
             deleted_count=len(rows),
@@ -2038,6 +2143,7 @@ class RailwayPartsManager:
             history_id=history_id,
             query_text=query_text,
             query_image=None,
+            query_images=None,
             search_equipment=search_equipment,
             search_items=search_items,
         )
@@ -2122,10 +2228,73 @@ class RailwayPartsManager:
             history_id=history_id,
             query_text=None,
             query_image=query_image,
+            query_images=None,
             search_equipment=search_equipment,
             search_items=search_items,
         )
         return SearchRes(history_id=str(history_id), data=search_items)
+
+    @classmethod
+    async def search_v2_by_images(
+        cls,
+        files: list,
+        top_k: int = 10,
+        search_mode: str = "hybrid",
+        search_equipment: str = "web",
+    ):
+        from PIL import Image
+
+        if not files:
+            raise Exception("至少上传一张图片")
+
+        history_id = get_id()
+        manager = MilvusManagerV2()
+        per_query_results: list[list[dict]] = []
+        query_images: list[str] = []
+
+        for file in files:
+            upload_filename = getattr(file, "filename", "") or ""
+            contents = await file.read()
+            uploaded_query_image = None
+            try:
+                uploaded_query_image = await cls._upload_v2_search_query_image(
+                    history_id=history_id,
+                    filename=upload_filename,
+                    content_bytes=contents,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "保存V2多图检索查询图失败: filename=%s, error=%s",
+                    upload_filename,
+                    exc,
+                )
+            query_images.append(uploaded_query_image)
+
+            pil_image = Image.open(io.BytesIO(contents)).convert("RGB")
+            results = await manager.search_by_image(
+                image=pil_image,
+                top_k=top_k,
+                mode=search_mode,
+                coarse_top_k=50,
+                alpha=0.6,
+            )
+            per_query_results.append(results)
+
+        fused_hits = cls._fuse_multi_image_search_results(per_query_results)
+        search_items = [
+            cls._build_search_item_from_hit(hit)
+            for hit in fused_hits
+        ]
+        search_items = cls._aggregate_v2_search_items(search_items)
+        await cls._persist_v2_search_history(
+            history_id=history_id,
+            query_text=None,
+            query_image=None,
+            query_images=query_images,
+            search_equipment=search_equipment,
+            search_items=search_items,
+        )
+        return SearchRes(history_id=str(history_id), data=search_items, message=None)
 
     @classmethod
     async def submit_v2_search_feedback(

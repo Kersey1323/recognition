@@ -10,6 +10,7 @@ def test_search_history_table_has_explicit_query_columns():
 
     assert "query_text" in columns
     assert "query_image" in columns
+    assert "query_images_json" in columns
 
 
 def test_create_minio_buckets_sync_includes_search_history_bucket():

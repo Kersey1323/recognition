@@ -380,6 +380,7 @@ class SearchHistoryListItem(BaseModel):
     time_created: str
     query_text: str | None = None
     query_image: str | None = None
+    query_images: list[str] = Field(default_factory=list)
     status: str = "pending"
     result: SearchResults | None
     inquery_id: str | None
@@ -609,6 +610,7 @@ class SearchReviewTicketItem(BaseModel):
     time_updated: str
     query_text: str | None = None
     query_image: str | None = None
+    query_images: list[str] = Field(default_factory=list)
     search_equipment: str | None = None
     search_item_name: str | None = None
     search_item_code: str | None = None
@@ -664,6 +666,7 @@ class SearchReviewTicketDetailRes(BaseModel):
     closed_at: str | None = None
     query_text: str | None = None
     query_image: str | None = None
+    query_images: list[str] = Field(default_factory=list)
     search_equipment: str | None = None
     result: SearchResults | None = None
     search_item_name: str | None = None

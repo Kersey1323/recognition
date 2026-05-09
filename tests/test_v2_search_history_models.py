@@ -85,7 +85,11 @@ def test_search_item_serializes_matched_images():
         image_url="bfr-ai-files/1960224093814181888.jpg",
         rate=0.9584,
         matched_images=[
-            {"image_url": "bfr-ai-files/1960224093814181888.jpg", "rate": 0.9584},
+            {
+                "image_url": "bfr-ai-files/1960224093814181888.jpg",
+                "rate": 0.9584,
+                "matched_query_indexes": [0, 1],
+            },
             {"image_url": "bfr-ai-files/1960224087363723264.jpg", "rate": 0.9584},
         ],
     )
@@ -96,6 +100,7 @@ def test_search_item_serializes_matched_images():
     assert len(data["matched_images"]) == 2
     assert data["matched_images"][0]["image_url"].endswith("1960224093814181888.jpg")
     assert data["matched_images"][0]["rate"] == 0.9584
+    assert data["matched_images"][0]["matched_query_indexes"] == [0, 1]
 
 
 def test_search_text_request_model_serializes_request_body_fields():
@@ -151,7 +156,11 @@ def test_search_history_list_item_serializes_aggregated_result_items():
                     "similar": 0.9584,
                     "image_url": "bfr-ai-files/1960224093814181888.jpg",
                     "matched_images": [
-                        {"image_url": "bfr-ai-files/1960224093814181888.jpg", "rate": 0.9584},
+                        {
+                            "image_url": "bfr-ai-files/1960224093814181888.jpg",
+                            "rate": 0.9584,
+                            "matched_query_indexes": [0, 1],
+                        },
                         {"image_url": "bfr-ai-files/1960224087363723264.jpg", "rate": 0.9584},
                     ],
                 }
@@ -165,6 +174,54 @@ def test_search_history_list_item_serializes_aggregated_result_items():
     assert data["result"]["items"][0]["item_id"] == "1950361513125318656"
     assert data["result"]["items"][0]["image_url"].endswith("1960224093814181888.jpg")
     assert len(data["result"]["items"][0]["matched_images"]) == 2
+    assert data["result"]["items"][0]["matched_images"][0]["matched_query_indexes"] == [0, 1]
+
+
+def test_search_history_list_item_serializes_query_images():
+    item = SearchHistoryListItem(
+        history_id=BIG_ITEM_ID,
+        search_type="image",
+        time_created="2026-05-09 10:00:00",
+        query_text=None,
+        query_image=None,
+        query_images=[
+            "bfr-search-history-files/query-images/20260509/1.jpg",
+            "bfr-search-history-files/query-images/20260509/2.jpg",
+        ],
+        status="pending",
+        result={
+            "items": [
+                {
+                    "item_id": BIG_ITEM_ID,
+                    "item_code": "4000001",
+                    "item_name": "测试配件",
+                    "similar": 0.98,
+                    "image_url": "bfr-ai-files/1.jpg",
+                    "matched_images": [
+                        {
+                            "image_url": "bfr-ai-files/1.jpg",
+                            "rate": 0.98,
+                            "matched_query_indexes": [0, 1],
+                        }
+                    ],
+                }
+            ]
+        },
+        inquery_id=None,
+        inquery_num=None,
+        search_item_name="测试配件",
+        search_item_code="4000001",
+        correct_item_name=None,
+        correct_item_code=None,
+    )
+
+    data = dump_model(item)
+
+    assert data["query_images"] == [
+        "bfr-search-history-files/query-images/20260509/1.jpg",
+        "bfr-search-history-files/query-images/20260509/2.jpg",
+    ]
+    assert data["result"]["items"][0]["matched_images"][0]["matched_query_indexes"] == [0, 1]
 
 
 def test_search_history_list_item_serializes_review_ticket_summary_fields():

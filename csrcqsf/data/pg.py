@@ -87,6 +87,10 @@ async def db_migrate():
         """))
         await conn.execute(text("""
             ALTER TABLE parts.search_history
+            ADD COLUMN IF NOT EXISTS query_images_json JSONB
+        """))
+        await conn.execute(text("""
+            ALTER TABLE parts.search_history
             ADD COLUMN IF NOT EXISTS verify_status VARCHAR(50),
             ADD COLUMN IF NOT EXISTS verify_remark VARCHAR(500),
             ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP WITHOUT TIME ZONE

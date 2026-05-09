@@ -4,13 +4,13 @@ from datetime import datetime, timedelta
 from enum import Enum
 from types import SimpleNamespace
 from urllib.parse import quote_plus
-from sqlalchemy import String, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL, DateTime, case, Index, text
+from sqlalchemy import String, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL, DateTime, case, Index, text, JSON
 from sqlalchemy.orm import relationship, Mapped, mapped_column, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from bfrcommon.common import get_pinyin
 from typing import TYPE_CHECKING, Iterator, List
 from bfrcommon.db import PageQueryResult, get_abbr_fn, async_get_count
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from bfrcommon.db import PydanticType
 from csrcqsf.data.pg import Base
 from csrcqsf.models.sgo import ListInqueryItem
@@ -19,6 +19,7 @@ from csrcqsf.models.sgo import ListInqueryItem
 class SearchParameters(BaseModel):
     features: list[str] = []
     images: list[str] = []
+    query_images: list[str] = []
     vechile: str | None = ''
     parent_item_id: int | None = 0
     lower_rate: float = 0.8
@@ -27,6 +28,7 @@ class SearchParameters(BaseModel):
 class MatchedImage(BaseModel):
     image_url: str
     rate: float
+    matched_query_indexes: list[int] = Field(default_factory=list)
 
 
 class SearchResultItem(BaseModel):
@@ -70,6 +72,7 @@ class SearchHistory(Base):
         PydanticType(SearchParameters), nullable=True)
     query_text: Mapped[str] = mapped_column(String(1000), nullable=True)
     query_image: Mapped[str] = mapped_column(String(1000), nullable=True)
+    query_images_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     search_equipment: Mapped[str] = mapped_column(String(50), nullable=True)
     verify_status: Mapped[str] = mapped_column(String(50), nullable=True)
     verify_remark: Mapped[str] = mapped_column(String(500), nullable=True)
@@ -108,7 +111,12 @@ class SearchHistory(Base):
         if search_type == "text":
             stmt = stmt.where(cls.query_text.is_not(None))
         elif search_type == "image":
-            stmt = stmt.where(cls.query_image.is_not(None))
+            stmt = stmt.where(
+                or_(
+                    cls.query_image.is_not(None),
+                    cls.query_images_json.is_not(None),
+                )
+            )
 
         if search_equipment != "all":
             stmt = stmt.where(cls.search_equipment == search_equipment)
@@ -242,7 +250,7 @@ class SearchHistory(Base):
 
     @classmethod
     async def delete_history_with_query_images(cls, session: AsyncSession, history_id_list: list[int]):
-        stmt = select(cls.id, cls.query_image).where(cls.id.in_(history_id_list))
+        stmt = select(cls.id, cls.query_image, cls.query_images_json).where(cls.id.in_(history_id_list))
         rows = (await session.execute(stmt)).all()
         await session.execute(delete(cls).where(cls.id.in_(history_id_list)))
         await session.flush()
@@ -314,6 +322,7 @@ class SearchReviewTicket(Base):
             cls,
             SearchHistory.query_text.label("query_text"),
             SearchHistory.query_image.label("query_image"),
+            SearchHistory.query_images_json.label("query_images_json"),
             SearchHistory.search_equipment.label("search_equipment"),
             SearchHistory.search_result_item_name.label("search_result_item_name"),
             SearchHistory.search_result_item_code.label("search_result_item_code"),
@@ -356,6 +365,7 @@ class SearchReviewTicket(Base):
             ticket,
             query_text,
             query_image,
+            query_images_json,
             history_search_equipment,
             search_item_name,
             search_item_code,
@@ -382,6 +392,7 @@ class SearchReviewTicket(Base):
                     time_updated=ticket.time_updated,
                     query_text=query_text,
                     query_image=query_image,
+                    query_images_json=query_images_json,
                     search_equipment=history_search_equipment,
                     search_result_item_name=search_item_name,
                     search_result_item_code=search_item_code,

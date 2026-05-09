@@ -87,6 +87,8 @@ def test_search_routes_describe_item_aggregation_contract():
         "- 返回结果按 item_id 聚合为候选配件列表",
         "- matched_images: 当前候选配件在本次检索中命中的图片列表",
         "summary='V2图像检索'",
+        "- file: 上传的图片文件列表（支持单张或多张）",
+        "- matched_images[].matched_query_indexes: 当前命中图被哪几张查询图共同支持",
     ]
 
     for fragment in expected_fragments:

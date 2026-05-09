@@ -733,16 +733,17 @@ async def search_v2_by_text(
 
 @parts_router.post('/v2/search/image', tags=["算法-向量检索V2"], summary='V2图像检索')
 async def search_v2_by_image(
-    file: UploadFile = File(...),
-    top_k: int = 10,
-    search_mode: str = "hybrid",
+    file: list[UploadFile] = File(...),
+    top_k: int = Form(10),
+    search_mode: str = Form("hybrid"),
     search_equipment: str = Form("web"),
 ):
     """
-    使用新算法进行图像检索（上传图片文件）
+    使用新算法进行图像检索（上传图片文件，支持单张或多张）
     
     参数：
-    - file: 上传的图片文件（支持 jpg, png, jpeg 等格式）
+    - file: 上传的图片文件列表（支持单张或多张）
+    - 文件格式支持 jpg、png、jpeg 等
     - top_k: 参与聚合的图片命中数量，仍按图片结果窗口工作
     - search_mode: 检索模式
         - "siglip": SigLIP 模式 - 使用 image_vector 字段，简单快速
@@ -759,14 +760,25 @@ async def search_v2_by_image(
     - siglip 模式：默认使用 text_vector 进行文本匹配，image_vector 是可选字段
     - dinov2 模式：两阶段检索，适合需要精确匹配视觉细节的场景
     - hybrid 模式：推荐使用，融合两个模型的优势
+    - 上传 1 张图时走单图检索链路；上传多张图时走后端融合检索链路
     - 返回结果按 item_id 聚合为候选配件列表
     - image_url: 当前候选配件的代表图
     - rate: 当前候选配件命中图片中的最高分
     - matched_images: 当前候选配件在本次检索中命中的图片列表
+    - matched_images[].matched_query_indexes: 当前命中图被哪几张查询图共同支持
     - history_id: 本次检索生成的历史ID，可直接用于后续反馈/校验链路
     """
-    result = await RailwayPartsManager.search_v2_by_image(
-        file=file,
+    if len(file) == 1:
+        result = await RailwayPartsManager.search_v2_by_image(
+            file=file[0],
+            top_k=top_k,
+            search_mode=search_mode,
+            search_equipment=search_equipment,
+        )
+        return result
+
+    result = await RailwayPartsManager.search_v2_by_images(
+        files=file,
         top_k=top_k,
         search_mode=search_mode,
         search_equipment=search_equipment,

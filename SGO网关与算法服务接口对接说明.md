@@ -100,18 +100,36 @@ http://10.0.0.20:65432
 - 用途：展示、检索、业务侧识别
 - 注意：`item_code` 不是重构任务的外键，**不能替代 `item_id`**
 
-### 3.3.3 `task_id`
+### 3.3.3 当 `SGO` 侧只有 `item_code` 时的联调约定
+
+当前项目中，`SGO` 侧很多业务数据天然只有 `item_code`，没有直接可用的 `item_id`。这在当前实现下**不是接口设计缺陷**，也不要求额外改造现有检索或三维重构接口；推荐做法是先通过算法服务把 `item_code` 映射成真实 `item_id`，再继续后续业务。
+
+推荐调用顺序如下：
+
+1. `SGO` 网关先调用 `/railway/parts/list_items`
+2. 在请求体 `query` 中传入 `item_code`
+3. 从返回结果中读取算法服务侧真实配件主键 `id`
+4. 后续图片登记、已保存图片查询、三维重构上传、三维重构任务查询等接口，统一使用该 `id` 作为 `item_id`
+
+补充说明：
+
+- 由于算法服务的 `parts.item_info` 主数据是由 `SGO` 同步而来，正常情况下同一配件的 `item_code` 在两边保持一致
+- 联调时，`SGO` 侧不应自行构造或猜测 `item_id`，必须以算法服务查询返回的 `id` 为准
+- 如果通过 `item_code` 未查询到对应配件，说明该配件尚未同步到算法服务，此时不应继续调用依赖 `item_id` 的接口
+- 当前受此规则影响最大的业务主要是：图片登记、已保存图片查询、三维重构视频上传、发起三维重构、查询某配件历史重构任务
+
+### 3.3.4 `task_id`
 
 - 含义：三维重构异步任务 ID
 - 用途：查询任务进度、结果、失败原因
 
-### 3.3.4 `image_url`
+### 3.3.5 `image_url`
 
 - 含义：已登记到算法服务中的图片地址
 - 当前项目常用格式：`bucket/object`
 - 常见示例：`bfr-ai-files/xxx.jpg`
 
-### 3.3.5 `video_path`
+### 3.3.6 `video_path`
 
 - 含义：三维重构输入视频路径
 - 推荐来源：先调用上传接口，由算法服务写入 `MinIO` 后返回
@@ -214,7 +232,7 @@ http://10.0.0.20:65432
 | SGO -> 算法服务 | `POST` | `/railway/parts/list_items` | 分页查询配件列表 |
 | SGO -> 算法服务 | `POST` | `/railway/parts/get_item_details` | 查询配件详情 |
 | SGO -> 算法服务 | `POST` | `/railway/parts/create_item_image` | 为某个配件登记图片地址 |
-| SGO -> 算法服务 | `POST` | `/railway/parts/v2/search/image` | 上传图片做检索 |
+| SGO -> 算法服务 | `POST` | `/railway/parts/v2/search/image` | 上传单张或多张图片做检索 |
 | SGO -> 算法服务 | `POST` | `/railway/parts/v2/search/text` | 文本检索，可选 |
 | SGO -> 算法服务 | `POST` | `/railway/parts/v2/reconstruct/video/upload` | 上传原始视频到 MinIO |
 | SGO -> 算法服务 | `POST` | `/railway/parts/v2/reconstruct/video` | 发起视频三维重构 |
@@ -231,6 +249,25 @@ http://10.0.0.20:65432
 | 算法服务 -> SGO 数据源 | `POST` | `/sgo/sgo/parts/images/sync` | 按配件 ID 同步图片 |
 | SGO -> 算法服务 | `POST` | `/railway/parts/list_item_images` | 查询某个配件已保存图片 |
 | SGO -> 算法服务 | `POST` | `/sgo/sgo/inquery/list` | 查询询码记录及图片 |
+
+### 6.1.1 多图检索接口约定
+
+当 `SGO` 侧一次拿到同一配件的多张图片时，推荐调用：
+
+- `POST /railway/parts/v2/search/image`
+
+接口语义如下：
+
+- 一次请求可上传 1 张或多张查询图
+- 后端会对每张图独立检索
+- 再在服务端统一融合排序
+- 最终仍按 `item_id` 聚合返回候选配件
+
+联调注意：
+
+- `top_k` 仍表示“每张查询图的图片级候选窗口”
+- 返回结果中的 `matched_images[].matched_query_indexes` 可用于表示某张命中图被第几张查询图共同支持
+- 一次多图询码只会生成一个 `history_id`
 
 ### 6.2.1 适配说明
 
