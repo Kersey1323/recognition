@@ -75,7 +75,9 @@ async def download_file(url, file_path):
             else:
                 print(f"下载失败，状态码: {response.status}")
 
-SAM_MODEL = os.path.join(model_dir, 'sam_vit_h_4b8939/sam_vit_h_4b8939.pth')
+SAM_MODEL = _resolve_model_path(
+    os.getenv('SAM_MODEL_PATH', 'sam_vit_h_4b8939/sam_vit_h_4b8939.pth')
+)
 
 obj_model_path = os.path.join(model_dir, 'yolo_obj_det.onnx')
 edge_model_path = os.path.join(model_dir,'yolo_edge_det.onnx')

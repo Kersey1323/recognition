@@ -1,4 +1,6 @@
 from pathlib import Path
+import importlib
+import sys
 
 
 def test_settings_exposes_reconstruction_file_bucket_and_sam3_path():
@@ -18,3 +20,13 @@ def test_parse_minio_path_recognizes_reconstruction_file_bucket():
 
     assert bucket == "bfr-reconstruction-files"
     assert object_name == "results/1935558010375340032/task-id/point_cloud.ply"
+
+
+def test_settings_exposes_sam_model_path_from_env(monkeypatch):
+    monkeypatch.setenv("MODEL_DIR", "/tmp/models-root")
+    monkeypatch.setenv("SAM_MODEL_PATH", "legacy-sam/model.pth")
+
+    sys.modules.pop("csrcqsf.settings", None)
+    settings = importlib.import_module("csrcqsf.settings")
+
+    assert settings.SAM_MODEL == "/tmp/models-root/legacy-sam/model.pth"
