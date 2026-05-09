@@ -11,6 +11,7 @@ from csrcqsf.models.sgo import SgoItemImages
 from csrcqsf.models.reconstruction import ReconstructionRecord
 from csrcqsf.data.pg import SessionLocal
 from csrcqsf.settings import ai_settings
+from csrcqsf.biz.sgo import SGOBiz
 # 导入业务逻辑层
 from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
 from csrcqsf.biz.railwayparts.milvus import MilvusManager
@@ -106,6 +107,25 @@ async def put_item_size_desc(req: UpdateItemSizeStr):
 async def list_items(req: ListItemReq):
 
     return await RailwayPartsManager.list_item(req)
+
+
+@parts_router.post('/list_item_images', tags=["业务-图片管理"], summary='列出配件已保存图片', responses={
+    200: {
+        'model': ListItemImagesRes
+    }
+})
+async def list_item_images(req: ListItemImagesReq):
+    images = await SGOBiz.list_parts_sgo_image(item_id=int(req.item_id))
+    res = ListItemImagesRes()
+    for img in images:
+        image = ListItemImageItem()
+        image.image_id = str(img.id)
+        image.has_indexed = img.is_indexed
+        image.image_url = img.image_url
+        image.image_source_type = img.image_source
+        res.items.append(image)
+
+    return res
 
 
 @parts_router.post('/create_item_image',  tags=["业务-图片管理"], summary='为配件上传图片', responses={

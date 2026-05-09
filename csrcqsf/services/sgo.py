@@ -7,7 +7,7 @@ from csrcqsf.settings import ai_settings
 from csrcqsf.biz.segment import SegmentBiz
 from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
 from csrcqsf.biz.sgo import SGOBiz
-from csrcqsf.models.sgo import ImageSourceType, ListInqueryItem
+from csrcqsf.models.sgo import ListInqueryItem
 from bfrcommon.api_models import PageReq, PageRes
 from csrcqsf.models.sgo import SgoItemImages
 from csrcqsf.data.pg import SessionLocal
@@ -52,29 +52,6 @@ class SyncItemsImages(BaseModel):
     items_id_list: list[str] = []
 
 
-class ListSgoItemImagesReq(BaseModel):
-    item_id: str = Field(description='配件ID', example="1557988408477880320")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "item_id": "1557988408477880320"
-            }
-        }
-
-
-class ListSgoItemImageItem(BaseModel):
-    image_id: str = ''
-    has_indexed: int = Field(default=0, description='是否已经加入配件的索引库，1为已索引 2为未索引')
-    image_url: str = ''
-    image_source_type: ImageSourceType | None = Field(
-        description='来着sgo系统的图片来源,分别为询码记录和基本信息')
-
-
-class ListSgoItemImageRes(BaseModel):
-    items: list[ListSgoItemImageItem] = []
-
-
 @sgo_router.post('/sgo/parts/sync',  tags=["业务-SGO集成"], summary='同步一次所有的配件基本信息', responses={
     200: {
         'model': str
@@ -92,25 +69,6 @@ async def sgo_parts_sync(_: SyncItemsReq):
 async def sgo_parts_image_sync(req: SyncItemsImages):
     # return await SGOBiz.sync_parts_items()
     await SGOBiz.sync_images(req.items_id_list)
-
-
-@sgo_router.post('/sgo/parts/images',  tags=["业务-SGO集成"], summary='根据配件id获取sgo系统里的图片', responses={
-    200: {
-        'model': ListSgoItemImageRes
-    }
-})
-async def sgo_parts_image_list(req: ListSgoItemImagesReq):
-    images = await SGOBiz.list_parts_sgo_image(item_id=int(req.item_id))
-    res = ListSgoItemImageRes()
-    for img in images:
-        image = ListSgoItemImageItem()
-        image.image_id = str(img.id)
-        image.has_indexed = img.is_indexed
-        image.image_url = img.image_url
-        image.image_source_type = img.image_source
-        res.items.append(image)
-
-    return res
 
 
 @sgo_router.post('/sgo/inquery/list',  tags=["业务-SGO集成"], summary='获取询码记录列表', responses={

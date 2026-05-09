@@ -117,6 +117,30 @@ class ItemImageItem(BaseModel):
     source_type: ImageSourceType = None
 
 
+class ListItemImagesReq(BaseModel):
+    item_id: str = Field(description='配件ID', example="1557988408477880320")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "item_id": "1557988408477880320"
+            }
+        }
+
+
+class ListItemImageItem(BaseModel):
+    image_id: str = ''
+    has_indexed: int = Field(default=0, description='是否已经加入配件的索引库，1为已索引 2为未索引')
+    image_url: str = ''
+    image_source_type: ImageSourceType | None = Field(
+        description='来自SGO系统的图片来源，分别为询码记录和基本信息'
+    )
+
+
+class ListItemImagesRes(BaseModel):
+    items: list[ListItemImageItem] = []
+
+
 class GetItemDetailReq(BaseModel):
     item_id: str = Field(description='配件ID', example="2023080809420000001")
     

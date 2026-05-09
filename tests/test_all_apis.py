@@ -128,7 +128,7 @@ def main():
     # 8. SGO图片列表
     if item_id:
         success, _ = test_api(
-            "POST", "/sgo/sgo/parts/images",
+            "POST", "/railway/parts/list_item_images",
             {"item_id": str(item_id)},
             "获取SGO图片列表"
         )

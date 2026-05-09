@@ -229,7 +229,7 @@ http://10.0.0.20:65432
 | --- | --- | --- | --- |
 | 算法服务 -> SGO 数据源 | `POST` | `/sgo/sgo/parts/sync` | 触发全量同步配件主数据 |
 | 算法服务 -> SGO 数据源 | `POST` | `/sgo/sgo/parts/images/sync` | 按配件 ID 同步图片 |
-| SGO -> 算法服务 | `POST` | `/sgo/sgo/parts/images` | 查询某个配件已同步的 SGO 图片 |
+| SGO -> 算法服务 | `POST` | `/railway/parts/list_item_images` | 查询某个配件已保存图片 |
 | SGO -> 算法服务 | `POST` | `/sgo/sgo/inquery/list` | 查询询码记录及图片 |
 
 ### 6.2.1 适配说明
@@ -705,10 +705,10 @@ GET /railway/parts/v2/reconstruct/item/1557988408477880320
 - 当前实现会去 `SGO` 数据源拉取图片，再存入算法服务自己的 `MinIO`
 - 同步完成后，图片会作为配件图片参与后续索引或检索
 
-## 7.12 查询某个配件已经同步的 SGO 图片
+## 7.12 查询某个配件已保存图片
 
 - 方法：`POST`
-- 路径：`/sgo/sgo/parts/images`
+- 路径：`/railway/parts/list_item_images`
 - 调用方：`SGO` 网关或管理后台
 - 用途：查看某个配件在算法服务中已经保存的 `SGO` 图片
 
