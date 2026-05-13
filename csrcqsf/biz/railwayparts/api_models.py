@@ -323,6 +323,8 @@ class SearchHistoryListItem(BaseModel):
     def normalize_public_status(cls, value):
         if value == "correct":
             return "correct"
+        if value == "wrong":
+            return "wrong"
         return "pending"
 
 

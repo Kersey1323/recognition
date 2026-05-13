@@ -126,6 +126,28 @@ def test_search_history_list_item_serializes_status_and_result_image_urls():
     assert data["result"]["items"][0]["image_url"] == "bfr-ai-files/demo.jpg"
 
 
+def test_search_history_list_item_serializes_wrong_status_without_normalizing_to_pending():
+    item = SearchHistoryListItem(
+        history_id=2,
+        search_type="text",
+        time_created="2026-05-13 10:00:00",
+        query_text="制动阀",
+        query_image=None,
+        status="wrong",
+        search_item_name="制动阀",
+        search_item_code="4001",
+        correct_item_name="修正结果",
+        correct_item_code="4002",
+        result=None,
+        inquery_id=None,
+        inquery_num=None,
+    )
+
+    data = dump_model(item)
+
+    assert data["status"] == "wrong"
+
+
 def test_review_console_request_and_response_models_serialize():
     detail_req = SearchHistoryDetailReq(history_id="1")
     verify_req = SearchHistoryVerifyReq(

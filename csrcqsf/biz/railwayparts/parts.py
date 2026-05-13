@@ -1160,9 +1160,15 @@ class RailwayPartsManager:
         return fused_results
 
     @classmethod
-    def _normalize_review_status(cls, status: str | None) -> str:
-        if status == "correct":
+    def _normalize_review_status(
+        cls,
+        status: str | None,
+        latest_review_status: str | None = None,
+    ) -> str:
+        if status in {"correct", "user_misjudged"}:
             return "correct"
+        if status == "wrong" and latest_review_status in {"resolved", "closed"}:
+            return "wrong"
         return "pending"
 
     @classmethod
@@ -1376,7 +1382,10 @@ class RailwayPartsManager:
             query_image=row.query_image,
             query_images=query_images,
             search_equipment=getattr(row, "search_equipment", None),
-            status=cls._normalize_review_status(getattr(row, "verify_status", None)),
+            status=cls._normalize_review_status(
+                getattr(row, "verify_status", None),
+                latest_review_status,
+            ),
             result=row.search_results,
             inquery_id=row.inquery_id,
             inquery_num=row.inquery_num,

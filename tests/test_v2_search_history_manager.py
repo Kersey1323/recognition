@@ -419,9 +419,9 @@ def test_build_search_history_item_prefers_query_images_when_present():
     assert item.result.items[0].matched_images[0].matched_query_indexes == [0, 1]
 
 
-def test_build_search_history_item_exposes_only_correct_and_pending_statuses():
+def test_build_search_history_item_maps_public_statuses_by_history_and_latest_ticket():
     RailwayPartsManager, _parts_module = _import_railway_parts_manager()
-    wrong_row = SimpleNamespace(
+    base_row = SimpleNamespace(
         id=1,
         time_created=datetime(2026, 5, 9, 10, 0, 0),
         query_text="q",
@@ -444,19 +444,37 @@ def test_build_search_history_item_exposes_only_correct_and_pending_statuses():
         ranking_feedback_type=None,
         search_results=None,
     )
-    misjudged_row = SimpleNamespace(
-        **{**wrong_row.__dict__, "id": 2, "verify_status": "user_misjudged"}
+
+    pending_item = RailwayPartsManager._build_search_history_item(base_row)
+    open_ticket_item = RailwayPartsManager._build_search_history_item(
+        base_row,
+        SimpleNamespace(id=11, review_status="open", issue_type="precision_issue"),
     )
-    correct_row = SimpleNamespace(
-        **{**wrong_row.__dict__, "id": 3, "verify_status": "correct"}
+    reviewing_ticket_item = RailwayPartsManager._build_search_history_item(
+        base_row,
+        SimpleNamespace(id=12, review_status="reviewing", issue_type="precision_issue"),
+    )
+    resolved_ticket_item = RailwayPartsManager._build_search_history_item(
+        base_row,
+        SimpleNamespace(id=13, review_status="resolved", issue_type="precision_issue"),
+    )
+    closed_ticket_item = RailwayPartsManager._build_search_history_item(
+        base_row,
+        SimpleNamespace(id=14, review_status="closed", issue_type="precision_issue"),
+    )
+    misjudged_item = RailwayPartsManager._build_search_history_item(
+        SimpleNamespace(**{**base_row.__dict__, "id": 2, "verify_status": "user_misjudged"})
+    )
+    correct_item = RailwayPartsManager._build_search_history_item(
+        SimpleNamespace(**{**base_row.__dict__, "id": 3, "verify_status": "correct"})
     )
 
-    wrong_item = RailwayPartsManager._build_search_history_item(wrong_row)
-    misjudged_item = RailwayPartsManager._build_search_history_item(misjudged_row)
-    correct_item = RailwayPartsManager._build_search_history_item(correct_row)
-
-    assert wrong_item.status == "pending"
-    assert misjudged_item.status == "pending"
+    assert pending_item.status == "pending"
+    assert open_ticket_item.status == "pending"
+    assert reviewing_ticket_item.status == "pending"
+    assert resolved_ticket_item.status == "wrong"
+    assert closed_ticket_item.status == "wrong"
+    assert misjudged_item.status == "correct"
     assert correct_item.status == "correct"
 
 

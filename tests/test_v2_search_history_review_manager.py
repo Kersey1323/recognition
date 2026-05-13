@@ -265,6 +265,56 @@ def test_list_v2_search_history_passes_search_equipment_filter_and_latest_ticket
     assert res.items[0].latest_issue_type == "precision_issue"
 
 
+def test_list_v2_search_history_returns_wrong_after_review_ticket_resolved():
+    from csrcqsf.biz.railwayparts.api_models import SearchHistoryListReq
+
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    page_result = SimpleNamespace(
+        total=1,
+        data=[
+            SimpleNamespace(
+                id=1,
+                query_text="钢丝绳",
+                query_image=None,
+                query_images_json=None,
+                verify_status="wrong",
+                verify_remark="识别错误",
+                verified_at=datetime(2026, 5, 13, 11, 0, 0),
+                time_created=datetime(2026, 5, 13, 10, 0, 0),
+                search_results=SearchResults(items=[]),
+                inquery_id=None,
+                inquery_num=None,
+                search_result_item_name="钢丝绳",
+                search_result_item_code="19010036737",
+                correct_item_id=None,
+                correct_item_name="技术部修正结果",
+                correct_item_code="19010030048",
+                correct_image_url=None,
+                correct_rank=None,
+                correct_source="review_resolved",
+                ranking_feedback_type=None,
+                search_equipment="terminal",
+            )
+        ],
+    )
+    latest_ticket = SimpleNamespace(
+        id=3001,
+        history_id=1,
+        review_status="resolved",
+        issue_type="precision_issue",
+    )
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
+         patch.object(parts_module.SearchHistory, "list_search_history", AsyncMock(return_value=page_result)), \
+         patch.object(parts_module.SearchReviewTicket, "list_latest_by_history_ids", AsyncMock(return_value={1: latest_ticket})):
+        res = asyncio.run(
+            RailwayPartsManager.list_v2_search_history(SearchHistoryListReq(page=1, pageSize=10))
+        )
+
+    assert res.items[0].status == "wrong"
+    assert res.items[0].latest_review_status == "resolved"
+
+
 def test_list_v2_search_history_maps_partial_status_to_wrong():
     from csrcqsf.biz.railwayparts.api_models import SearchHistoryListReq
 
