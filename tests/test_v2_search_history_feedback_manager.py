@@ -259,12 +259,65 @@ def test_submit_feedback_correct_ranked_selection_closes_active_review_ticket():
     assert update_mock.await_args.kwargs["correct_rank"] == 2
     assert update_mock.await_args.kwargs["correct_source"] == "user_selected"
     assert update_ticket_mock.await_args.kwargs["review_status"] == "closed"
+    assert update_ticket_mock.await_args.kwargs["resolution_remark"] == "用户反馈改为正确，自动关闭核验单"
     assert update_ticket_mock.await_args.kwargs["resolved_at"] == now
     assert update_ticket_mock.await_args.kwargs["closed_at"] == now
     assert res.correct_item_id == "2"
     assert res.correct_rank == 2
     assert res.correct_source == "user_selected"
     assert res.ticket_id is None
+
+
+def test_submit_feedback_correct_preserves_existing_ticket_resolution_fields():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    feedback_at = datetime(2026, 4, 30, 19, 0, 0)
+    resolved_at = datetime(2026, 4, 30, 18, 30, 0)
+    history = SimpleNamespace(
+        id=1005,
+        correct_source=None,
+        search_results=parts_module.SearchResults(
+            items=[
+                {
+                    "item_id": "9",
+                    "item_code": "C",
+                    "item_name": "正确候选",
+                    "similar": 0.93,
+                    "image_url": "bfr-ai-files/top1.jpg",
+                }
+            ]
+        ),
+    )
+    active_ticket = SimpleNamespace(
+        id=3999,
+        review_status="reviewing",
+        issue_type="precision_issue",
+        resolution_remark="技术部已确认原因",
+        review_remark="处理中",
+        review_started_at=datetime(2026, 4, 30, 18, 0, 0),
+        resolved_at=resolved_at,
+        closed_at=None,
+    )
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=history)), \
+         patch.object(parts_module.SearchHistory, "update_feedback", AsyncMock()), \
+         patch.object(parts_module.SearchReviewTicket, "get_active_by_history_id", AsyncMock(return_value=active_ticket)), \
+         patch.object(parts_module.SearchReviewTicket, "update_ticket", AsyncMock()) as update_ticket_mock, \
+         patch.object(parts_module, "datetime", SimpleNamespace(now=MagicMock(return_value=feedback_at))):
+        asyncio.run(
+            RailwayPartsManager.submit_v2_search_feedback(
+                history_id=1005,
+                feedback_result="correct",
+                remark="用户更正为正确",
+                selected_item_id=None,
+            )
+        )
+
+    assert update_ticket_mock.await_args.kwargs["review_status"] == "closed"
+    assert update_ticket_mock.await_args.kwargs["resolution_remark"] == "技术部已确认原因"
+    assert update_ticket_mock.await_args.kwargs["resolved_at"] == resolved_at
+    assert update_ticket_mock.await_args.kwargs["closed_at"] == feedback_at
 
 
 def test_submit_feedback_rejects_unknown_feedback_result():
