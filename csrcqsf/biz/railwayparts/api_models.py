@@ -411,6 +411,7 @@ class SearchHistorySummaryRes(BaseModel):
     wrong_count: int
     user_misjudged_count: int
     open_ticket_count: int
+    recognition_accuracy: float
 
 
 class SearchHistoryFeedbackReq(BaseModel):

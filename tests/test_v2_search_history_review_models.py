@@ -143,6 +143,7 @@ def test_review_console_request_and_response_models_serialize():
         wrong_count=2,
         user_misjudged_count=1,
         open_ticket_count=1,
+        recognition_accuracy=0.6,
     )
     suggest = ItemSuggestRes(
         items=[{"item_id": "1", "item_code": "19010036737", "item_name": "钢丝绳"}]
@@ -154,6 +155,7 @@ def test_review_console_request_and_response_models_serialize():
     assert suggest_req.limit == 5
     assert dump_model(summary)["pending_count"] == 4
     assert dump_model(summary)["user_misjudged_count"] == 1
+    assert dump_model(summary)["recognition_accuracy"] == 0.6
     assert dump_model(suggest)["items"][0]["item_code"] == "19010036737"
 
 
@@ -165,11 +167,13 @@ def test_search_history_summary_response_replaces_partial_with_open_ticket_count
         wrong_count=2,
         user_misjudged_count=1,
         open_ticket_count=1,
+        recognition_accuracy=0.6,
     )
     data = dump_model(summary)
 
     assert data["open_ticket_count"] == 1
     assert data["user_misjudged_count"] == 1
+    assert data["recognition_accuracy"] == 0.6
     assert "partial_count" not in data
 
 
