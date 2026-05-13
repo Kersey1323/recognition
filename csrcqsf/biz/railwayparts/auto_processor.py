@@ -275,16 +275,6 @@ class AutoPartProcessor:
                         existing_index.images.append(image_index)
                         indexed_record_ids.append(record_id)
                     
-                    # 添加配件名称作为文字特征
-                    feature_set = {f.feature for f in existing_index.features}
-                    if item.item_name not in feature_set:
-                        feature_vector = await MilvusManager.embedding_encode(item.item_name)
-                        existing_index.features.append(FeaturesIndex(
-                            feature=item.item_name,
-                            feature_vector=feature_vector,
-                            feature_index_created=date_to_str(datetime.now())
-                        ))
-                    
                     # 保存到 Milvus
                     await MilvusManager.upsert_hp_data(existing_index)
                     

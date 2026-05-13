@@ -3,17 +3,6 @@ from bfrcommon.api_models import PageReq, PageRes
 from pydantic import Field, validator
 from csrcqsf.models.sgo import ImageSourceType
 from csrcqsf.models.search_history import MatchedImage, SearchParameters, SearchResults
-from enum import Enum
-
-
-class FeatureMode(str, Enum):
-    """特征提取模式
-    
-    - STANDARD: ResNet34, 512维向量，速度快
-    - HIGH_PRECISION: DINOv2-Large, 1024维向量，精度高 (默认)
-    """
-    STANDARD = "standard"
-    HIGH_PRECISION = "hp"
 
 
 class CreateItemReq(BaseModel):
@@ -199,93 +188,9 @@ class CreateItemImagesRes(BaseModel):
         return str(value)
 
 
-class CreateItemImagesIndexItem(BaseModel):
-    image_id: str = Field(description='原图片id', default='0')
-    image_url: str = Field(description="裁剪后的图片地址", default='')
-
-
-class CreateItemImagesIndexReq(BaseModel):
-    item_id: str
-    images: list[CreateItemImagesIndexItem] = []
-    features: list[str] = Field(description='图片对应的文字特征', default=[])
-
-
-class DeleteFeaturesReq(BaseModel):
-    features: list[str] = []
-    item_id: str
-
-
-class UpdateFeatureReq(BaseModel):
-    item_id: str
-    old_feature: str
-    new_feature: str
-
-
-class ListFeaturesReq(BaseModel):
-    item_id: str = Field(description='配件ID', example="2023080809420000001")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "item_id": "2023080809420000001"
-            }
-        }
-
-
-class ListFeautresRes(BaseModel):
-    features: list[str] = []
-
-
-class ImageSearchReq(BaseModel):
-    images_url: list[str] = Field(default=[], description='图片URL列表', example=["http://192.168.100.2:9000/bfr-ai-files/1725402784070635520.jpg"])
-    radius: float = Field(default=0.8, description='相似度，-1到1的浮点数，越大要求越严格', example=0.8)
-    texts: list[str] = Field(default=[], description='文字特征列表', example=["控制主机", "司机室"])
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "images_url": ["http://192.168.100.2:9000/bfr-ai-files/1725402784070635520.jpg"],
-                "radius": 0.8,
-                "texts": []
-            }
-        }
-
-
-class ImageSearchItem(ListItem):
-    # item_id: str
-    item_name: str
-    item_code: str 
-    image_url_distance: dict[str, float] = Field(
-        default={}, description='查询出来的配件照片与查询照片的相似度,越大越相似')
-    max_distance: float
-
-
-class ImageSearchRes(BaseModel):
-    items: list[ImageSearchItem] = []
-
-
 class UpdateItemSizeStr(BaseModel):
     item_id: str
     item_size_desc: str
-
-
-class ListIndexedItemImageReq(BaseModel):
-    item_id: str
-
-
-class IndexedItemImageItem(BaseModel):
-    source_image_id: str
-    source_image_url: str
-    image_url: str
-
-
-class ListIndexedItemImageRes(BaseModel):
-    items: list[IndexedItemImageItem] = []
-
-
-class DeleteImageIndexedReq(BaseModel):
-    item_id: str = ''
-    image_file_url: list[str] = []
 
 
 class SearchTextReq(BaseModel):

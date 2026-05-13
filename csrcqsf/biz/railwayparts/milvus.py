@@ -1,42 +1,24 @@
-import os
 from typing import Any
 
 import timm
 import torch
 from anyio.to_thread import run_sync
-from bfrcommon.common import splite_list_by_n
 from bfrcommon.snowflake import get_id
 from PIL import Image
 from pydantic import BaseModel
 from pymilvus import DataType, MilvusClient
-from sentence_transformers import SentenceTransformer, util
 from sklearn.preprocessing import normalize
-from timm.data import resolve_data_config
-from timm.data.transforms_factory import create_transform
 
 from csrcqsf.data.milvus import milvus_client
-from csrcqsf.data.minio import minio_instance
 from globals_vars import logger
 from csrcqsf.models.item import *
-from csrcqsf.models.sgo import SgoItemImages
-from csrcqsf.settings import minio_bucket, resolve_model_path, temp_dir
-
-from .api_models import ImageSearchItem
 
 
 class ColletionEnum(str, Enum):
-    IMAGECOLLECTION = "PARTS_IMAGE_COLLETION_NEW4"
-    FEATURESCOLLECTION = 'PARTS_FEATURES_COLLECTION_NEW4'
     NEWCOLLECTION = "PARTS_INDEX"
     
     # ===== 高精度集合 (DINOv2-Large, 1024维) =====
     HP_INDEX_COLLECTION = "PARTS_HP_INDEX_V1"
-
-
-class SearchResult(BaseModel):
-    item_id: int
-    image_id: int
-    distance: float
 
 
 class ImageIndex(BaseModel):
@@ -63,48 +45,6 @@ class PartsIndex(BaseModel):
     parent_item_info: list[int] = []
     created_at: str | None
     updated_at: str | None 
-
-
-class FeatureExtractor:
-    def __init__(self, modelname, weights_path: str | None = None):
-        # Load the pre-trained model
-        # pretrained_cfg = timm.create_model(modelname).default_cfg
-        # pretrained_cfg['file'] = "./resnet_models"
-        create_model_kwargs = dict(
-            pretrained=True,
-            num_classes=0,
-            global_pool="avg",
-        )
-        if weights_path:
-            create_model_kwargs["pretrained_cfg_overlay"] = dict(file=weights_path)
-        self.model = timm.create_model(modelname, **create_model_kwargs)
-        self.model.eval()
-
-        # Get the input size required by the model
-        self.input_size = self.model.default_cfg["input_size"]
-
-        config = resolve_data_config({}, model=modelname)
-        # Get the preprocessing function provided by TIMM for the model
-        self.preprocess = create_transform(**config)
-
-    def __call__(self, image):
-        # Preprocess the input image
-        # input_image = Image.open(imagepath).convert(
-        #     "RGB")  # Convert to RGB if needed
-        image = Image.fromarray(image)
-        input_image = self.preprocess(image)
-
-        # Convert the image to a PyTorch tensor and add a batch dimension
-        input_tensor = input_image.unsqueeze(0)
-
-        # Perform inference
-        with torch.no_grad():
-            output = self.model(input_tensor)
-
-        # Extract the feature vector
-        feature_vector = output.squeeze().numpy()
-
-        return normalize(feature_vector.reshape(1, -1), norm="l2").flatten()
 
 
 class DINOv2Extractor:
@@ -229,32 +169,8 @@ class DINOv2Extractor:
 
 
 class MilvusManager:
-    # 标准模式: ResNet34 (512维)
-    _extractor = None
-    _embedding_model = None
-    
     # 高精度模式: DINOv2-Large (1024维) - 延迟加载
     _hp_extractor = None
-
-    @classmethod
-    def get_resnet_model_path(cls) -> str:
-        return resolve_model_path(os.getenv("RESNET_MODEL_PATH", "resnet/pytorch_model.bin"))
-
-    @classmethod
-    def get_embedding_model_path(cls) -> str:
-        return resolve_model_path(os.getenv("EMBEDDING_MODEL_PATH", "embedding/bge-small-zh-v1.5"))
-
-    @classmethod
-    def get_extractor(cls):
-        if cls._extractor is None:
-            cls._extractor = FeatureExtractor("resnet34", weights_path=cls.get_resnet_model_path())
-        return cls._extractor
-
-    @classmethod
-    def get_embedding_model(cls):
-        if cls._embedding_model is None:
-            cls._embedding_model = SentenceTransformer(cls.get_embedding_model_path())
-        return cls._embedding_model
     
     @classmethod
     def get_hp_extractor(cls):
@@ -277,24 +193,6 @@ class MilvusManager:
             return cls.get_hp_extractor().__call_batch__(images)
         return await run_sync(_)
 
-
-    # @classmethod
-    # async def insert_pic(cls, images):
-    #     await run_sync(cls._insert_pic, images)
-
-    @classmethod
-    async def embedding_encode(cls, data: str):
-        def _():
-            embeddings = cls.get_embedding_model().encode(
-                data, prompt='中文特征字符串,用于检索', normalize_embeddings=True, batch_size=32)
-            return embeddings
-        return await run_sync(_)
-
-    @classmethod
-    async def extract_image_tensor(cls, image):
-        def _():
-            return cls.get_extractor()(image)
-        return await run_sync(_)
 
     @classmethod
     async def insert_part_index(cls, part_index: PartsIndex):
@@ -423,63 +321,6 @@ class MilvusManager:
                 return data
         return await run_sync(_)
 
-    # @classmethod
-    # def insert_parts_feature(cls, feature_list: list[dict]):
-    #     if len(feature_list) == 0:
-    #         return
-    #     milvus_client.insert(
-    #         ColletionEnum.FEATURESCOLLECTION.value,
-    #         feature_list
-    #     )
-
-    # @classmethod
-    # def get_parts_features(cls, item_id: int):
-    #     filter = f'item_id == {item_id}'
-    #     res = milvus_client.query(
-    #         collection_name=ColletionEnum.FEATURESCOLLECTION.value,
-    #         filter=filter,
-    #         output_fields=["feature"],
-    #     )
-    #     feature_set = set()
-    #     for result in res:
-    #         feature_set.add(result['feature'])
-
-    #     return feature_set
-
-    # @classmethod
-    # def delete_parts_feature(cls, item_id: int, features: list[str]):
-
-    #     if len(features) == 0:
-    #         return
-    #     quoted_features = "','".join(features)
-    #     filter = f'item_id == {item_id} AND features[feature] IN [{quoted_features}]'
-    #     milvus_client.delete(ColletionEnum.FEATURESCOLLECTION.value,
-    #                          filter=filter)
-
-    # @classmethod
-    # async def update_parts_feature(cls, item_id: int, old_feature: str, new_feature: str):
-    #     res = milvus_client.query(
-    #         collection_name=ColletionEnum.FEATURESCOLLECTION.value,
-    #         filter=f""" item_id == {item_id} AND feature == {old_feature}""",
-    #         output_fields=["feature", "image_id"],
-    #     )
-    #     image_id = 0
-    #     for result in res:
-    #         image_id = result['image_id']
-    #     cls.delete_parts_feature(item_id, [old_feature])
-
-    #     cls.insert_parts_feature(
-    #         [
-    #             {
-    #                 "id": get_id(),
-    #                 "item_id": item_id,
-    #                 "image_id": image_id,
-    #                 "feature": new_feature,
-    #                 "feature_vector": await cls.embedding_encode(new_feature)
-    #             }
-    #         ]
-    #     )
-
     @classmethod
     async def get_all_indexed_item_id_list(cls, page: int = 1, per_page: int = 20, limit=1000):
         def _():
@@ -493,116 +334,6 @@ class MilvusManager:
                 item_id_list.append(r["item_id"])
             return item_id_list
         return await run_sync(_)
-
-    @classmethod
-    async def get_parts_feature_set(cls, item_id: int):
-
-        index_dict = await cls.list_item_index([item_id])
-        if item_id not in index_dict:
-            return set()
-
-        data = set()
-        for f in index_dict[item_id].features:
-            data.add(f.feature)
-        return data
-
-    @classmethod
-    async def feature_text_match_search(cls, query_text, category_filter=None, limit=3):
-        """
-        执行文本匹配搜索[1](@ref)
-
-        Args:
-            query_text: 查询文本
-            category_filter: 类别过滤条件
-            limit: 返回结果数量
-        """
-
-        # 构建过滤条件[1,9](@ref)
-        filter_condition = ""
-        if category_filter:
-            filter_condition = f"category == '{category_filter}'"
-
-        # 方法1: 使用 TEXT_MATCH 进行文本匹配（Milvus 2.5+）[1](@ref)
-        try:
-            if filter_condition:
-                filter_expr = f"TEXT_MATCH(text, '{query_text}') and {filter_condition}"
-            else:
-                filter_expr = f"TEXT_MATCH(text, '{query_text}')"
-
-            results = await milvus_client.search(
-                collection_name=ColletionEnum.FEATURESCOLLECTION.value,
-                data=[await cls.embedding_encode(query_text)],
-                anns_field="feature_vector",
-                filter=filter_expr,
-                limit=limit,
-                output_fields=["id", "item_id", "image_id", "feature"],
-                search_params={"params": {"nprobe": 10}}  # 搜索参数[2](@ref)
-            )
-
-        except Exception as e:
-            print(f"TEXT_MATCH 搜索失败: {e}")
-            # 回退到传统方法
-            return await cls.feature_fallback_text_search(query_text, category_filter, limit)
-
-        return results
-
-    @classmethod
-    async def feature_fallback_text_search(cls, query_text, category_filter=None, limit=3):
-        """传统的向量相似度搜索回退方法[2](@ref)"""
-
-        # 生成查询向量
-        query_vector = await cls.embedding_encode(query_text)
-
-        # 构建过滤条件[9](@ref)
-        filter_condition = ""
-        if category_filter:
-            filter_condition = f"category == '{category_filter}'"
-
-        # 执行向量相似度搜索[2,9](@ref)
-        results = await milvus_client.search(
-            collection_name=ColletionEnum.FEATURESCOLLECTION.value,
-            data=[query_vector],
-            anns_field="feature_vector",
-            filter=filter_condition,
-            limit=limit,
-            output_fields=["id", "item_id", "image_id", "feature"],
-            search_params={"params": {"nprobe": 10}}
-        )
-
-        return results
-
-    @classmethod
-    async def hybrid_search(cls, query_text, text_weight=0.5, vector_weight=0.5, limit=3):
-        """
-        混合搜索（文本匹配 + 向量相似度）[5](@ref)
-
-        Args:
-            query_text: 查询文本
-            text_weight: 文本匹配权重
-            vector_weight: 向量相似度权重
-            limit: 返回结果数量
-        """
-
-        try:
-            # 生成查询向量
-            query_vector = await cls.embedding_encode(query_text)
-
-            # 执行混合搜索[5](@ref)
-            results = milvus_client.search(
-                collection_name=ColletionEnum.FEATURESCOLLECTION.value,
-                data=[query_vector],
-                anns_field="feature_vector",
-                filter=f"TEXT_MATCH(text, '{query_text}')",
-                limit=limit,
-                output_fields=["id", "item_id", "image_id", "feature"],
-                search_params={"params": {"nprobe": 10}}
-            )
-
-            return results
-
-        except Exception as e:
-            print(f"混合搜索失败: {e}")
-            return await cls.feature_text_match_search(query_text, limit=limit)
 
     @classmethod
     async def __init_hp_collection(cls):

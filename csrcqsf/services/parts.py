@@ -152,15 +152,6 @@ async def create_item_image(
     return CreateItemImagesRes(**result)
 
 
-@parts_router.post('/item_image_indexed',  tags=["算法-特征索引"], summary='为配件建立索引,可以是原图，也可以是裁剪后的照片', deprecated=True, responses={
-    200: {
-        'model': str
-    }
-})
-async def create_item_image_index(req: CreateItemImagesIndexReq):
-    await RailwayPartsManager.create_item_index(req)
-
-
 @parts_router.post('/get_item_details',  tags=["业务-配件管理"], summary='获取配件的详细信息', responses={
     200: {
         'model': GetItemDetailRes
@@ -168,57 +159,6 @@ async def create_item_image_index(req: CreateItemImagesIndexReq):
 })
 async def get_item_image_detail(req: GetItemDetailReq):
     return await RailwayPartsManager.get_item_detail(int(req.item_id))
-
-
-@parts_router.post('/update_item_features',  tags=["业务-特征管理"], summary='修改配件文字特征', deprecated=True, responses={
-    200: {
-        'model': str
-    }
-})
-async def update_item_features(req: UpdateFeatureReq):
-    await RailwayPartsManager.update_item_features(req)
-
-
-@parts_router.post('/delete_item_features',  tags=["业务-特征管理"], summary='删除配件文字特征', deprecated=True, responses={
-    200: {
-        'model': str
-    }
-})
-async def delete_item_features(req: DeleteFeaturesReq):
-    await RailwayPartsManager.delete_item_features(req)
-
-
-@parts_router.post('/delete_item_image_index',  tags=["业务-图片管理"], summary='删除配件图片索引', deprecated=True, responses={
-    200: {
-        'model': str
-    }
-})
-async def delete_item_image_index(req: DeleteImageIndexedReq):
-    await RailwayPartsManager.delete_item_image_index(int(req.item_id), req.image_file_url)
-
-
-@parts_router.post('/list_item_features',  tags=["业务-特征管理"], summary='列出当前配件的features', deprecated=True, responses={
-    200: {
-        'model': ListFeautresRes
-    }
-})
-async def list_item_features(req: ListFeaturesReq):
-    features = await MilvusManager.get_parts_feature_set(int(req.item_id))
-
-    res = ListFeautresRes()
-    for f in features:
-        res.features.append(f)
-
-    return res
-
-
-@parts_router.post('/image_search',  tags=["算法-智能检索"], summary='根据图片查询配件', deprecated=True, responses={
-    200: {
-        'model': ImageSearchRes
-    }
-})
-async def item_search(req: ImageSearchReq):
-    return await RailwayPartsManager.image_search_to_item(req.images_url, req.radius)
 
 
 

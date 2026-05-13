@@ -118,16 +118,6 @@ def test_railwayparts_milvus_defers_optional_model_loading(monkeypatch):
     fake_pymilvus.MilvusClient = object
     monkeypatch.setitem(sys.modules, "pymilvus", fake_pymilvus)
 
-    fake_sentence_transformers = types.ModuleType("sentence_transformers")
-
-    class FakeSentenceTransformer:
-        def __init__(self, *args, **kwargs):
-            model_loads["embedding"] += 1
-
-    fake_sentence_transformers.SentenceTransformer = FakeSentenceTransformer
-    fake_sentence_transformers.util = types.SimpleNamespace()
-    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_sentence_transformers)
-
     fake_sklearn_preprocessing = types.ModuleType("sklearn.preprocessing")
     fake_sklearn_preprocessing.normalize = lambda value, norm=None: value
     monkeypatch.setitem(sys.modules, "sklearn.preprocessing", fake_sklearn_preprocessing)
@@ -153,14 +143,10 @@ def test_railwayparts_milvus_defers_optional_model_loading(monkeypatch):
     monkeypatch.setitem(sys.modules, "csrcqsf.models.sgo", fake_models_sgo)
 
     fake_settings = types.ModuleType("csrcqsf.settings")
-    fake_settings.minio_bucket = "bucket"
-    fake_settings.temp_dir = "/tmp"
-    fake_settings.model_dir = "/models"
     fake_settings.resolve_model_path = lambda path: path if path.startswith("/") else f"/models/{path}"
     monkeypatch.setitem(sys.modules, "csrcqsf.settings", fake_settings)
 
     fake_api_models = types.ModuleType("csrcqsf.biz.railwayparts.api_models")
-    fake_api_models.ImageSearchItem = object
     monkeypatch.setitem(sys.modules, "csrcqsf.biz.railwayparts.api_models", fake_api_models)
 
     module = _load_module(
@@ -169,5 +155,4 @@ def test_railwayparts_milvus_defers_optional_model_loading(monkeypatch):
     )
 
     assert model_loads == {"resnet": 0, "embedding": 0}
-    assert module.MilvusManager.get_resnet_model_path() == "/models/resnet/pytorch_model.bin"
-    assert module.MilvusManager.get_embedding_model_path() == "/models/embedding/bge-small-zh-v1.5"
+    assert getattr(module.MilvusManager, "_hp_extractor") is None
