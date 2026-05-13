@@ -3,6 +3,7 @@ import sys
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+import pytest
 
 from csrcqsf.models.item import Items
 from csrcqsf.models.search_history import SearchHistory, SearchResults, SearchReviewTicket
@@ -344,7 +345,7 @@ def test_get_v2_search_history_detail_returns_full_record():
     assert detail.result.items[0].matched_images[1].image_url == "bfr-ai-files/a.jpg"
 
 
-def test_summary_v2_search_history_uses_open_ticket_count_instead_of_partial():
+def test_summary_v2_search_history_uses_open_ticket_count_and_recognition_accuracy():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     fake_result = MagicMock()
     fake_result.one.return_value = (10, 4, 3, 2, 1)
@@ -358,6 +359,24 @@ def test_summary_v2_search_history_uses_open_ticket_count_instead_of_partial():
     assert summary.pending_count == 4
     assert summary.user_misjudged_count == 1
     assert summary.open_ticket_count == 2
+    assert summary.recognition_accuracy == pytest.approx(3 / 5)
+
+
+def test_summary_v2_search_history_returns_zero_accuracy_when_no_decided_samples():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    fake_result = MagicMock()
+    fake_result.one.return_value = (0, 0, 0, 0, 0)
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
+         patch.object(parts_module.SearchHistory, "summarize_review_status", AsyncMock(return_value=fake_result)), \
+         patch.object(parts_module.SearchReviewTicket, "count_open_tickets", AsyncMock(return_value=0)):
+        summary = asyncio.run(RailwayPartsManager.summary_v2_search_history())
+
+    assert summary.total == 0
+    assert summary.correct_count == 0
+    assert summary.wrong_count == 0
+    assert summary.open_ticket_count == 0
+    assert summary.recognition_accuracy == 0
 
 
 def test_verify_v2_search_history_autofills_correct_item_when_status_is_correct():

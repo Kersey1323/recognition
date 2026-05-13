@@ -1547,13 +1547,22 @@ class RailwayPartsManager:
             open_ticket_count = await SearchReviewTicket.count_open_tickets(session)
 
         total, pending_count, correct_count, wrong_count, user_misjudged_count = result.one()
+        total = int(total or 0)
+        pending_count = int(pending_count or 0)
+        correct_count = int(correct_count or 0)
+        wrong_count = int(wrong_count or 0)
+        user_misjudged_count = int(user_misjudged_count or 0)
+        open_ticket_count = int(open_ticket_count or 0)
+        denominator = correct_count + wrong_count
+        recognition_accuracy = (correct_count / denominator) if denominator else 0
         return SearchHistorySummaryRes(
-            total=int(total or 0),
-            pending_count=int(pending_count or 0),
-            correct_count=int(correct_count or 0),
-            wrong_count=int(wrong_count or 0),
-            user_misjudged_count=int(user_misjudged_count or 0),
-            open_ticket_count=int(open_ticket_count or 0),
+            total=total,
+            pending_count=pending_count,
+            correct_count=correct_count,
+            wrong_count=wrong_count,
+            user_misjudged_count=user_misjudged_count,
+            open_ticket_count=open_ticket_count,
+            recognition_accuracy=recognition_accuracy,
         )
 
     @classmethod
