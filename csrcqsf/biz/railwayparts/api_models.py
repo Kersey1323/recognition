@@ -414,6 +414,12 @@ class SearchHistoryListItem(BaseModel):
             return None
         return str(value)
 
+    @validator("status", pre=True, allow_reuse=True)
+    def normalize_public_status(cls, value):
+        if value == "correct":
+            return "correct"
+        return "pending"
+
 
 class SearchHistoryListRes(BaseModel):
     total: int = Field(..., description="总数")
@@ -608,6 +614,7 @@ class SearchReviewTicketItem(BaseModel):
     issue_type: str | None = None
     time_created: str
     time_updated: str
+    search_type: str | None = None
     query_text: str | None = None
     query_image: str | None = None
     query_images: list[str] = Field(default_factory=list)
@@ -635,6 +642,14 @@ class SearchReviewTicketItem(BaseModel):
         if value is None:
             return None
         return str(value)
+
+    @validator("feedback_remark", pre=True, allow_reuse=True)
+    def normalize_feedback_remark(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str) and value.strip().lower() == "null":
+            return None
+        return value
 
 
 class SearchReviewTicketListRes(BaseModel):
@@ -664,6 +679,7 @@ class SearchReviewTicketDetailRes(BaseModel):
     review_started_at: str | None = None
     resolved_at: str | None = None
     closed_at: str | None = None
+    search_type: str | None = None
     query_text: str | None = None
     query_image: str | None = None
     query_images: list[str] = Field(default_factory=list)
@@ -692,6 +708,14 @@ class SearchReviewTicketDetailRes(BaseModel):
         if value is None:
             return None
         return str(value)
+
+    @validator("feedback_remark", pre=True, allow_reuse=True)
+    def normalize_feedback_remark(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str) and value.strip().lower() == "null":
+            return None
+        return value
 
 
 class SearchReviewTicketUpdateReq(BaseModel):

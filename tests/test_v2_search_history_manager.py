@@ -419,6 +419,47 @@ def test_build_search_history_item_prefers_query_images_when_present():
     assert item.result.items[0].matched_images[0].matched_query_indexes == [0, 1]
 
 
+def test_build_search_history_item_exposes_only_correct_and_pending_statuses():
+    RailwayPartsManager, _parts_module = _import_railway_parts_manager()
+    wrong_row = SimpleNamespace(
+        id=1,
+        time_created=datetime(2026, 5, 9, 10, 0, 0),
+        query_text="q",
+        query_image=None,
+        query_images_json=None,
+        search_equipment="web",
+        verify_status="wrong",
+        verify_remark=None,
+        verified_at=None,
+        inquery_id=None,
+        inquery_num=None,
+        search_result_item_name="A",
+        search_result_item_code="4001",
+        correct_item_id=None,
+        correct_item_name=None,
+        correct_item_code=None,
+        correct_image_url=None,
+        correct_rank=None,
+        correct_source=None,
+        ranking_feedback_type=None,
+        search_results=None,
+    )
+    misjudged_row = SimpleNamespace(
+        **{**wrong_row.__dict__, "id": 2, "verify_status": "user_misjudged"}
+    )
+    correct_row = SimpleNamespace(
+        **{**wrong_row.__dict__, "id": 3, "verify_status": "correct"}
+    )
+
+    wrong_item = RailwayPartsManager._build_search_history_item(wrong_row)
+    misjudged_item = RailwayPartsManager._build_search_history_item(misjudged_row)
+    correct_item = RailwayPartsManager._build_search_history_item(correct_row)
+
+    assert wrong_item.status == "pending"
+    assert misjudged_item.status == "pending"
+    assert correct_item.status == "correct"
+
+
 def test_list_v2_search_history_backfills_missing_result_item_name_from_items_table():
     from csrcqsf.biz.railwayparts.api_models import SearchHistoryListReq
     from csrcqsf.models.search_history import SearchResults

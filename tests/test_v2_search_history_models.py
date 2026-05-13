@@ -306,6 +306,70 @@ def test_feedback_and_review_ticket_request_models_serialize():
     assert dump_model(ticket_item)["search_equipment"] == "terminal"
 
 
+def test_review_ticket_models_include_search_type_and_normalize_null_feedback():
+    ticket_item = SearchReviewTicketItem(
+        ticket_id="5001",
+        history_id="1001",
+        review_status="open",
+        issue_type="precision_issue",
+        time_created="2026-04-23 11:00:00",
+        time_updated="2026-04-23 12:00:00",
+        search_type="image",
+        feedback_remark="null",
+    )
+    detail_res = SearchReviewTicketDetailRes(
+        ticket_id="5001",
+        history_id="1001",
+        review_status="reviewing",
+        time_created="2026-04-23 11:00:00",
+        time_updated="2026-04-23 12:00:00",
+        search_type="text",
+        feedback_remark="null",
+    )
+
+    item_data = dump_model(ticket_item)
+    detail_data = dump_model(detail_res)
+
+    assert item_data["search_type"] == "image"
+    assert item_data["feedback_remark"] is None
+    assert detail_data["search_type"] == "text"
+    assert detail_data["feedback_remark"] is None
+
+
+def test_search_history_list_item_normalizes_public_statuses():
+    correct_item = SearchHistoryListItem(
+        history_id="1001",
+        search_type="text",
+        time_created="2026-04-30 17:00:00",
+        query_text="制动盘",
+        status="correct",
+        result=None,
+        inquery_id=None,
+        inquery_num=None,
+        search_item_name="制动2",
+        search_item_code="40000728845",
+        correct_item_name=None,
+        correct_item_code=None,
+    )
+    pending_item = SearchHistoryListItem(
+        history_id="1002",
+        search_type="text",
+        time_created="2026-04-30 17:00:00",
+        query_text="制动盘",
+        status="wrong",
+        result=None,
+        inquery_id=None,
+        inquery_num=None,
+        search_item_name="制动2",
+        search_item_code="40000728845",
+        correct_item_name=None,
+        correct_item_code=None,
+    )
+
+    assert dump_model(correct_item)["status"] == "correct"
+    assert dump_model(pending_item)["status"] == "pending"
+
+
 def test_search_history_feedback_request_accepts_optional_selected_fields():
     req = SearchHistoryFeedbackReq(
         history_id="1001",

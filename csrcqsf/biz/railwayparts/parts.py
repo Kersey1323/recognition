@@ -376,10 +376,6 @@ class RailwayPartsManager:
 
     @classmethod
     async def get_item_detail(cls, item_id: int):
-        from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
-
-        await ReconstructionManager.ensure_item_result_persisted(item_id)
-
         index_detail = await MilvusManager.list_item_index([item_id])
         indexed_image_dict = MilvusStateManagerV2().get_indexed_images_by_item_id(item_id)
 
@@ -1372,9 +1368,9 @@ class RailwayPartsManager:
 
     @classmethod
     def _normalize_review_status(cls, status: str | None) -> str:
-        if status == "partial":
-            return "wrong"
-        return status or "pending"
+        if status == "correct":
+            return "correct"
+        return "pending"
 
     @classmethod
     def _get_search_result_candidates(cls, history) -> list[SearchResultItem]:
@@ -1614,6 +1610,7 @@ class RailwayPartsManager:
             issue_type=row.issue_type,
             time_created=date_to_str(row.time_created),
             time_updated=date_to_str(row.time_updated),
+            search_type=getattr(row, "search_type", None),
             query_text=getattr(row, "query_text", None),
             query_image=getattr(row, "query_image", None),
             query_images=list(getattr(row, "query_images_json", None) or []),
@@ -1631,6 +1628,14 @@ class RailwayPartsManager:
 
     @classmethod
     def _build_search_review_ticket_detail(cls, ticket, history):
+        query_images = list(getattr(history, "query_images_json", None) or [])
+        if getattr(history, "query_image", None) or query_images:
+            search_type = "image"
+        elif getattr(history, "query_text", None):
+            search_type = "text"
+        else:
+            search_type = "unknown"
+
         return SearchReviewTicketDetailRes(
             ticket_id=ticket.id,
             history_id=ticket.history_id,
@@ -1643,9 +1648,10 @@ class RailwayPartsManager:
             review_started_at=date_to_str(ticket.review_started_at) if ticket.review_started_at else None,
             resolved_at=date_to_str(ticket.resolved_at) if ticket.resolved_at else None,
             closed_at=date_to_str(ticket.closed_at) if ticket.closed_at else None,
+            search_type=search_type,
             query_text=getattr(history, "query_text", None),
             query_image=getattr(history, "query_image", None),
-            query_images=list(getattr(history, "query_images_json", None) or []),
+            query_images=query_images,
             search_equipment=getattr(history, "search_equipment", None),
             result=getattr(history, "search_results", None),
             search_item_name=getattr(history, "search_result_item_name", None),

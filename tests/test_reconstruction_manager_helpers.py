@@ -79,7 +79,11 @@ def test_resolve_record_ply_path_prefers_local_ply_url():
         iterations=10000,
     )
 
-    assert ReconstructionManager._resolve_record_ply_path(record) == "/tmp/local-point-cloud.ply"
+    with patch(
+        "csrcqsf.biz.railwayparts.reconstruction_manager._get_minio_helpers",
+        return_value=(MagicMock(), MagicMock(return_value=False), MagicMock(), MagicMock(), Exception),
+    ):
+        assert ReconstructionManager._resolve_record_ply_path(record) == "/tmp/local-point-cloud.ply"
 
 
 def test_resolve_record_ply_path_builds_path_from_output_dir():
@@ -89,7 +93,11 @@ def test_resolve_record_ply_path_builds_path_from_output_dir():
         iterations=10000,
     )
 
-    assert ReconstructionManager._resolve_record_ply_path(record) == "/tmp/output/point_cloud/iteration_10000/point_cloud.ply"
+    with patch(
+        "csrcqsf.biz.railwayparts.reconstruction_manager._get_minio_helpers",
+        return_value=(MagicMock(), MagicMock(return_value=False), MagicMock(), MagicMock(), Exception),
+    ):
+        assert ReconstructionManager._resolve_record_ply_path(record) == "/tmp/output/point_cloud/iteration_10000/point_cloud.ply"
 
 
 def test_resolve_video_task_inputs_reads_source_video_path_and_item_name():
@@ -319,6 +327,47 @@ def test_get_task_status_promotes_success_payload_to_completed_response_and_term
     )
 
 
+def test_get_task_status_keeps_terminal_success_when_celery_backend_falls_back_to_pending():
+    session = AsyncMock()
+    completed_at = datetime(2026, 4, 28, 16, 27, 53)
+    record = SimpleNamespace(
+        task_id="task-id",
+        item_id=2023080809420000001,
+        status=ReconstructionStatus.SUCCESS,
+        progress=100,
+        current_stage="完成",
+        error_message=None,
+        ply_url="bfr-reconstruction-files/results/demo/point_cloud.ply",
+        glb_url=None,
+        total_frames=None,
+        filtered_frames=None,
+        colmap_points=None,
+        completed_at=completed_at,
+        elapsed_sec=493.4,
+        time_created=datetime(2026, 4, 28, 16, 19, 27),
+        time_updated=datetime(2026, 5, 13, 11, 24, 14),
+    )
+    celery_result = SimpleNamespace(
+        state="PENDING",
+        result=None,
+        info=None,
+        date_done=None,
+    )
+
+    with patch("csrcqsf.biz.railwayparts.reconstruction_manager._get_celery_modules", return_value=(MagicMock(), None, None)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.AsyncResult", return_value=celery_result), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status:
+        result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
+
+    assert result["status"] == ReconstructionStatus.SUCCESS
+    assert result["progress"] == 100
+    assert result["current_stage"] == "完成"
+    assert result["time_updated"] == completed_at.isoformat()
+    update_status.assert_not_awaited()
+
+
 def _fake_upload_file(filename: str, content_type: str = "application/octet-stream", body: bytes = b"ply"):
     return SimpleNamespace(
         filename=filename,
@@ -371,10 +420,18 @@ def test_upload_reconstruction_result_rolls_back_minio_when_pg_update_fails():
 
     with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=item)), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ensure_minio_bucket"), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.run_sync", AsyncMock(side_effect=lambda func, *args, **kwargs: func(*args, **kwargs))), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.update_obj_url", AsyncMock(side_effect=RuntimeError("pg failed"))), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.minio_instance.client.put_object", MagicMock()), \
+         patch(
+             "csrcqsf.biz.railwayparts.reconstruction_manager._get_minio_helpers",
+             return_value=(
+                 MagicMock(),
+                 MagicMock(return_value=True),
+                 SimpleNamespace(client=SimpleNamespace(put_object=MagicMock())),
+                 MagicMock(),
+                 Exception,
+             ),
+         ), \
          patch.object(ReconstructionManager, "_delete_minio_object", AsyncMock()) as delete_mock:
         try:
             asyncio.run(

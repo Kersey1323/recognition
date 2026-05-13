@@ -295,7 +295,7 @@ def test_list_v2_search_history_maps_partial_status_to_wrong():
             RailwayPartsManager.list_v2_search_history(SearchHistoryListReq(page=1, pageSize=10))
         )
 
-    assert res.items[0].status == "wrong"
+    assert res.items[0].status == "pending"
 
 
 def test_get_v2_search_history_detail_returns_full_record():
@@ -625,17 +625,19 @@ def test_delete_v2_search_history_deletes_records_and_best_effort_query_images()
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     session = AsyncMock()
     deleted_rows = [
-        (1, "bfr-search-history-files/query-images/20260428/1_demo.png"),
+        (1, "bfr-search-history-files/query-images/20260428/1_demo.png", None),
         (2, None),
     ]
 
+    remove_object = MagicMock()
+    parse_minio_path = MagicMock(return_value=("bfr-search-history-files", "query-images/20260428/1_demo.png"))
+
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.SearchHistory, "delete_history_with_query_images", AsyncMock(return_value=deleted_rows)), \
-         patch.object(parts_module, "parse_minio_path", return_value=("bfr-search-history-files", "query-images/20260428/1_demo.png")), \
-         patch.object(parts_module.minio_instance.client, "remove_object", MagicMock()) as remove_mock:
+         patch.object(parts_module, "_get_minio_helpers", return_value=(MagicMock(), SimpleNamespace(client=SimpleNamespace(remove_object=remove_object)), parse_minio_path)):
         res = asyncio.run(RailwayPartsManager.delete_v2_search_history([1, 2]))
 
-    remove_mock.assert_called_once_with(
+    remove_object.assert_called_once_with(
         "bfr-search-history-files",
         "query-images/20260428/1_demo.png",
     )

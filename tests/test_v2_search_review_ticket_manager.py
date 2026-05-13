@@ -72,7 +72,9 @@ def test_list_review_tickets_maps_joined_history_snapshot():
                 time_updated=datetime(2026, 4, 29, 10, 5, 0),
                 query_text="钢丝绳",
                 query_image=None,
+                query_images_json=None,
                 search_equipment="terminal",
+                search_type="text",
                 search_result_item_name="钢丝绳",
                 search_result_item_code="19010036737",
                 verify_remark="识别错误",
@@ -104,9 +106,49 @@ def test_list_review_tickets_maps_joined_history_snapshot():
     assert res.items[0].history_id == "101"
     assert res.items[0].issue_type is None
     assert res.items[0].search_equipment == "terminal"
+    assert res.items[0].search_type == "text"
     assert res.items[0].query_text == "钢丝绳"
     assert res.items[0].feedback_remark == "识别错误"
     assert res.items[0].search_item_code == "19010036737"
+
+
+def test_list_review_tickets_treats_string_null_feedback_as_empty():
+    from csrcqsf.biz.railwayparts.api_models import SearchReviewTicketListReq
+
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    page_result = SimpleNamespace(
+        total=1,
+        data=[
+            SimpleNamespace(
+                id=7001,
+                history_id=101,
+                review_status="open",
+                issue_type=None,
+                time_created=datetime(2026, 4, 29, 10, 0, 0),
+                time_updated=datetime(2026, 4, 29, 10, 5, 0),
+                query_text="钢丝绳",
+                query_image=None,
+                query_images_json=None,
+                search_equipment="terminal",
+                search_type="image",
+                search_result_item_name="钢丝绳",
+                search_result_item_code="19010036737",
+                verify_remark="null",
+                correct_item_name=None,
+                correct_item_code=None,
+            )
+        ],
+    )
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
+         patch.object(parts_module.SearchReviewTicket, "list_tickets", AsyncMock(return_value=page_result)):
+        res = asyncio.run(
+            RailwayPartsManager.list_v2_search_review_tickets(
+                SearchReviewTicketListReq(page=1, pageSize=10)
+            )
+        )
+
+    assert res.items[0].feedback_remark is None
 
 
 def test_get_review_ticket_detail_returns_history_snapshot():
@@ -128,6 +170,7 @@ def test_get_review_ticket_detail_returns_history_snapshot():
         id=102,
         query_text="制动阀",
         query_image=None,
+        query_images_json=None,
         search_equipment="web",
         search_results=SearchResults(
             items=[
@@ -146,7 +189,7 @@ def test_get_review_ticket_detail_returns_history_snapshot():
         ),
         search_result_item_name="制动2",
         search_result_item_code="40000728845",
-        verify_remark="结果不准",
+        verify_remark="null",
         correct_item_name=None,
         correct_item_code=None,
     )
@@ -163,8 +206,9 @@ def test_get_review_ticket_detail_returns_history_snapshot():
     assert detail.time_created == "2026-04-29 10:05:00"
     assert detail.time_updated == "2026-04-29 10:20:00"
     assert detail.search_equipment == "web"
+    assert detail.search_type == "text"
     assert detail.query_text == "制动阀"
-    assert detail.feedback_remark == "结果不准"
+    assert detail.feedback_remark is None
     assert detail.result.items[0].item_code == "40000728845"
     assert len(detail.result.items[0].matched_images) == 2
     assert detail.result.items[0].matched_images[0].image_url == "bfr-ai-files/b.jpg"

@@ -185,3 +185,45 @@ def test_get_item_detail_prefers_segmented_image_url_for_index_panel():
     assert res.images_index_list[0].image_id == "9001"
     assert res.images_index_list[0].image_url == "bfr-ai-files/segmented/9001.jpg"
     assert res.images[0].image_url == "bfr-ai-files/source-a.jpg"
+
+
+def test_get_item_detail_does_not_persist_reconstruction_result_during_read():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    fake_item = SimpleNamespace(
+        id=101,
+        obj_url=None,
+        height=None,
+        width=None,
+        long=None,
+        weight=None,
+        source_video_path=None,
+        item_name="橡胶套",
+        item_code="40000543491",
+        time_created=None,
+        time_updated=None,
+        size_str=None,
+    )
+    fake_state_manager = MagicMock()
+    fake_state_manager.get_indexed_images_by_item_id.return_value = {}
+    fake_reconstruction_manager = SimpleNamespace(
+        ensure_item_result_persisted=AsyncMock(),
+    )
+
+    with patch.dict(
+        sys.modules,
+        {
+            "csrcqsf.biz.railwayparts.reconstruction_manager": SimpleNamespace(
+                ReconstructionManager=fake_reconstruction_manager
+            )
+        },
+    ), patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
+         patch.object(parts_module.SgoItemImages, "get_images", MagicMock(return_value=_async_iter([]))), \
+         patch.object(parts_module, "SegmentedImage", SimpleNamespace(list_by_item_id=AsyncMock(return_value=[])), create=True), \
+         patch.object(parts_module, "MilvusManager", SimpleNamespace(list_item_index=AsyncMock(return_value={}))), \
+         patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager), \
+         patch.object(parts_module, "date_to_str", side_effect=lambda _value: "2026-04-27 11:39:23"):
+        asyncio.run(parts_module.RailwayPartsManager.get_item_detail(101))
+
+    fake_reconstruction_manager.ensure_item_result_persisted.assert_not_awaited()

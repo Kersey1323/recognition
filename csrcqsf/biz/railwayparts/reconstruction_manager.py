@@ -115,6 +115,67 @@ class ReconstructionManager:
     """三维重构管理器"""
 
     @classmethod
+    def _is_terminal_status(cls, status: str | None) -> bool:
+        return status in (
+            ReconstructionStatus.SUCCESS,
+            ReconstructionStatus.FAILED,
+            ReconstructionStatus.CANCELLED,
+        )
+
+    @classmethod
+    def _infer_terminal_status_from_record(cls, record) -> str | None:
+        if record is None:
+            return None
+
+        status = getattr(record, "status", None)
+        if cls._is_terminal_status(status):
+            return status
+
+        completed_at = getattr(record, "completed_at", None)
+        current_stage = getattr(record, "current_stage", None)
+        error_message = getattr(record, "error_message", None)
+
+        if completed_at is None:
+            return None
+
+        if current_stage == "完成":
+            return ReconstructionStatus.SUCCESS
+        if current_stage == "失败":
+            return ReconstructionStatus.FAILED
+        if error_message:
+            return ReconstructionStatus.FAILED
+        return None
+
+    @classmethod
+    def _build_terminal_snapshot_from_record(cls, record, status: str | None = None) -> dict | None:
+        terminal_status = status or cls._infer_terminal_status_from_record(record)
+        if terminal_status is None:
+            return None
+
+        progress = getattr(record, "progress", None)
+        current_stage = getattr(record, "current_stage", None)
+        error_message = getattr(record, "error_message", None)
+
+        if terminal_status == ReconstructionStatus.SUCCESS:
+            progress = 100
+            current_stage = "完成"
+            error_message = None
+        elif terminal_status == ReconstructionStatus.FAILED:
+            current_stage = "失败"
+        elif terminal_status == ReconstructionStatus.CANCELLED:
+            current_stage = current_stage or "已取消"
+            error_message = error_message or "任务已取消"
+
+        return {
+            "status": terminal_status,
+            "progress": progress,
+            "current_stage": current_stage,
+            "error_message": error_message,
+            "completed_at": getattr(record, "completed_at", None),
+            "elapsed_sec": getattr(record, "elapsed_sec", None),
+        }
+
+    @classmethod
     def _resolve_terminal_completed_at(cls, celery_result, fallback=None):
         return _normalize_datetime(getattr(celery_result, "date_done", None)) or fallback or datetime.utcnow()
 
@@ -207,16 +268,25 @@ class ReconstructionManager:
 
     @classmethod
     def _response_time_updated(cls, record) -> str | None:
-        if record.status in (
-            ReconstructionStatus.SUCCESS,
-            ReconstructionStatus.FAILED,
-            ReconstructionStatus.CANCELLED,
-        ) and getattr(record, "completed_at", None):
+        response_status = cls._infer_terminal_status_from_record(record) or getattr(record, "status", None)
+        if cls._is_terminal_status(response_status) and getattr(record, "completed_at", None):
             return record.completed_at.isoformat()
         return record.time_updated.isoformat() if record.time_updated else None
 
     @classmethod
     async def _refresh_record_from_celery_result(cls, *, session, record, result) -> bool:
+        terminal_snapshot = cls._build_terminal_snapshot_from_record(record)
+        if terminal_snapshot is not None and result.state in ("PENDING", "STARTED", "PROGRESS"):
+            db_changed = cls._needs_status_update(record, **terminal_snapshot)
+            if db_changed:
+                await cls._update_terminal_status(
+                    session=session,
+                    task_id=record.task_id,
+                    record=record,
+                    **terminal_snapshot,
+                )
+            return db_changed
+
         new_status = map_celery_state_to_reconstruction_status(result.state)
         progress = record.progress
         stage = record.current_stage
@@ -412,16 +482,17 @@ class ReconstructionManager:
         record: ReconstructionRecord,
         item_name_map: dict[int, str] | None = None,
     ) -> dict:
+        response_snapshot = cls._build_terminal_snapshot_from_record(record)
         return {
             "task_id": record.task_id,
             "item_id": record.item_id,
             "item_name": (item_name_map or {}).get(record.item_id),
             "task_type": getattr(record, "task_type", None),
-            "status": record.status,
-            "progress": record.progress,
-            "current_stage": record.current_stage,
+            "status": (response_snapshot or {}).get("status", record.status),
+            "progress": (response_snapshot or {}).get("progress", record.progress),
+            "current_stage": (response_snapshot or {}).get("current_stage", record.current_stage),
             "scene_name": getattr(record, "scene_name", None),
-            "error_message": record.error_message,
+            "error_message": (response_snapshot or {}).get("error_message", record.error_message),
             "ply_url": record.ply_url,
             "glb_url": record.glb_url,
             "total_frames": record.total_frames,
@@ -1166,15 +1237,17 @@ class ReconstructionManager:
             )
             if changed:
                 await session.commit()
+
+            response_snapshot = cls._build_terminal_snapshot_from_record(record)
             
             # 返回完整信息
             return {
                 "task_id": task_id,
                 "item_id": record.item_id,
-                "status": record.status,
-                "progress": record.progress,
-                "current_stage": record.current_stage,
-                "error_message": record.error_message,
+                "status": (response_snapshot or {}).get("status", record.status),
+                "progress": (response_snapshot or {}).get("progress", record.progress),
+                "current_stage": (response_snapshot or {}).get("current_stage", record.current_stage),
+                "error_message": (response_snapshot or {}).get("error_message", record.error_message),
                 "ply_url": record.ply_url,
                 "glb_url": record.glb_url,
                 "total_frames": record.total_frames,
@@ -1273,12 +1346,10 @@ class ReconstructionManager:
         """
         async with SessionLocal() as session:
             records = await ReconstructionRecord.get_by_item_id(session, item_id)
-            await cls._refresh_records_from_celery(session, records)
             item_name_map = await cls._get_item_name_map(
                 session=session,
                 item_ids=list({record.item_id for record in records if getattr(record, "item_id", None) is not None}),
             )
-            await session.commit()
             return [cls._serialize_task_record(record, item_name_map=item_name_map) for record in records]
     
     @classmethod
@@ -1307,12 +1378,10 @@ class ReconstructionManager:
                 limit=limit,
                 offset=offset
             )
-            await cls._refresh_records_from_celery(session, records)
             item_name_map = await cls._get_item_name_map(
                 session=session,
                 item_ids=list({record.item_id for record in records if getattr(record, "item_id", None) is not None}),
             )
-            await session.commit()
             return {
                 "total": total,
                 "page": page,

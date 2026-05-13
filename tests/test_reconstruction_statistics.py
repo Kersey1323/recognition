@@ -128,6 +128,42 @@ def test_list_item_tasks_backfills_item_name_from_items_table():
     assert result[0]["item_name"] == "螺栓M8X22"
 
 
+def test_list_item_tasks_does_not_refresh_status_from_celery_during_read():
+    from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
+
+    session = AsyncMock()
+    records = [
+        SimpleNamespace(
+            task_id="done-task",
+            item_id=2023080809420000001,
+            status=ReconstructionStatus.TRAINING,
+            progress=50,
+            current_stage="训练中",
+            error_message=None,
+            ply_url=None,
+            glb_url=None,
+            total_frames=None,
+            filtered_frames=None,
+            colmap_points=None,
+            completed_at=None,
+            time_created=datetime(2026, 4, 28, 16, 19, 27),
+            time_updated=datetime(2026, 4, 28, 16, 40, 3),
+        )
+    ]
+
+    async def fake_get_item_by_id_list(_session, item_id_list):
+        yield SimpleNamespace(id=2023080809420000001, item_name="螺栓M8X22")
+
+    with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_item_id", AsyncMock(return_value=records)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id_list", fake_get_item_by_id_list), \
+         patch.object(ReconstructionManager, "_refresh_records_from_celery", AsyncMock()) as refresh_mock:
+        result = asyncio.run(ReconstructionManager.list_item_tasks(item_id=2023080809420000001))
+
+    refresh_mock.assert_not_awaited()
+    assert result[0]["status"] == ReconstructionStatus.TRAINING
+
+
 def test_reconstruction_statistics_maps_aggregate_counts_and_elapsed_metrics():
     from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
 
@@ -158,6 +194,44 @@ def test_reconstruction_statistics_maps_aggregate_counts_and_elapsed_metrics():
         "min_success_elapsed_sec": 301.4,
         "max_success_elapsed_sec": 921.7,
     }
+
+
+def test_list_all_tasks_does_not_refresh_status_from_celery_during_read():
+    from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
+
+    session = AsyncMock()
+    records = [
+        SimpleNamespace(
+            task_id="done-task",
+            item_id=2023080809420000001,
+            task_type="video",
+            status=ReconstructionStatus.TRAINING,
+            progress=50,
+            current_stage="训练中",
+            error_message=None,
+            ply_url=None,
+            glb_url=None,
+            total_frames=None,
+            filtered_frames=None,
+            colmap_points=None,
+            completed_at=None,
+            elapsed_sec=None,
+            time_created=datetime(2026, 4, 28, 16, 19, 27),
+            time_updated=datetime(2026, 4, 28, 16, 40, 3),
+        )
+    ]
+
+    async def fake_get_item_by_id_list(_session, item_id_list):
+        yield SimpleNamespace(id=2023080809420000001, item_name="螺栓M8X22")
+
+    with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_all_tasks", AsyncMock(return_value=(records, 1))), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id_list", fake_get_item_by_id_list), \
+         patch.object(ReconstructionManager, "_refresh_records_from_celery", AsyncMock()) as refresh_mock:
+        result = asyncio.run(ReconstructionManager.list_all_tasks(page=1, page_size=10))
+
+    refresh_mock.assert_not_awaited()
+    assert result["records"][0]["status"] == ReconstructionStatus.TRAINING
 
 
 def test_reconstruction_statistics_route_returns_manager_payload():
