@@ -23,7 +23,7 @@
 ## 技术栈
 
 - FastAPI
-- PostgreSQL
+- MySQL
 - Milvus
 - MinIO
 - Redis / Celery / Flower
@@ -67,7 +67,7 @@ cp .env.example .env
 
 然后按实际环境修改 `.env`，重点包括：
 
-- PostgreSQL
+- 主业务 MySQL（`MAIN_DB_*`）
 - Milvus
 - MinIO
 - Redis
@@ -121,9 +121,15 @@ python main.py
 第一版 Docker 部署约束：
 
 - 只容器化 FastAPI 主服务
-- PostgreSQL、Redis、Milvus、MinIO 继续使用外部现成服务
+- 主业务 MySQL、Redis、Milvus、MinIO 继续使用外部现成服务
 - 模型目录不打进镜像，运行时挂载到容器内 `/models`
 - `patch_tokens`、`logs`、`temp`、`state` 必须挂载到宿主机持久化目录
+
+## 主库说明
+
+- 主业务库已切换到 MySQL，默认数据库名为 `coronavirusdb`
+- 主业务库连接通过 `MAIN_DB_HOST` / `MAIN_DB_PORT` / `MAIN_DB_USER` / `MAIN_DB_PASSWORD` / `MAIN_DB_DATABASE` 配置
+- SGO 链路继续使用独立 MySQL，不与主业务库复用
 
 具体步骤见：
 

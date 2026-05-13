@@ -13,7 +13,6 @@ from csrcqsf.models.item import *
 from bfrcommon.snowflake import get_id
 from csrcqsf.data.pg import SessionLocal
 from csrcqsf.data.mdpdb import sgo_sessionLocal
-from csrcqsf.data.minio import ensure_minio_bucket, minio_instance, parse_minio_path
 from csrcqsf.models.search_history import (
     MatchedImage,
     SearchHistory,
@@ -44,6 +43,13 @@ from pymilvus.client.embedding_list import EmbeddingList
 from csrcqsf.settings import ai_settings,minio_bucket,minio_search_history_bucket,temp_dir
 from .vector_db.storage.milvus_manager import MilvusManagerV2
 from .vector_db.storage.milvus_state_manager import MilvusStateManagerV2
+
+
+def _get_minio_helpers():
+    from csrcqsf.data.minio import ensure_minio_bucket, minio_instance, parse_minio_path
+
+    return ensure_minio_bucket, minio_instance, parse_minio_path
+
 
 class RailwayPartsManager:
     """
@@ -345,6 +351,7 @@ class RailwayPartsManager:
         filename: str,
         content_bytes: bytes,
     ) -> str:
+        ensure_minio_bucket, minio_instance, _ = _get_minio_helpers()
         ensure_minio_bucket(minio_search_history_bucket)
         safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", (filename or "query.jpg").strip())
         if not safe_name:
@@ -487,6 +494,7 @@ class RailwayPartsManager:
 
     @classmethod
     async def _delete_minio_object(cls, object_path: str) -> None:
+        _, minio_instance, parse_minio_path = _get_minio_helpers()
         bucket, object_name = parse_minio_path(object_path, default_bucket=minio_bucket)
 
         def _delete():
@@ -499,6 +507,7 @@ class RailwayPartsManager:
         if len(files) == 0:
             raise Exception("未上传图片文件")
 
+        ensure_minio_bucket, minio_instance, _ = _get_minio_helpers()
         ensure_minio_bucket(minio_bucket)
 
         async with SessionLocal() as session:
@@ -576,6 +585,7 @@ class RailwayPartsManager:
         """
         image_url格式为 {bucket_name}/{file_name}的格式
         """
+        _, minio_instance, _ = _get_minio_helpers()
         def _():
             file_name_arr = image_url.split("/")
             if len(file_name_arr) < 2:
@@ -2067,6 +2077,7 @@ class RailwayPartsManager:
             rows = await SearchHistory.delete_history_with_query_images(session, history_id_list)
             await session.commit()
 
+        _, minio_instance, parse_minio_path = _get_minio_helpers()
         for row in rows:
             history_id, query_image = row[0], row[1]
             query_images_json = row[2] if len(row) > 2 else None

@@ -11,9 +11,7 @@ from uuid import uuid4
 from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
 from celery.result import AsyncResult
-from minio.error import S3Error
 from globals_vars import logger
-from csrcqsf.data.minio import ensure_minio_bucket, looks_like_minio_path, minio_instance, parse_minio_path
 from csrcqsf.data.pg import SessionLocal
 from csrcqsf.models.reconstruction import ReconstructionRecord, ReconstructionStatus
 from csrcqsf.models.item import Items
@@ -27,6 +25,18 @@ from csrcqsf.settings import (
 _celery_app = None
 _train_reconstruction = None
 _video_reconstruction = None
+
+
+def _get_minio_helpers():
+    from csrcqsf.data.minio import (
+        ensure_minio_bucket,
+        looks_like_minio_path,
+        minio_instance,
+        parse_minio_path,
+    )
+    from minio.error import S3Error
+
+    return ensure_minio_bucket, looks_like_minio_path, minio_instance, parse_minio_path, S3Error
 
 def _get_celery_modules():
     """延迟导入 Celery 模块"""
@@ -489,6 +499,7 @@ class ReconstructionManager:
 
     @classmethod
     async def _upload_source_video_file(cls, item_id: int, file) -> dict:
+        ensure_minio_bucket, _, minio_instance, _, _ = _get_minio_helpers()
         ensure_minio_bucket(minio_reconstruction_video_bucket)
         safe_name = cls._safe_filename(file.filename)
         date_dir = datetime.now().strftime("%Y%m%d")
@@ -526,6 +537,7 @@ class ReconstructionManager:
         if not minio_path:
             return False
 
+        _, _, minio_instance, parse_minio_path, S3Error = _get_minio_helpers()
         bucket, object_name = parse_minio_path(
             minio_path,
             default_bucket=default_bucket,
@@ -559,6 +571,7 @@ class ReconstructionManager:
 
     @classmethod
     def _resolve_record_ply_path(cls, record) -> str | None:
+        _, looks_like_minio_path, _, _, _ = _get_minio_helpers()
         if record.ply_url and not looks_like_minio_path(
             record.ply_url,
             default_bucket=minio_reconstruction_file_bucket,
@@ -607,6 +620,7 @@ class ReconstructionManager:
             logger.warning(f"重构结果文件不存在，跳过上传: task_id={task_id}, path={ply_path}")
             return None
 
+        ensure_minio_bucket, _, minio_instance, _, _ = _get_minio_helpers()
         ensure_minio_bucket(minio_reconstruction_file_bucket)
         object_name = cls._build_result_object_name(item_id=item_id, task_id=task_id)
 
@@ -623,6 +637,7 @@ class ReconstructionManager:
 
     @classmethod
     async def _upload_manual_reconstruction_result_file(cls, item_id: int, file) -> dict:
+        ensure_minio_bucket, _, minio_instance, _, _ = _get_minio_helpers()
         ensure_minio_bucket(minio_reconstruction_file_bucket)
         safe_name = cls._safe_result_filename(file.filename)
         object_name = f"results/manual/{item_id}/{get_id()}_{safe_name}"
@@ -667,6 +682,7 @@ class ReconstructionManager:
         if not ply_path:
             return False
 
+        _, looks_like_minio_path, _, _, _ = _get_minio_helpers()
         if record.ply_url and looks_like_minio_path(
             record.ply_url,
             default_bucket=minio_reconstruction_file_bucket,
@@ -1019,6 +1035,7 @@ class ReconstructionManager:
         _, _, video_reconstruction = _get_celery_modules()
         
         # 本地路径直接检查；MinIO 对象路径由 Celery worker 下载后再检查。
+        _, looks_like_minio_path, _, _, _ = _get_minio_helpers()
         if not looks_like_minio_path(video_path) and not os.path.exists(video_path):
             raise ValueError(f"视频文件不存在: {video_path}")
 
@@ -1209,6 +1226,7 @@ class ReconstructionManager:
         if not result_path:
             raise ReconstructionBusinessError(f"配件未绑定三维重构结果: item_id={item_id}")
 
+        _, looks_like_minio_path, _, _, _ = _get_minio_helpers()
         is_minio_result = looks_like_minio_path(
             result_path,
             default_bucket=minio_reconstruction_file_bucket,

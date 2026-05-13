@@ -65,7 +65,11 @@ temp_dir = os.getenv('TEMP_DIR', os.path.join(os.path.dirname(os.path.dirname(__
 brisconfig_url = os.getenv("brisconfig_url") or os.getenv("BASIS_API_GRPC_URL", "10.144.145.6:10001")
 sgo_url = os.getenv('SGO_URL', 'https://sgo.csrcqsf.com/uc/sfsso/authByAccount?tenantId=1463844437338755072')
 model_dir = os.getenv('MODEL_DIR', '/home/ubuntu/CV/models' if not sys.platform.startswith('win') else 'D:\\models')
-pg_database = _first_non_empty_env("PG_DATABASE", default="zcsf")
+main_db_database = _first_non_empty_env(
+    "MAIN_DB_DATABASE",
+    "PG_DATABASE",
+    default="coronavirusdb",
+)
 sgo_mysql_database = _first_non_empty_env("SGO_MYSQL_DATABASE", default="mdpdb")
 
 
@@ -169,11 +173,23 @@ class AISettings(Settings):
     def get_neo4j_outer_uri(self):
         return f"bolt://{self.neo4j_outer_url}"
 
+    def get_main_db_dsn(self):
+        return (
+            f"mysql+pymysql://{self.pg.user_name}:{quote_plus(self.pg.password)}"
+            f"@{self.pg.url}:{self.pg.port}/{main_db_database}"
+        )
+
+    def get_async_main_db_dsn(self):
+        return (
+            f"mysql+asyncmy://{self.pg.user_name}:{quote_plus(self.pg.password)}"
+            f"@{self.pg.url}:{self.pg.port}/{main_db_database}"
+        )
+
     def get_pg_dsn(self):
-        return f"postgresql+psycopg2://{self.pg.user_name}:{quote_plus(self.pg.password)}@{self.pg.url}:{self.pg.port}/{pg_database}"
+        return self.get_main_db_dsn()
 
     def get_async_pg_dsn(self):
-        return f"postgresql+asyncpg://{self.pg.user_name}:{quote_plus(self.pg.password)}@{self.pg.url}:{self.pg.port}/{pg_database}"
+        return self.get_async_main_db_dsn()
     
 
     def get_sgo_dsn(self):
@@ -185,10 +201,26 @@ class AISettings(Settings):
 
 def _apply_runtime_connection_overrides(settings: AISettings) -> None:
     settings.minio_url = minio_endpoint
-    settings.pg.url = _first_non_empty_env("PG_HOST", default=settings.pg.url)
-    settings.pg.port = _first_non_empty_env("PG_PORT", default=settings.pg.port)
-    settings.pg.user_name = _first_non_empty_env("PG_USER", default=settings.pg.user_name)
-    settings.pg.password = _first_non_empty_env("PG_PASSWORD", default=settings.pg.password)
+    settings.pg.url = _first_non_empty_env(
+        "MAIN_DB_HOST",
+        "PG_HOST",
+        default=settings.pg.url,
+    )
+    settings.pg.port = _first_non_empty_env(
+        "MAIN_DB_PORT",
+        "PG_PORT",
+        default=settings.pg.port,
+    )
+    settings.pg.user_name = _first_non_empty_env(
+        "MAIN_DB_USER",
+        "PG_USER",
+        default=settings.pg.user_name,
+    )
+    settings.pg.password = _first_non_empty_env(
+        "MAIN_DB_PASSWORD",
+        "PG_PASSWORD",
+        default=settings.pg.password,
+    )
     settings.milvus_url = _build_service_url(
         explicit_url=_first_non_empty_env("MILVUS_URL"),
         host=_first_non_empty_env("MILVUS_HOST"),

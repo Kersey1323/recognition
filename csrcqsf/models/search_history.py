@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from types import SimpleNamespace
 from urllib.parse import quote_plus
-from sqlalchemy import String, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL, DateTime, case, Index, text, JSON
+from sqlalchemy import String, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL, DateTime, case, JSON
 from sqlalchemy.orm import relationship, Mapped, mapped_column, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from bfrcommon.common import get_pinyin
@@ -266,14 +266,6 @@ class SearchHistory(Base):
 
 class SearchReviewTicket(Base):
     __tablename__ = 'search_review_ticket'
-    __table_args__ = (
-        Index(
-            "uq_search_review_ticket_active_history",
-            "history_id",
-            unique=True,
-            postgresql_where=text("review_status <> 'closed'"),
-        ),
-    )
 
     history_id: Mapped[int] = mapped_column(BIGINT, index=True, nullable=False)
     review_status: Mapped[str] = mapped_column(String(50), nullable=False, default="open")

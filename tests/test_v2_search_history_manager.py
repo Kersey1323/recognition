@@ -143,6 +143,12 @@ def test_search_v2_by_text_persists_query_text_after_success():
     session.commit.assert_awaited()
 
 
+def test_importing_railway_parts_manager_does_not_eager_import_v2_milvus_manager():
+    _import_railway_parts_manager()
+
+    assert "csrcqsf.biz.railwayparts.vector_db.storage.milvus_manager" not in sys.modules
+
+
 def test_search_v2_by_text_persists_search_equipment_and_pending_feedback():
     session = AsyncMock()
 

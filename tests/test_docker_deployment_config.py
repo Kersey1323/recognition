@@ -32,11 +32,11 @@ def test_main_get_app_port_reads_env(monkeypatch):
 def test_settings_apply_runtime_env_overrides(monkeypatch):
     settings = _reload_settings(
         monkeypatch,
-        PG_HOST="10.0.0.8",
-        PG_PORT="5433",
-        PG_USER="docker_user",
-        PG_PASSWORD="docker_password",
-        PG_DATABASE="partsdb",
+        MAIN_DB_HOST="10.0.0.8",
+        MAIN_DB_PORT="3307",
+        MAIN_DB_USER="docker_user",
+        MAIN_DB_PASSWORD="docker_password",
+        MAIN_DB_DATABASE="coronavirusdb",
         MILVUS_HOST="10.0.0.10",
         MILVUS_PORT="29530",
         MINIO_ENDPOINT="10.0.0.11:9000",
@@ -47,8 +47,8 @@ def test_settings_apply_runtime_env_overrides(monkeypatch):
         SGO_MYSQL_DATABASE="sgo_db",
     )
 
-    assert settings.ai_settings.get_async_pg_dsn() == (
-        "postgresql+asyncpg://docker_user:docker_password@10.0.0.8:5433/partsdb"
+    assert settings.ai_settings.get_async_main_db_dsn() == (
+        "mysql+asyncmy://docker_user:docker_password@10.0.0.8:3307/coronavirusdb"
     )
     assert settings.ai_settings.milvus_url == "http://10.0.0.10:29530"
     assert settings.ai_settings.minio_url == "10.0.0.11:9000"
@@ -64,3 +64,11 @@ def test_env_deployment_uses_container_runtime_paths():
     assert values["TEMP_DIR"] == "/app/temp"
     assert values["DINOV2_PATCH_TOKENS_DIR"] == "/app/state/vector_db/patch_tokens"
     assert values["INDEXING_CHECKPOINT_FILE"] == "/app/state/vector_db/checkpoint.json"
+
+
+def test_env_deployment_exposes_main_mysql_vars():
+    values = _parse_env_file(Path(".env.deployment"))
+
+    assert values["MAIN_DB_HOST"] == "127.0.0.1"
+    assert values["MAIN_DB_PORT"] == "3306"
+    assert values["MAIN_DB_DATABASE"] == "coronavirusdb"

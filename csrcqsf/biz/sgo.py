@@ -17,7 +17,6 @@ import os
 from csrcqsf.settings import temp_dir
 from anyio.to_thread import run_sync
 import zipfile
-from csrcqsf.data.minio import minio_instance, minio_bucket
 import aiofiles
 import json
 import io
@@ -29,6 +28,12 @@ ctx.set_ciphers("AES256-GCM-SHA384")
 
 class TokenResponse(BaseModel):
     token: str
+
+
+def _get_minio_helpers():
+    from csrcqsf.data.minio import minio_bucket, minio_instance
+
+    return minio_instance, minio_bucket
 
 
 # class FileDescribeItem(BaseModel):
@@ -144,6 +149,7 @@ class SGOBiz:
                 # 可以根据需要过滤文件，例如只处理 .txt 文件
                 content_bytes = zip_ref.read(file_name)
                 new_file_name = f"{need_to_downlod[index]}.jpg"
+                minio_instance, minio_bucket = _get_minio_helpers()
                 minio_instance.client.put_object(
                     minio_bucket, new_file_name, io.BytesIO(content_bytes), len(content_bytes))
                 sgo_image = SgoItemImages()
@@ -253,6 +259,7 @@ class SGOBiz:
                 # 可以根据需要过滤文件，例如只处理 .txt 文件
                 content_bytes = zip_ref.read(file_name)
                 new_file_name = f"{need_to_downlod[index]}.jpg"
+                minio_instance, minio_bucket = _get_minio_helpers()
                 await run_sync(minio_instance.client.put_object, minio_bucket, new_file_name, io.BytesIO(content_bytes), len(content_bytes))
                 sgo_image = SgoItemImages()
                 sgo_image.item_id = int(
@@ -345,6 +352,7 @@ class SGOBiz:
             #    buf.close()
 
                 file_name = sgo_image.image_url.split("/")[-1]
+                minio_instance, minio_bucket = _get_minio_helpers()
                 await run_sync(minio_instance.client.put_object, minio_bucket, file_name, io.BytesIO(image_bytes), len(image_bytes))
                 buf.close()
 
