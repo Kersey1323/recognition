@@ -78,7 +78,7 @@ cp .env.example .env
 当前项目依赖的模型默认通过 `MODEL_DIR` 指向本地目录。  
 模型放置规范、公司 OSS 上传建议和下载命令，请参考：
 
-- [甲方部署文档 - 公司 OSS 模型准备与下载](docs/甲方部署文档.md)
+- [部署文档 - 公司 OSS 模型准备与下载](部署文档.md)
 
 ### 4. 启动主服务
 
@@ -103,9 +103,31 @@ python main.py
 
 详细步骤见：
 
-- [甲方部署文档](docs/甲方部署文档.md)
+- [部署文档](部署文档.md)
 - [reconstruction_server README](csrcqsf/biz/railwayparts/reconstruction_server/README.md)
 - [Celery 说明](csrcqsf/biz/railwayparts/reconstruction_server/docs/README_CELERY.md)
+
+## Docker 部署交付
+
+当前项目已补齐第一版 GPU Docker 交付物，适合“乙方打镜像，甲方直接 `docker load` 运行”的场景。
+
+推荐交付内容：
+
+- 镜像包 `recognition.tar`
+- 部署环境文件 `.env.deployment`
+- 启动脚本 `scripts/deployment/run_docker_deployment.sh`
+- 模型下载说明和公司 OSS 地址
+
+第一版 Docker 部署约束：
+
+- 只容器化 FastAPI 主服务
+- PostgreSQL、Redis、Milvus、MinIO 继续使用外部现成服务
+- 模型目录不打进镜像，运行时挂载到容器内 `/models`
+- `patch_tokens`、`logs`、`temp`、`state` 必须挂载到宿主机持久化目录
+
+具体步骤见：
+
+- [部署文档](部署文档.md)
 
 ## 常用验证命令
 
@@ -130,5 +152,4 @@ PYTHONPATH=. .venv/bin/pytest tests/ -q
 ## 说明
 
 - 当前仓库 README 只保留项目简介和导航信息。
-- 甲方实际部署步骤、模型下载、服务启动顺序和故障排查统一维护在 [部署文档](甲方部署文档.md)。
-
+- 甲方实际部署步骤、模型下载、Docker 启动顺序和故障排查统一维护在 [部署文档](部署文档.md)。

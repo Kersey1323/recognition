@@ -12,11 +12,36 @@ from dotenv import load_dotenv
 # 加载环境变量
 load_dotenv()
 
+
+def _first_non_empty_env(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip() != "":
+            return value.strip()
+    return default
+
+
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _build_service_url(
+    explicit_url: str,
+    host: str,
+    port: str,
+    default_url: str,
+    scheme: str = "http",
+) -> str:
+    if explicit_url.strip() != "":
+        return explicit_url.strip()
+    if host.strip() == "":
+        return default_url
+    if port.strip() == "":
+        return f"{scheme}://{host.strip()}"
+    return f"{scheme}://{host.strip()}:{port.strip()}"
 
 # 从环境变量读取配置
 minio_bucket = os.getenv('MINIO_BUCKET', 'bfr-ai-files')
@@ -40,6 +65,8 @@ temp_dir = os.getenv('TEMP_DIR', os.path.join(os.path.dirname(os.path.dirname(__
 brisconfig_url = os.getenv("brisconfig_url") or os.getenv("BASIS_API_GRPC_URL", "10.144.145.6:10001")
 sgo_url = os.getenv('SGO_URL', 'https://sgo.csrcqsf.com/uc/sfsso/authByAccount?tenantId=1463844437338755072')
 model_dir = os.getenv('MODEL_DIR', '/home/ubuntu/CV/models' if not sys.platform.startswith('win') else 'D:\\models')
+pg_database = _first_non_empty_env("PG_DATABASE", default="zcsf")
+sgo_mysql_database = _first_non_empty_env("SGO_MYSQL_DATABASE", default="mdpdb")
 
 
 def _resolve_model_path(path: str | None) -> str:
@@ -51,7 +78,11 @@ def _resolve_model_path(path: str | None) -> str:
     return os.path.join(model_dir, raw_path)
 
 
-sam3_model_path = _resolve_model_path(os.getenv('SAM3_MODEL_PATH', 'sam3'))
+def resolve_model_path(path: str | None) -> str:
+    return _resolve_model_path(path)
+
+
+sam3_model_path = resolve_model_path(os.getenv('SAM3_MODEL_PATH', 'sam3'))
 
 
 # mkdir(temp_dir)
@@ -75,7 +106,7 @@ async def download_file(url, file_path):
             else:
                 print(f"下载失败，状态码: {response.status}")
 
-SAM_MODEL = _resolve_model_path(
+SAM_MODEL = resolve_model_path(
     os.getenv('SAM_MODEL_PATH', 'sam_vit_h_4b8939/sam_vit_h_4b8939.pth')
 )
 
@@ -139,15 +170,53 @@ class AISettings(Settings):
         return f"bolt://{self.neo4j_outer_url}"
 
     def get_pg_dsn(self):
-        return f"postgresql+psycopg2://{self.pg.user_name}:{quote_plus(self.pg.password)}@{self.pg.url}:{self.pg.port}/zcsf"
+        return f"postgresql+psycopg2://{self.pg.user_name}:{quote_plus(self.pg.password)}@{self.pg.url}:{self.pg.port}/{pg_database}"
 
     def get_async_pg_dsn(self):
-        return f"postgresql+asyncpg://{self.pg.user_name}:{quote_plus(self.pg.password)}@{self.pg.url}:{self.pg.port}/zcsf"
+        return f"postgresql+asyncpg://{self.pg.user_name}:{quote_plus(self.pg.password)}@{self.pg.url}:{self.pg.port}/{pg_database}"
     
 
     def get_sgo_dsn(self):
-        #return f"mysql+asyncmy://{self.sgo_mysql_username}:{self.sgo_mysql_password}@{self.sgo_mysql_url}:{self.sgo_mysql_port}/mdpdb"
-        return f"mysql+asyncmy://{self.sgo_mysql_username}:{self.sgo_mysql_password}@{self.sgo_mysql_url}:{self.sgo_mysql_port}/mdpdb"
+        return (
+            f"mysql+asyncmy://{self.sgo_mysql_username}:{self.sgo_mysql_password}"
+            f"@{self.sgo_mysql_url}:{self.sgo_mysql_port}/{sgo_mysql_database}"
+        )
+
+
+def _apply_runtime_connection_overrides(settings: AISettings) -> None:
+    settings.minio_url = minio_endpoint
+    settings.pg.url = _first_non_empty_env("PG_HOST", default=settings.pg.url)
+    settings.pg.port = _first_non_empty_env("PG_PORT", default=settings.pg.port)
+    settings.pg.user_name = _first_non_empty_env("PG_USER", default=settings.pg.user_name)
+    settings.pg.password = _first_non_empty_env("PG_PASSWORD", default=settings.pg.password)
+    settings.milvus_url = _build_service_url(
+        explicit_url=_first_non_empty_env("MILVUS_URL"),
+        host=_first_non_empty_env("MILVUS_HOST"),
+        port=_first_non_empty_env("MILVUS_PORT"),
+        default_url=settings.milvus_url,
+    )
+    settings.sgo_mysql_url = _first_non_empty_env(
+        "SGO_MYSQL_HOST",
+        "SGO_MYSQL_URL",
+        default=settings.sgo_mysql_url,
+    )
+    settings.sgo_mysql_port = _first_non_empty_env(
+        "SGO_MYSQL_PORT",
+        default=settings.sgo_mysql_port,
+    )
+    settings.sgo_mysql_username = _first_non_empty_env(
+        "SGO_MYSQL_USER",
+        "SGO_MYSQL_USERNAME",
+        default=settings.sgo_mysql_username,
+    )
+    settings.sgo_mysql_password = _first_non_empty_env(
+        "SGO_MYSQL_PASSWORD",
+        default=settings.sgo_mysql_password,
+    )
+    settings.basis_api_grpc_url = _first_non_empty_env(
+        "BASIS_API_GRPC_URL",
+        default=settings.basis_api_grpc_url,
+    )
 
 
 settings_path = os.path.join(os.path.dirname(
@@ -157,13 +226,4 @@ ai_settings = AISettings()
 # ai_settings.register_config(
 #     brisconfig_url, settings_path, "zcsf-ai", "zcsf-ai")
 
-# 优先使用 .env 中的 MinIO endpoint，避免依赖硬编码默认值
-ai_settings.minio_url = minio_endpoint
-
-# 修复数据库地址：使用有完整表结构的数据库
-# 192.168.100.126 无法连接
-# 192.168.100.8 缺少 image_index_num 和 feature_index_num 字段
-# 192.168.100.2 有完整的表结构 ✓
-ai_settings.pg.url = "192.168.100.2"
-
-print(ai_settings.get_sgo_dsn())
+_apply_runtime_connection_overrides(ai_settings)

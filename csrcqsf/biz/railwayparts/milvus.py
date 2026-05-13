@@ -19,7 +19,7 @@ from csrcqsf.data.minio import minio_instance
 from globals_vars import logger
 from csrcqsf.models.item import *
 from csrcqsf.models.sgo import SgoItemImages
-from csrcqsf.settings import minio_bucket, temp_dir
+from csrcqsf.settings import minio_bucket, resolve_model_path, temp_dir
 
 from .api_models import ImageSearchItem
 
@@ -66,13 +66,18 @@ class PartsIndex(BaseModel):
 
 
 class FeatureExtractor:
-    def __init__(self, modelname):
+    def __init__(self, modelname, weights_path: str | None = None):
         # Load the pre-trained model
         # pretrained_cfg = timm.create_model(modelname).default_cfg
         # pretrained_cfg['file'] = "./resnet_models"
-        self.model = timm.create_model(
-            modelname, pretrained=True, num_classes=0, global_pool="avg", pretrained_cfg_overlay=dict(file="./models/resnet/pytorch_model.bin")
+        create_model_kwargs = dict(
+            pretrained=True,
+            num_classes=0,
+            global_pool="avg",
         )
+        if weights_path:
+            create_model_kwargs["pretrained_cfg_overlay"] = dict(file=weights_path)
+        self.model = timm.create_model(modelname, **create_model_kwargs)
         self.model.eval()
 
         # Get the input size required by the model
@@ -225,11 +230,31 @@ class DINOv2Extractor:
 
 class MilvusManager:
     # 标准模式: ResNet34 (512维)
-    extractor = FeatureExtractor("resnet34")
-    _embedding_model = SentenceTransformer('./models/embedding/bge-small-zh-v1.5')
+    _extractor = None
+    _embedding_model = None
     
     # 高精度模式: DINOv2-Large (1024维) - 延迟加载
     _hp_extractor = None
+
+    @classmethod
+    def get_resnet_model_path(cls) -> str:
+        return resolve_model_path(os.getenv("RESNET_MODEL_PATH", "resnet/pytorch_model.bin"))
+
+    @classmethod
+    def get_embedding_model_path(cls) -> str:
+        return resolve_model_path(os.getenv("EMBEDDING_MODEL_PATH", "embedding/bge-small-zh-v1.5"))
+
+    @classmethod
+    def get_extractor(cls):
+        if cls._extractor is None:
+            cls._extractor = FeatureExtractor("resnet34", weights_path=cls.get_resnet_model_path())
+        return cls._extractor
+
+    @classmethod
+    def get_embedding_model(cls):
+        if cls._embedding_model is None:
+            cls._embedding_model = SentenceTransformer(cls.get_embedding_model_path())
+        return cls._embedding_model
     
     @classmethod
     def get_hp_extractor(cls):
@@ -260,7 +285,7 @@ class MilvusManager:
     @classmethod
     async def embedding_encode(cls, data: str):
         def _():
-            embeddings = cls._embedding_model.encode(
+            embeddings = cls.get_embedding_model().encode(
                 data, prompt='中文特征字符串,用于检索', normalize_embeddings=True, batch_size=32)
             return embeddings
         return await run_sync(_)
@@ -268,7 +293,7 @@ class MilvusManager:
     @classmethod
     async def extract_image_tensor(cls, image):
         def _():
-            return cls.extractor(image)
+            return cls.get_extractor()(image)
         return await run_sync(_)
 
     @classmethod
@@ -823,4 +848,3 @@ class MilvusManager:
         
         # 初始化高精度集合 (DINOv2, 1024维)
         await cls.__init_hp_collection()
-
