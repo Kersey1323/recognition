@@ -2,57 +2,6 @@
     "type": "object",
     "required": [],
     "properties": {
-        "deepseek_url": {
-            "title": "deepseek服务地址",
-            "type": "string",
-            "ui:options": {
-                "placeholder": "deepseek服务地址"
-            }
-        },
-        "api_key": {
-            "title": "DEEPSEEK APIKEY",
-            "type": "string",
-            "ui:options": {
-                "placeholder": "APIKEY"
-            }
-        },
-        "ocr_url": {
-            "title": "OCR服务地址",
-            "type": "string",
-            "ui:options": {
-                "placeholder": "请输入"
-            }
-        },
-        "neo4j_url": {
-            "title": "neo4j URL",
-            "type": "string",
-            "ui:options": {
-                "placeholder": "请输入"
-            }
-        },
-        "neo4j_outer_url": {
-            "title": "neo4j 外部 URL",
-            "type": "string",
-            "ui:options": {
-                "placeholder": "请输入"
-            }
-        },
-        "embeddings_model_name": {
-            "title": "嵌入模型名",
-            "type": "string",
-            "default": "Pro/BAAI/bge-m3",
-            "ui:options": {
-                "placeholder": "请输入"
-            }
-        },
-        "llm_model_name": {
-            "title": "LLM模型名",
-            "type": "string",
-            "default": "Pro/deepseek-ai/DeepSeek-V3",
-            "ui:options": {
-                "placeholder": "请输入"
-            }
-        },
         "sgo": {
             "title": "sgo数据库配置",
             "type": "object",
@@ -94,13 +43,6 @@
                 "sgo_mysql_password"
             ]
         },
-        "string_1761209808944x0": {
-            "title": "输入框",
-            "type": "string",
-            "ui:options": {
-                "placeholder": "请输入"
-            }
-        },
         "milvus_url": {
             "title": "milvus地址",
             "type": "string",
@@ -116,26 +58,11 @@
             "ui:options": {
                 "placeholder": "请输入"
             }
-        },
-         "search_use_vechile": {
-                    "title": "检索时使用车型过滤",
-                    "type": "boolean",
-                    "default": true
         }
     },
     "ui:order": [
-        "deepseek_url",
-        "api_key",
-        "ocr_url",
-        "neo4j_url",
-        "neo4j_outer_url",
-        "embeddings_model_name",
-        "llm_model_name",
         "sgo",
-        "string_1761209808944x0",
         "milvus_url",
-        "basis_api_grpc_url",
-        "search_use_vechile"
-
+        "basis_api_grpc_url"
     ]
 }

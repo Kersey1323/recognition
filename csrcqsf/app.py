@@ -22,6 +22,12 @@ from csrcqsf.services import *
 from csrcqsf.data.pg import db_migrate
 from csrcqsf.data.minio import create_minio_buckets
 from csrcqsf.biz.sgo import SGOBiz
+from csrcqsf.settings import (
+    main_db_env_configured,
+    milvus_env_configured,
+    minio_env_configured,
+    redis_env_configured,
+)
 
 # 导入 scheduler 以启动定时任务（包括重建任务状态同步）
 from csrcqsf.scheduler import scheduler
@@ -47,8 +53,22 @@ async def lifespan(app: FastAPI):
     关闭时执行：
     - 清理资源（由yield后的代码处理）
     """
-    await db_migrate()  # 数据库迁移
-    await create_minio_buckets()  # 初始化对象存储 bucket
+    if main_db_env_configured():
+        await db_migrate()  # 数据库迁移
+    else:
+        logger.warning("未显式配置主业务库环境变量，跳过数据库迁移初始化")
+
+    if minio_env_configured():
+        await create_minio_buckets()  # 初始化对象存储 bucket
+    else:
+        logger.warning("未显式配置 MinIO 环境变量，跳过 MinIO bucket 初始化")
+
+    if not milvus_env_configured():
+        logger.warning("未显式配置 Milvus 环境变量，Milvus 相关能力保持跳过/惰性初始化")
+
+    if not redis_env_configured():
+        logger.warning("未显式配置 Redis/Celery 环境变量，重建状态同步任务将按需跳过")
+
     if segment_model_enabled():
         await SegmentBiz.init()  # 初始化SAM模型
     SGOBiz.init()  # 初始化SGO业务

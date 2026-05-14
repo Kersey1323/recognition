@@ -51,10 +51,29 @@ def test_settings_apply_runtime_env_overrides(monkeypatch):
         "mysql+asyncmy://docker_user:docker_password@10.0.0.8:3307/coronavirusdb"
     )
     assert settings.ai_settings.milvus_url == "http://10.0.0.10:29530"
-    assert settings.ai_settings.minio_url == "10.0.0.11:9000"
+    assert settings.minio_endpoint == "10.0.0.11:9000"
     assert settings.ai_settings.get_sgo_dsn() == (
         "mysql+asyncmy://sgo_user:sgo_password@10.0.0.12:3307/sgo_db"
     )
+
+
+def test_settings_does_not_expose_removed_legacy_fields(monkeypatch):
+    settings = _reload_settings(
+        monkeypatch,
+        MAIN_DB_HOST="10.0.0.8",
+        MAIN_DB_PORT="3307",
+        MAIN_DB_USER="docker_user",
+        MAIN_DB_PASSWORD="docker_password",
+        MAIN_DB_DATABASE="coronavirusdb",
+    )
+
+    assert not hasattr(settings.ai_settings, "deepseek_url")
+    assert not hasattr(settings.ai_settings, "api_key")
+    assert not hasattr(settings.ai_settings, "neo4j_url")
+    assert not hasattr(settings.ai_settings, "neo4j_outer_url")
+    assert not hasattr(settings.ai_settings, "llm_model_name")
+    assert not hasattr(settings.ai_settings, "embeddings_model_name")
+    assert not hasattr(settings.ai_settings, "search_use_vechile")
 
 
 def test_env_deployment_uses_container_runtime_paths():

@@ -18,5 +18,5 @@ docker run -d \
   --network host \
   --ipc host \
   --env-file "${ENV_FILE}" \
-  -v "${HOST_DIR}":/app
+  -v "${HOST_DIR}":/app \
   "${IMAGE_NAME}"

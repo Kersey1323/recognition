@@ -208,7 +208,8 @@ def test_run_docker_cpu_script_has_no_gpu_flag():
     text = Path("scripts/deployment/run_docker_cpu.sh").read_text(encoding="utf-8")
 
     assert "--gpus all" not in text
-    assert "Dockerfile.cpu" in text
+    assert "docker build" not in text
+    assert "docker run -d" in text
     assert ".env.cpu" in text
 
 
@@ -225,17 +226,13 @@ def test_dockerfile_cpu_supports_configurable_mirrors():
     assert text.rfind('torch==2.7.1+cpu') > text.rfind('COPY . /app')
 
 
-def test_run_docker_cpu_script_passes_mirror_build_args():
+def test_run_docker_cpu_script_runs_prebuilt_image_with_host_mount():
     text = Path("scripts/deployment/run_docker_cpu.sh").read_text(encoding="utf-8")
 
-    assert "APT_MIRROR" in text
-    assert "PIP_INDEX_URL" in text
-    assert "PYTORCH_CPU_INDEX_URL" in text
-    assert "PYTORCH_CPU_FALLBACK_INDEX_URL" in text
-    assert "--build-arg APT_MIRROR=" in text
-    assert "--build-arg PIP_INDEX_URL=" in text
-    assert "--build-arg PYTORCH_CPU_INDEX_URL=" in text
-    assert "--build-arg PYTORCH_CPU_FALLBACK_INDEX_URL=" in text
+    assert "HOST_DIR" in text
+    assert 'docker rm -f "${CONTAINER_NAME}"' in text
+    assert '--env-file "${ENV_FILE}"' in text
+    assert '-v "${HOST_DIR}":/app' in text
 
 
 def test_parts_service_rejects_gpu_reconstruction_when_disabled(monkeypatch):
@@ -311,7 +308,11 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
     fake_auth_module.auth_middleware = lambda request, call_next: call_next(request)
 
     fake_logger_module = ModuleType("globals_vars")
-    fake_logger_module.logger = SimpleNamespace(info=lambda *args, **kwargs: None)
+    fake_logger_module.logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+    )
 
     fake_segment_module = ModuleType("csrcqsf.biz.segment")
     fake_segment_module.SegmentBiz = type("SegmentBiz", (), {"init": AsyncMock()})
@@ -361,3 +362,135 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
         asyncio.run(_run())
 
     fake_segment_module.SegmentBiz.init.assert_not_awaited()
+
+
+def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured(monkeypatch):
+    for key in (
+        "MAIN_DB_HOST",
+        "MAIN_DB_PORT",
+        "MAIN_DB_USER",
+        "MAIN_DB_PASSWORD",
+        "MAIN_DB_DATABASE",
+        "MINIO_ENDPOINT",
+        "MINIO_ACCESS_KEY",
+        "MINIO_SECRET_KEY",
+        "MILVUS_HOST",
+        "MILVUS_PORT",
+        "REDIS_HOST",
+        "REDIS_PORT",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    monkeypatch.setenv("ENABLE_SEGMENT_MODEL", "0")
+    monkeypatch.setenv("ENABLE_OCR_MODEL", "0")
+
+    _clear_module("csrcqsf.app")
+    _clear_module("csrcqsf.runtime")
+
+    fake_services_module = ModuleType("csrcqsf.services")
+    fake_services_module.parts_router = APIRouter()
+    fake_services_module.sgo_router = APIRouter()
+    fake_services_module.parts_docs_router = APIRouter()
+    fake_services_module.image_router = APIRouter()
+
+    fake_response_module = ModuleType("bfrcommon.middlewares.response")
+    fake_response_module.DefaultResponse = dict
+    fake_response_module.catch_exceptions_middleware = lambda logger=None, limit=4: (
+        lambda request, call_next: call_next(request)
+    )
+
+    fake_auth_module = ModuleType("bfrcommon.middlewares.auth")
+    fake_auth_module.add_process_time_header = lambda logger=None: (
+        lambda request, call_next: call_next(request)
+    )
+
+    fake_logger_module = ModuleType("globals_vars")
+    fake_logger_module.logger = SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+    )
+
+    fake_segment_module = ModuleType("csrcqsf.biz.segment")
+    fake_segment_module.SegmentBiz = type("SegmentBiz", (), {"init": AsyncMock()})
+
+    fake_pg_module = ModuleType("csrcqsf.data.pg")
+    fake_pg_module.db_migrate = AsyncMock()
+
+    fake_minio_module = ModuleType("csrcqsf.data.minio")
+    fake_minio_module.create_minio_buckets = AsyncMock()
+
+    fake_sgo_module = ModuleType("csrcqsf.biz.sgo")
+    fake_sgo_module.SGOBiz = type("SGOBiz", (), {"init": staticmethod(lambda: None)})
+
+    fake_api_models_module = ModuleType("csrcqsf.api_models")
+    fake_api_models_module.SimpleSegmentReq = type(
+        "SimpleSegmentReq",
+        (BaseModel,),
+        {"__annotations__": {"file_url": str}},
+    )
+    fake_api_models_module.SimpleSegmentRes = type(
+        "SimpleSegmentRes",
+        (BaseModel,),
+        {"mask": ""},
+    )
+
+    with patch.dict(
+        sys.modules,
+        {
+            "csrcqsf.services": fake_services_module,
+            "bfrcommon.middlewares.response": fake_response_module,
+            "bfrcommon.middlewares.auth": fake_auth_module,
+            "globals_vars": fake_logger_module,
+            "csrcqsf.biz.segment": fake_segment_module,
+            "csrcqsf.data.pg": fake_pg_module,
+            "csrcqsf.data.minio": fake_minio_module,
+            "csrcqsf.biz.sgo": fake_sgo_module,
+            "csrcqsf.api_models": fake_api_models_module,
+        },
+    ):
+        module = importlib.import_module("csrcqsf.app")
+
+        async def _run():
+            async with module.lifespan(module.app):
+                return None
+
+        asyncio.run(_run())
+
+    fake_pg_module.db_migrate.assert_not_awaited()
+    fake_minio_module.create_minio_buckets.assert_not_awaited()
+
+
+def test_scheduler_skips_sync_when_main_db_or_redis_not_explicitly_configured(monkeypatch):
+    for key in (
+        "MAIN_DB_HOST",
+        "MAIN_DB_PORT",
+        "MAIN_DB_USER",
+        "MAIN_DB_PASSWORD",
+        "PG_HOST",
+        "PG_PORT",
+        "PG_USER",
+        "PG_PASSWORD",
+        "REDIS_HOST",
+        "REDIS_PORT",
+        "CELERY_BROKER_URL",
+        "CELERY_RESULT_BACKEND",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    _clear_module("csrcqsf.scheduler")
+
+    fake_settings_module = ModuleType("csrcqsf.settings")
+    fake_settings_module.main_db_env_configured = lambda: False
+    fake_settings_module.redis_env_configured = lambda: False
+
+    with patch.dict(sys.modules, {"csrcqsf.settings": fake_settings_module}):
+        scheduler_module = importlib.import_module("csrcqsf.scheduler")
+
+    with patch("csrcqsf.scheduler.create_engine") as create_engine_mock, patch(
+        "csrcqsf.scheduler.AsyncResult"
+    ) as async_result_mock:
+        scheduler_module.sync_reconstruction_tasks_sync()
+
+    create_engine_mock.assert_not_called()
+    async_result_mock.assert_not_called()

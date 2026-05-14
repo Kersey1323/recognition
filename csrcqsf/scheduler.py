@@ -7,6 +7,7 @@ from apscheduler.job import Job as apsjob
 from datetime import datetime,timedelta
 from sqlalchemy import create_engine, select, or_
 from sqlalchemy.orm import Session
+from csrcqsf.settings import main_db_env_configured, redis_env_configured
 
 
 class BFRTrigger(CronTrigger):
@@ -110,6 +111,13 @@ def sync_reconstruction_tasks_sync():
     
     注意：使用同步数据库操作避免事件循环冲突
     """
+    if not main_db_env_configured():
+        logger.warning("未显式配置主业务库环境变量，跳过重建任务状态同步")
+        return
+    if not redis_env_configured():
+        logger.warning("未显式配置 Redis/Celery 环境变量，跳过重建任务状态同步")
+        return
+
     try:
         from csrcqsf.biz.railwayparts.reconstruction_server.celery_app import celery_app
         from csrcqsf.models.reconstruction import ReconstructionStatus, ReconstructionRecord

@@ -20,7 +20,6 @@ from csrcqsf.models.search_history import (
     SearchResults,
     SearchReviewTicket,
 )
-from csrcqsf.models.sgo_models import SgoMaterielMasterplate
 # 导入Milvus向量检索管理器
 from .milvus import MilvusManager, ImageIndex
 from .api_models import *
@@ -36,11 +35,7 @@ from csrcqsf.models.sgo import (
 import numpy as np
 import cv2
 from anyio.to_thread import run_sync
-from csrcqsf.data.milvus import milvus_client
-from pymilvus import Function, FunctionType
-from pymilvus import AnnSearchRequest
-from pymilvus.client.embedding_list import EmbeddingList
-from csrcqsf.settings import ai_settings,minio_bucket,minio_search_history_bucket,temp_dir
+from csrcqsf.settings import minio_bucket,minio_search_history_bucket,temp_dir
 from .vector_db.storage.milvus_manager import MilvusManagerV2
 from .vector_db.storage.milvus_state_manager import MilvusStateManagerV2
 
