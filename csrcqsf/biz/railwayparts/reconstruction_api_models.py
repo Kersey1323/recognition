@@ -109,6 +109,107 @@ class ReconstructionSourceVideoMessageRes(BaseModel):
         return str(value)
 
 
+class ReconstructionMultipartUploadUrlItem(BaseModel):
+    part_number: int = Field(..., description="分片编号，从1开始")
+    url: str = Field(..., description="完整预签名上传URL")
+    expires_at: str | None = Field(default=None, description="URL过期时间")
+
+
+class ReconstructionMultipartUploadedPartItem(BaseModel):
+    part_number: int = Field(..., description="已上传分片编号")
+    size: int | None = Field(default=None, description="分片大小，单位字节")
+    etag: str = Field(..., description="MinIO返回的ETag，已去掉外围引号")
+
+
+class ReconstructionVideoUploadInitReq(BaseModel):
+    item_id: str = Field(..., description="配件ID")
+    file_name: str = Field(..., description="原始文件名")
+    file_size: int = Field(..., gt=0, description="文件大小，单位字节")
+    content_type: str = Field(default="application/octet-stream", description="文件类型")
+    height: Optional[float] = Field(None, description="高度")
+    length: Optional[float] = Field(None, description="长度")
+    width: Optional[float] = Field(None, description="宽度")
+    weight: Optional[float] = Field(None, description="重量")
+
+    @validator("item_id", pre=True)
+    def normalize_item_id(cls, value):
+        return str(value)
+
+
+class ReconstructionVideoUploadInitRes(BaseModel):
+    upload_session_id: str = Field(..., description="上传会话ID")
+    item_id: str = Field(..., description="配件ID")
+    upload_id: str = Field(..., description="MinIO multipart upload id")
+    bucket: str = Field(..., description="MinIO bucket")
+    object_name: str = Field(..., description="MinIO object name")
+    video_path: str = Field(..., description="MinIO对象路径，格式为 bucket/object")
+    part_size: int = Field(..., description="分片大小，单位字节")
+    total_parts: int = Field(..., description="总分片数")
+    upload_urls: list[ReconstructionMultipartUploadUrlItem] = Field(default_factory=list)
+
+    @validator("upload_session_id", "item_id", pre=True)
+    def normalize_ids(cls, value):
+        return str(value)
+
+
+class ReconstructionVideoUploadProgressReq(BaseModel):
+    upload_session_id: str = Field(..., description="上传会话ID")
+
+    @validator("upload_session_id", pre=True)
+    def normalize_upload_session_id(cls, value):
+        return str(value)
+
+
+class ReconstructionVideoUploadProgressRes(BaseModel):
+    upload_session_id: str = Field(..., description="上传会话ID")
+    item_id: str = Field(..., description="配件ID")
+    upload_id: str = Field(..., description="MinIO multipart upload id")
+    bucket: str = Field(..., description="MinIO bucket")
+    object_name: str = Field(..., description="MinIO object name")
+    video_path: str = Field(..., description="MinIO对象路径，格式为 bucket/object")
+    part_size: int = Field(..., description="分片大小，单位字节")
+    total_parts: int = Field(..., description="总分片数")
+    uploaded_parts: list[ReconstructionMultipartUploadedPartItem] = Field(default_factory=list)
+
+    @validator("upload_session_id", "item_id", pre=True)
+    def normalize_ids(cls, value):
+        return str(value)
+
+
+class ReconstructionVideoUploadUrlsReq(BaseModel):
+    upload_session_id: str = Field(..., description="上传会话ID")
+    part_numbers: list[int] = Field(..., min_items=1, description="需要补签名的分片编号列表")
+
+    @validator("upload_session_id", pre=True)
+    def normalize_upload_session_id(cls, value):
+        return str(value)
+
+
+class ReconstructionVideoUploadUrlsRes(BaseModel):
+    upload_session_id: str = Field(..., description="上传会话ID")
+    upload_urls: list[ReconstructionMultipartUploadUrlItem] = Field(default_factory=list)
+
+    @validator("upload_session_id", pre=True)
+    def normalize_upload_session_id(cls, value):
+        return str(value)
+
+
+class ReconstructionVideoUploadCompleteReq(BaseModel):
+    upload_session_id: str = Field(..., description="上传会话ID")
+
+    @validator("upload_session_id", pre=True)
+    def normalize_upload_session_id(cls, value):
+        return str(value)
+
+
+class ReconstructionVideoUploadAbortReq(BaseModel):
+    upload_session_id: str = Field(..., description="上传会话ID")
+
+    @validator("upload_session_id", pre=True)
+    def normalize_upload_session_id(cls, value):
+        return str(value)
+
+
 class ReconstructionResultMessageRes(BaseModel):
     """当前三维重构结果操作消息响应"""
     item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')

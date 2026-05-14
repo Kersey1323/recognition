@@ -274,6 +274,8 @@ async def db_migrate():
     - 目标数据库 coronavirusdb 已预先创建
     - SGO 独立 MySQL 不在本迁移范围内
     """
+    from csrcqsf.models.reconstruction_upload import ReconstructionVideoUploadSession  # noqa: F401
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(PlainBase.metadata.create_all)

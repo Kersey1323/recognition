@@ -258,22 +258,32 @@ async def list_segmented_images(item_id: str):
 
 from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
 from csrcqsf.biz.railwayparts.reconstruction_api_models import (
-    ReconstructionTrainReq,
-    ReconstructionVideoReq,
-    ReconstructionTaskRes,
-    ReconstructionStatusRes,
-    ReconstructionListRes,
-    ReconstructionStatisticsReq,
-    ReconstructionStatisticsRes,
-    ReconstructionSourceVideoRes,
-    ReconstructionSourceVideoListReq,
-    ReconstructionSourceVideoListRes,
-    ReconstructionSourceVideoMessageRes,
-    ReconstructionResultMessageRes,
-    ReconstructionResultUploadRes,
     ReconstructionAllTasksReq,
     ReconstructionAllTasksRes,
     ReconstructionIndexRebuildRes,
+    ReconstructionListRes,
+    ReconstructionMultipartUploadUrlItem,
+    ReconstructionMultipartUploadedPartItem,
+    ReconstructionResultMessageRes,
+    ReconstructionResultUploadRes,
+    ReconstructionSourceVideoListReq,
+    ReconstructionSourceVideoListRes,
+    ReconstructionSourceVideoMessageRes,
+    ReconstructionSourceVideoRes,
+    ReconstructionStatisticsReq,
+    ReconstructionStatisticsRes,
+    ReconstructionStatusRes,
+    ReconstructionTaskRes,
+    ReconstructionTrainReq,
+    ReconstructionVideoReq,
+    ReconstructionVideoUploadAbortReq,
+    ReconstructionVideoUploadCompleteReq,
+    ReconstructionVideoUploadInitReq,
+    ReconstructionVideoUploadInitRes,
+    ReconstructionVideoUploadProgressReq,
+    ReconstructionVideoUploadProgressRes,
+    ReconstructionVideoUploadUrlsReq,
+    ReconstructionVideoUploadUrlsRes,
 )
 
 
@@ -326,6 +336,54 @@ async def upload_reconstruct_v2_video(
         file=file
     )
     return ReconstructionSourceVideoRes(**result)
+
+
+@parts_router.post('/v2/reconstruct/video/upload/init', tags=["算法-3D重建V2"], summary='V2: 初始化原始视频分片上传')
+async def init_reconstruct_v2_video_upload(req: ReconstructionVideoUploadInitReq):
+    result = await ReconstructionManager.init_source_video_multipart_upload(
+        item_id=int(req.item_id),
+        file_name=req.file_name,
+        file_size=req.file_size,
+        content_type=req.content_type or "application/octet-stream",
+        height=req.height,
+        length=req.length,
+        width=req.width,
+        weight=req.weight,
+    )
+    return ReconstructionVideoUploadInitRes(**result)
+
+
+@parts_router.post('/v2/reconstruct/video/upload/progress', tags=["算法-3D重建V2"], summary='V2: 查询原始视频分片上传进度')
+async def get_reconstruct_v2_video_upload_progress(req: ReconstructionVideoUploadProgressReq):
+    result = await ReconstructionManager.get_source_video_upload_progress(
+        upload_session_id=int(req.upload_session_id),
+    )
+    return ReconstructionVideoUploadProgressRes(**result)
+
+
+@parts_router.post('/v2/reconstruct/video/upload/urls', tags=["算法-3D重建V2"], summary='V2: 获取原始视频分片上传地址')
+async def get_reconstruct_v2_video_upload_urls(req: ReconstructionVideoUploadUrlsReq):
+    result = await ReconstructionManager.get_source_video_upload_urls(
+        upload_session_id=int(req.upload_session_id),
+        part_numbers=req.part_numbers,
+    )
+    return ReconstructionVideoUploadUrlsRes(**result)
+
+
+@parts_router.post('/v2/reconstruct/video/upload/complete', tags=["算法-3D重建V2"], summary='V2: 完成原始视频分片上传')
+async def complete_reconstruct_v2_video_upload(req: ReconstructionVideoUploadCompleteReq):
+    result = await ReconstructionManager.complete_source_video_multipart_upload(
+        upload_session_id=int(req.upload_session_id),
+    )
+    return ReconstructionSourceVideoRes(**result)
+
+
+@parts_router.post('/v2/reconstruct/video/upload/abort', tags=["算法-3D重建V2"], summary='V2: 取消原始视频分片上传')
+async def abort_reconstruct_v2_video_upload(req: ReconstructionVideoUploadAbortReq):
+    result = await ReconstructionManager.abort_source_video_multipart_upload(
+        upload_session_id=int(req.upload_session_id),
+    )
+    return ReconstructionSourceVideoMessageRes(**result)
 
 
 @parts_router.post('/v2/reconstruct/video/list', tags=["算法-3D重建V2"], summary='V2: 分页列出三维重构原始视频')

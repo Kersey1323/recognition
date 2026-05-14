@@ -1,4 +1,6 @@
 from csrcqsf.biz.railwayparts.reconstruction_api_models import (
+    ReconstructionMultipartUploadUrlItem,
+    ReconstructionMultipartUploadedPartItem,
     ReconstructionAllTasksRes,
     ReconstructionIndexRebuildRes,
     ReconstructionResultUploadRes,
@@ -9,7 +11,15 @@ from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionTaskListItem,
     ReconstructionTaskRes,
     ReconstructionVideoReq,
+    ReconstructionVideoUploadAbortReq,
+    ReconstructionVideoUploadCompleteReq,
+    ReconstructionVideoUploadInitReq,
+    ReconstructionVideoUploadInitRes,
+    ReconstructionVideoUploadProgressReq,
+    ReconstructionVideoUploadProgressRes,
     ReconstructionVideoUploadRes,
+    ReconstructionVideoUploadUrlsReq,
+    ReconstructionVideoUploadUrlsRes,
 )
 
 
@@ -317,6 +327,77 @@ def test_reconstruction_source_video_response_serializes_item_id_as_string():
     assert isinstance(data["item_id"], str)
     assert data["video_path"] == "bfr-3d-videos/raw-videos/1935558010375340032/demo.mp4"
     assert data["length"] == 20.0
+
+
+def test_reconstruction_video_multipart_models_keep_bucket_object_contract():
+    init_req = ReconstructionVideoUploadInitReq(
+        item_id=BIG_ITEM_ID,
+        file_name="demo.mp4",
+        file_size=1024,
+        content_type="video/mp4",
+        height=1.0,
+        length=2.0,
+        width=3.0,
+        weight=4.0,
+    )
+    init_res = ReconstructionVideoUploadInitRes(
+        upload_session_id=9001,
+        item_id=BIG_ITEM_ID,
+        upload_id="upload-1",
+        bucket="bfr-3d-videos",
+        object_name="raw-videos/1935558010375340032/20260513/demo.mp4",
+        video_path="bfr-3d-videos/raw-videos/1935558010375340032/20260513/demo.mp4",
+        part_size=10485760,
+        total_parts=1,
+        upload_urls=[
+            ReconstructionMultipartUploadUrlItem(
+                part_number=1,
+                url="/bfr-3d-videos/raw-videos/1935558010375340032/20260513/demo.mp4?partNumber=1&uploadId=upload-1",
+                expires_at="2026-05-20T10:00:00",
+            )
+        ],
+    )
+    progress_req = ReconstructionVideoUploadProgressReq(upload_session_id=9001)
+    progress_res = ReconstructionVideoUploadProgressRes(
+        upload_session_id=9001,
+        item_id=BIG_ITEM_ID,
+        upload_id="upload-1",
+        bucket="bfr-3d-videos",
+        object_name="raw-videos/1935558010375340032/20260513/demo.mp4",
+        video_path="bfr-3d-videos/raw-videos/1935558010375340032/20260513/demo.mp4",
+        part_size=10485760,
+        total_parts=2,
+        uploaded_parts=[
+            ReconstructionMultipartUploadedPartItem(
+                part_number=1,
+                size=10485760,
+                etag="etag-1",
+            )
+        ],
+    )
+    urls_req = ReconstructionVideoUploadUrlsReq(upload_session_id=9001, part_numbers=[1, 2])
+    urls_res = ReconstructionVideoUploadUrlsRes(
+        upload_session_id=9001,
+        upload_urls=[
+            ReconstructionMultipartUploadUrlItem(
+                part_number=2,
+                url="http://minio.local/upload-part-2",
+                expires_at="2026-05-20T10:00:00",
+            )
+        ],
+    )
+    complete_req = ReconstructionVideoUploadCompleteReq(upload_session_id=9001)
+    abort_req = ReconstructionVideoUploadAbortReq(upload_session_id=9001)
+
+    assert init_req.item_id == str(BIG_ITEM_ID)
+    assert init_res.video_path == "bfr-3d-videos/raw-videos/1935558010375340032/20260513/demo.mp4"
+    assert init_res.upload_urls[0].url.startswith("/bfr-3d-videos/")
+    assert progress_req.upload_session_id == "9001"
+    assert progress_res.uploaded_parts[0].etag == "etag-1"
+    assert urls_req.part_numbers == [1, 2]
+    assert urls_res.upload_urls[0].part_number == 2
+    assert complete_req.upload_session_id == "9001"
+    assert abort_req.upload_session_id == "9001"
 
 
 def test_reconstruction_source_video_list_response_serializes_nested_item_id_as_string():

@@ -13,3 +13,9 @@ def test_db_migrate_contains_column_probe_strategy():
     text = Path("csrcqsf/data/pg.py").read_text(encoding="utf-8")
 
     assert "information_schema.columns" in text or "inspect(" in text
+
+
+def test_db_migrate_loads_reconstruction_upload_model():
+    text = Path("csrcqsf/data/pg.py").read_text(encoding="utf-8")
+
+    assert "ReconstructionVideoUploadSession" in text

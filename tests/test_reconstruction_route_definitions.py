@@ -21,3 +21,14 @@ def test_reconstruction_routes_include_statistics_endpoint():
     text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
 
     assert "@parts_router.post('/v2/reconstruct/statistics'" in text
+
+
+def test_reconstruction_routes_include_multipart_source_video_endpoints():
+    text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+
+    assert "@parts_router.post('/v2/reconstruct/video/upload/init'" in text
+    assert "@parts_router.post('/v2/reconstruct/video/upload/progress'" in text
+    assert "@parts_router.post('/v2/reconstruct/video/upload/urls'" in text
+    assert "@parts_router.post('/v2/reconstruct/video/upload/complete'" in text
+    assert "@parts_router.post('/v2/reconstruct/video/upload/abort'" in text
+    assert "@parts_router.post('/v2/reconstruct/video'" in text
