@@ -395,6 +395,34 @@ def test_get_v2_search_history_detail_returns_full_record():
     assert detail.result.items[0].matched_images[1].image_url == "bfr-ai-files/a.jpg"
 
 
+def test_get_v2_search_history_detail_normalizes_string_null_verify_remark():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    fake_history = SimpleNamespace(
+        id=1,
+        query_text="制动盘",
+        query_image=None,
+        verify_status="pending",
+        verify_remark="null",
+        verified_at=None,
+        time_created=datetime(2026, 4, 28, 10, 0, 0),
+        search_results=SearchResults(items=[]),
+        inquery_id=None,
+        inquery_num=None,
+        search_result_item_name="制动2",
+        search_result_item_code="40000728845",
+        correct_item_name=None,
+        correct_item_code=None,
+    )
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
+         patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=fake_history)), \
+         patch.object(parts_module.SearchReviewTicket, "list_latest_by_history_ids", AsyncMock(return_value={})):
+        detail = asyncio.run(RailwayPartsManager.get_v2_search_history_detail(1))
+
+    assert detail.verify_remark is None
+    assert detail.feedback_remark is None
+
+
 def test_summary_v2_search_history_uses_open_ticket_count_and_recognition_accuracy():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     fake_result = MagicMock()

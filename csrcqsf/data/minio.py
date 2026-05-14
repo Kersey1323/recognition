@@ -44,6 +44,7 @@ def create_minio_buckets_sync():
 async def create_minio_bucket():
     """兼容旧调用：创建项目默认 bucket 和 3D 重建原始视频 bucket。"""
     try:
+        if
         create_minio_buckets_sync()
     except S3Error as e:
         if e.code in {"InvalidAccessKeyId", "SignatureDoesNotMatch"}:

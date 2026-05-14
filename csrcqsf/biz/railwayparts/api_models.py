@@ -327,6 +327,14 @@ class SearchHistoryListItem(BaseModel):
             return "wrong"
         return "pending"
 
+    @validator("verify_remark", "feedback_remark", pre=True, allow_reuse=True)
+    def normalize_nullable_remark(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str) and value.strip().lower() == "null":
+            return None
+        return value
+
 
 class SearchHistoryListRes(BaseModel):
     total: int = Field(..., description="总数")
