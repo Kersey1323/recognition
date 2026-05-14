@@ -323,7 +323,7 @@ class SGOBiz:
         item_id_list: list[int] = []
         item_code_list: list[str] = []
         if has_indexed == 1 or has_indexed == 2:
-            item_id_list = await MilvusManager.get_all_indexed_item_id_list(page, per_page)
+            item_id_list = MilvusStateManagerV2().get_all_indexed_item_id_list(page, per_page)
         if len(item_id_list) > 0:
             async with SessionLocal() as session:
                 async for item in Items.get_item_by_id_list(session, item_id_list):

@@ -219,7 +219,7 @@ class RailwayPartsManager:
                 has_source_video=req.has_source_video,
             )
 
-            index_dict = await MilvusManager.list_item_index([item.id for item in items.data])
+            index_dict = MilvusStateManagerV2().list_item_index([item.id for item in items.data])
 
             images = await RailwayPartsManager.list_item_images([item.id for item in items.data])
             images_dict: dict[int, list[SgoItemImages]] = {}
@@ -359,8 +359,9 @@ class RailwayPartsManager:
 
     @classmethod
     async def get_item_detail(cls, item_id: int):
-        index_detail = await MilvusManager.list_item_index([item_id])
-        indexed_image_dict = MilvusStateManagerV2().get_indexed_images_by_item_id(item_id)
+        state_manager = MilvusStateManagerV2()
+        index_detail = state_manager.list_item_index([item_id])
+        indexed_image_dict = state_manager.get_indexed_images_by_item_id(item_id)
 
         async with SessionLocal() as session:
             item = await Items.get_item_by_id(session=session, item_id=item_id)

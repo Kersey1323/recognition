@@ -146,3 +146,64 @@ def test_state_manager_snapshot_counts_unique_source_images_instead_of_variant_r
     assert stats["dinov2_count"] == 3
     assert snapshot[101] == {"has_v2_index": 1, "v2_indexed_image_num": 1}
     assert snapshot[102] == {"has_v2_index": 1, "v2_indexed_image_num": 1}
+
+
+def test_state_manager_can_build_compat_item_index_view():
+    fake_collection_manager = MagicMock()
+    fake_collection_manager.get_collection_image_records.side_effect = [
+        {
+            9001: "bfr-ai-files/a.jpg",
+            9002: "bfr-ai-files/b.jpg",
+        },
+        {
+            9002: "bfr-ai-files/b.jpg",
+            9003: "bfr-ai-files/c.jpg",
+        },
+    ]
+    fake_collection_manager.client.query.side_effect = [
+        [
+            {
+                "item_id": 101,
+                "item_name": "橡胶套",
+                "item_code": "40000543491",
+                "description": "橡胶套",
+            }
+        ]
+    ]
+
+    with patch(
+        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.get_config",
+        return_value=_fake_env(),
+    ), patch(
+        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.CollectionManager",
+        return_value=fake_collection_manager,
+    ):
+        manager = MilvusStateManagerV2()
+        data = manager.list_item_index([101])
+
+    assert list(data.keys()) == [101]
+    assert data[101].item_name == "橡胶套"
+    assert data[101].item_code == "40000543491"
+    assert [img.image_id for img in data[101].images] == [9002]
+    assert [img.filename for img in data[101].images] == ["bfr-ai-files/b.jpg"]
+    assert [feature.feature for feature in data[101].features] == ["橡胶套"]
+
+
+def test_state_manager_can_list_indexed_item_ids_with_paging():
+    fake_collection_manager = MagicMock()
+    fake_collection_manager.get_collection_item_image_ids.side_effect = [
+        {101: {9001}, 102: {9002}, 103: {9003}, 104: {9004}},
+        {102: {9002}, 104: {9004}, 105: {9005}},
+    ]
+
+    with patch(
+        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.get_config",
+        return_value=_fake_env(),
+    ), patch(
+        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.CollectionManager",
+        return_value=fake_collection_manager,
+    ):
+        manager = MilvusStateManagerV2()
+        item_ids = manager.get_all_indexed_item_id_list(page=1, per_page=2)
+
+    assert item_ids == [102, 104]

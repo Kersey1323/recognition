@@ -6,6 +6,7 @@ ARG PYTORCH_CPU_INDEX_URL=https://mirrors.aliyun.com/pytorch-wheels/cpu
 ARG PYTORCH_CPU_FALLBACK_INDEX_URL=https://download.pytorch.org/whl/cpu
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Shanghai
 ENV PYTHONUNBUFFERED=1
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
@@ -20,9 +21,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     ca-certificates \
+    tzdata \
     libgl1 \
     libglib2.0-0 \
     libgomp1 \
+    && ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
+    && echo "${TZ}" > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python -m pip install --no-cache-dir --upgrade pip \

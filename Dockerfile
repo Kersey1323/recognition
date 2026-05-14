@@ -21,6 +21,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+RUN echo "https://mirrors.aliyun.com/alpine/v3.8/main/" > /etc/apk/repositories \
+    && echo "https://mirrors.aliyun.com/alpine/v3.8/community/" >> /etc/apk/repositories \
+    && apk add --no-cache tzdata \
+    && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime  \
+    && echo Asia/Shanghai > /etc/timezone \
+    && apk del tzdata
+
 RUN python3.10 -m pip install --no-cache-dir --upgrade pip \
     && python3.10 -m pip install --no-cache-dir uv
 

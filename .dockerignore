@@ -32,3 +32,6 @@ test/test_images/
 *.npy
 *.so
 *.deb
+recognition-cpu.tar
+.tmp-recognition-cpu.tar*
+*.tar

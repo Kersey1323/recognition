@@ -37,3 +37,5 @@ data/video/*
 # Gaussian reconstruction sample data and generated outputs
 csrcqsf/biz/reconstruction/gaussians/data/
 csrcqsf/biz/reconstruction/gaussians/output/
+
+/recognition-cpu.tar

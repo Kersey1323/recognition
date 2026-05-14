@@ -30,7 +30,6 @@ from csrcqsf.settings import (
 )
 
 # 导入 scheduler 以启动定时任务（包括重建任务状态同步）
-from csrcqsf.scheduler import scheduler
 
 # CORS配置：允许所有来源
 origins = [
@@ -42,14 +41,14 @@ origins = [
 async def lifespan(app: FastAPI):
     """
     应用生命周期管理
-    
+
     启动时执行：
     1. 数据库迁移（创建表）
     2. 初始化SAM分割模型
     3. 初始化Milvus向量数据库集合
     4. 初始化SGO业务
     5. 设置线程池容量限制
-    
+
     关闭时执行：
     - 清理资源（由yield后的代码处理）
     """
@@ -77,7 +76,7 @@ async def lifespan(app: FastAPI):
 
 
 # 创建FastAPI应用实例
-app = FastAPI(default_response_class=DefaultResponse, lifespan=lifespan, redirect_slashes=False)
+app = FastAPI(default_response_class=DefaultResponse, lifespan=lifespan, redirect_slashes=False,openapi_url="/recognition_api/openapi.json")
 
 
 # ============================================
@@ -88,7 +87,7 @@ app = FastAPI(default_response_class=DefaultResponse, lifespan=lifespan, redirec
 async def validation_exception_handler(request, exc):
     """
     请求参数验证失败的异常处理器
-    
+
     返回统一的错误响应格式
     """
     return JSONResponse(content={'status': 'fail', 'message': str(exc), 'requestID': str(uuid.uuid4()), 'datetime': int(time.time() * 1000)})
@@ -141,7 +140,7 @@ app.include_router(image_router)
 async def simpe_segment(req:SimpleSegmentReq):
     """
     使用 SAM (Segment Anything Model) 进行图像分割
-    
+
     - 输入：图片URL
     - 输出：Base64编码的mask图片
     - 用途：快速提取物体轮廓

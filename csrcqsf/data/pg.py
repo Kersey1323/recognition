@@ -6,11 +6,13 @@
 
 from __future__ import annotations
 
+import importlib
 from datetime import datetime
 
 from bfrcommon.db import default_id
-from csrcqsf.settings import ai_settings
+from csrcqsf.settings import ai_settings, main_db_database
 from sqlalchemy import BIGINT, DateTime, MetaData, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -53,6 +55,54 @@ class Base(DeclarativeBase):
 
 class PlainBase(DeclarativeBase):
     metadata = MetaData()
+
+
+MAIN_DB_MODEL_MODULES = (
+    "csrcqsf.models.files",
+    "csrcqsf.models.item",
+    "csrcqsf.models.reconstruction",
+    "csrcqsf.models.reconstruction_upload",
+    "csrcqsf.models.search_history",
+    "csrcqsf.models.sgo",
+)
+
+
+def load_main_db_models() -> None:
+    for module_name in MAIN_DB_MODEL_MODULES:
+        importlib.import_module(module_name)
+
+
+def _quote_mysql_identifier(name: str) -> str:
+    return f"`{name.replace('`', '``')}`"
+
+
+def _get_async_main_db_admin_dsn() -> str:
+    url = make_url(ai_settings.get_async_main_db_dsn())
+    return url.set(database="mysql").render_as_string(hide_password=False)
+
+
+async def ensure_main_database_exists() -> None:
+    database_name = main_db_database.strip()
+    if database_name == "":
+        return
+
+    bootstrap_engine = create_async_engine(
+        _get_async_main_db_admin_dsn(),
+        echo=False,
+        future=True,
+        isolation_level="AUTOCOMMIT",
+    )
+    try:
+        async with bootstrap_engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "CREATE DATABASE IF NOT EXISTS "
+                    f"{_quote_mysql_identifier(database_name)} "
+                    "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                )
+            )
+    finally:
+        await bootstrap_engine.dispose()
 
 
 async def _column_exists(conn, table_name: str, column_name: str) -> bool:
@@ -268,13 +318,13 @@ async def _ensure_reconstruction_columns(conn) -> None:
 
 async def db_migrate():
     """
-    主业务库迁移：创建所有业务表，并为历史表补齐 MySQL 兼容字段。
+    主业务库迁移：自动建库、创建所有业务表，并为历史表补齐 MySQL 兼容字段。
 
     假设：
-    - 目标数据库 coronavirusdb 已预先创建
     - SGO 独立 MySQL 不在本迁移范围内
     """
-    from csrcqsf.models.reconstruction_upload import ReconstructionVideoUploadSession  # noqa: F401
+    await ensure_main_database_exists()
+    load_main_db_models()
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
