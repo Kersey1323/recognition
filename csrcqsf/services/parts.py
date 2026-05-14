@@ -5,20 +5,19 @@
 """
 from fastapi import APIRouter, BackgroundTasks, UploadFile, File, Form, Request
 from csrcqsf.biz.railwayparts.api_models import *
-from bfrcommon.snowflake import get_id
-from bfrcommon.common import date_to_str
-from csrcqsf.models.sgo import SgoItemImages
-from csrcqsf.models.reconstruction import ReconstructionRecord
-from csrcqsf.data.pg import SessionLocal
-from csrcqsf.settings import ai_settings
 from csrcqsf.biz.sgo import SGOBiz
 # 导入业务逻辑层
 from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
-from csrcqsf.biz.railwayparts.milvus import MilvusManager
 from csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager import (
     MilvusStateManagerV2,
 )
 from anyio.to_thread import run_sync
+from csrcqsf.runtime import (
+    ensure_gpu_reconstruction_enabled,
+    ensure_ocr_model_enabled,
+    ensure_segment_model_enabled,
+    ensure_vector_models_enabled,
+)
 
 # 配件管理路由器
 parts_router = APIRouter(
@@ -223,6 +222,7 @@ async def auto_segment(req: AutoSegmentReq):
     业务逻辑：AutoPartProcessor.auto_segment_by_item_id() in biz/railwayparts/auto_processor.py
     核心算法：SAM分割 + DINOv2特征提取 + Milvus索引
     """
+    ensure_segment_model_enabled()
     result = await AutoPartProcessor.auto_segment_by_item_id(
         item_id=int(req.item_id),
         rebuild=req.rebuild
@@ -303,6 +303,7 @@ async def reconstruct_v2_train(req: ReconstructionTrainReq):
     返回：
     - task_id: 任务ID，用于查询进度
     """
+    ensure_gpu_reconstruction_enabled()
     result = await ReconstructionManager.submit_train_task(
         item_id=int(req.item_id),
         scene=req.scene,
@@ -447,6 +448,7 @@ async def reconstruct_v2_video(req: ReconstructionVideoReq):
     返回：
     - task_id: 任务ID，用于查询进度
     """
+    ensure_gpu_reconstruction_enabled()
     result = await ReconstructionManager.submit_video_task(
         item_id=int(req.item_id),
         iterations=req.iterations,
@@ -562,6 +564,7 @@ async def reconstruct_v2_statistics(_req: ReconstructionStatisticsReq):
 @parts_router.delete('/v2/reconstruct/cancel/{task_id}', tags=["算法-3D重建V2"], summary='V2: 取消任务')
 async def cancel_reconstruct_task(task_id: str):
     """取消正在执行的重建任务"""
+    ensure_gpu_reconstruction_enabled()
     return await ReconstructionManager.cancel_task(task_id)
 
 
@@ -592,6 +595,7 @@ async def drop_v2_collections():
     
     删除后需要重新调用 /v2/collections/init 创建集合
     """
+    ensure_vector_models_enabled()
     manager = MilvusStateManagerV2()
     await run_sync(manager.drop_collections)
     
@@ -615,6 +619,7 @@ async def init_v2_collections():
     - 此接口只创建集合结构，不建立索引
     - 建立索引请调用 /v2/index/rebuild 接口
     """
+    ensure_vector_models_enabled()
     await RailwayPartsManager.create_v2_collections(drop_existing=False)
     
     return {
@@ -642,6 +647,7 @@ async def rebuild_v2_index(
     - 如果 limit > 100 或未指定 limit，将在后台执行
     - 小批量任务（limit <= 100）会同步执行并返回结果
     """
+    ensure_vector_models_enabled()
     int_item_id = int(item_id) if item_id not in (None, "") else None
     
     # 单配件重建默认同步返回最终统计；仅全量/大批量任务走后台
@@ -687,6 +693,7 @@ async def rebuild_v2_index(
     }
 })
 async def delete_v2_index(item_id: str):
+    ensure_vector_models_enabled()
     result = await RailwayPartsManager.delete_v2_index(int(item_id))
     return V2IndexDeleteRes(**result)
 
@@ -719,6 +726,7 @@ async def search_v2_by_text(
     - matched_images: 当前候选配件在本次检索中命中的图片列表
     - history_id: 本次检索生成的历史ID，可直接用于后续反馈/校验链路
     """
+    ensure_vector_models_enabled()
     if req is None:
         req = SearchTextReq(
             query_text=query_text,
@@ -772,6 +780,7 @@ async def search_v2_by_image(
     - matched_images[].matched_query_indexes: 当前命中图被哪几张查询图共同支持
     - history_id: 本次检索生成的历史ID，可直接用于后续反馈/校验链路
     """
+    ensure_vector_models_enabled()
     if len(file) == 1:
         result = await RailwayPartsManager.search_v2_by_image(
             file=file[0],

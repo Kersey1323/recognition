@@ -1,11 +1,8 @@
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter
 from csrcqsf.api_models import FrontOCRReq
-from csrcqsf.biz.railwayparts.api_models import *
-from bfrcommon.snowflake import get_id
-from bfrcommon.common import date_to_str
-from csrcqsf.settings import ai_settings
 from csrcqsf.biz.segment import SegmentBiz
-from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
+from csrcqsf.runtime import ensure_ocr_model_enabled
+
 image_router = APIRouter(
     prefix="/images",
     tags=["image"],
@@ -20,4 +17,5 @@ image_router = APIRouter(
     }
 })
 async def front_image(req: FrontOCRReq):
+    ensure_ocr_model_enabled()
     return await SegmentBiz.front_end_ocr(req.file_url)

@@ -1,4 +1,3 @@
-
 import base64
 from typing import List
 import cv2
@@ -17,7 +16,6 @@ from segment_anything import sam_model_registry, SamPredictor, SamAutomaticMaskG
 from globals_vars import logger
 from csrcqsf.logger import CodeTimer
 from bfrcommon.snowflake import get_id
-from rapidocr import RapidOCR
 from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
 from rapidocr import EngineType, LangDet, LangRec, ModelType as OCRModelType, OCRVersion, RapidOCR
 
@@ -26,28 +24,34 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 class SegmentBiz:
     sam_model: SAM = None
-    engine = RapidOCR(params={
-        "Det.engine_type": EngineType.ONNXRUNTIME,  # 推理引擎：ONNXRuntime
-        "Det.lang_type": LangDet.CH,                # 语种：中文检测
-        "Det.model_type": OCRModelType.MOBILE,         # 模型类型：轻量版
-        "Det.ocr_version": OCRVersion.PPOCRV5,      # 模型版本：PP-OCRv5[6](@ref)
-        "Det.limit_side_len": 1080,
-        # "Det.model_path": "ocrmodels/ch_PP-OCRv4_det_server_infer.onnx",
-        # 识别阶段配置
-        "Rec.engine_type": EngineType.ONNXRUNTIME,        # 推理引擎：PaddlePaddle
-        "Rec.lang_type": LangRec.CH,                # 语种：中文识别
-        "Rec.model_type": OCRModelType.MOBILE,          # 模型类型：高精度版
-        "Rec.ocr_version": OCRVersion.PPOCRV5,        # 模型版本：PP-OCRv4
-        "Global.min_height": 10,
-        "Global.width_height_ratio": -1,
-        "Global.use_cls": False,  # 不需要分类
-        "EngineConfig.onnxruntime.intra_op_num_threads": 8,
-        "EngineConfig.onnxruntime.inter_op_num_threads": 4,
-        "EngineConfig.onnxruntime.enable_cpu_mem_arena": True,
-        # "Rec.model_path": "ocrmodels/ch_PP-OCRv4_rec_server_infer.onnx",
-    })
-    # engine = None
+    engine = None
     predictor: SamPredictor = None
+
+    @classmethod
+    def _build_ocr_engine(cls):
+        return RapidOCR(params={
+            "Det.engine_type": EngineType.ONNXRUNTIME,
+            "Det.lang_type": LangDet.CH,
+            "Det.model_type": OCRModelType.MOBILE,
+            "Det.ocr_version": OCRVersion.PPOCRV5,
+            "Det.limit_side_len": 1080,
+            "Rec.engine_type": EngineType.ONNXRUNTIME,
+            "Rec.lang_type": LangRec.CH,
+            "Rec.model_type": OCRModelType.MOBILE,
+            "Rec.ocr_version": OCRVersion.PPOCRV5,
+            "Global.min_height": 10,
+            "Global.width_height_ratio": -1,
+            "Global.use_cls": False,
+            "EngineConfig.onnxruntime.intra_op_num_threads": 8,
+            "EngineConfig.onnxruntime.inter_op_num_threads": 4,
+            "EngineConfig.onnxruntime.enable_cpu_mem_arena": True,
+        })
+
+    @classmethod
+    def get_ocr_engine(cls):
+        if cls.engine is None:
+            cls.engine = cls._build_ocr_engine()
+        return cls.engine
 
     @classmethod
     async def init(cls):
@@ -86,7 +90,7 @@ class SegmentBiz:
     def _front_end_ocr(cls, image):
         res = OCRResult()
         with CodeTimer(name='图片文字识别'):
-            result = cls.engine(image)
+            result = cls.get_ocr_engine()(image)
             if result.boxes is None:
                 return res
             for index, row in enumerate(result.boxes):

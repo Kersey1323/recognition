@@ -2,7 +2,6 @@
 FastAPI 应用主入口
 职责：应用初始化、中间件配置、路由注册
 """
-import os
 from contextlib import asynccontextmanager
 import time
 import uuid
@@ -11,23 +10,18 @@ from anyio.lowlevel import RunVar
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from bfrcommon.doc_router import make_doc_router, doc_router
 from bfrcommon.middlewares.response import DefaultResponse, catch_exceptions_middleware
-from bfrcommon.middlewares.auth import add_process_time_header, auth_middleware
-
-
+from bfrcommon.middlewares.auth import add_process_time_header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from globals_vars import logger
-from .settings import make_sure_models
 from .api_models import *
 from csrcqsf.biz.segment import SegmentBiz
-from fastapi import Request
+from csrcqsf.runtime import ensure_segment_model_enabled, segment_model_enabled
 from csrcqsf.services import *
 from csrcqsf.data.pg import db_migrate
 from csrcqsf.data.minio import create_minio_buckets
 from csrcqsf.biz.sgo import SGOBiz
-from csrcqsf.biz.railwayparts.milvus import MilvusManager
 
 # 导入 scheduler 以启动定时任务（包括重建任务状态同步）
 from csrcqsf.scheduler import scheduler
@@ -53,11 +47,10 @@ async def lifespan(app: FastAPI):
     关闭时执行：
     - 清理资源（由yield后的代码处理）
     """
-    #await make_sure_models()
     await db_migrate()  # 数据库迁移
     await create_minio_buckets()  # 初始化对象存储 bucket
-    await SegmentBiz.init()  # 初始化SAM模型
-    # await MilvusManager.init_collection()  # 初始化Milvus集合
+    if segment_model_enabled():
+        await SegmentBiz.init()  # 初始化SAM模型
     SGOBiz.init()  # 初始化SGO业务
     RunVar("_default_thread_limiter").set(CapacityLimiter(200))  # 线程池限制
     yield
@@ -133,6 +126,7 @@ async def simpe_segment(req:SimpleSegmentReq):
     - 输出：Base64编码的mask图片
     - 用途：快速提取物体轮廓
     """
+    ensure_segment_model_enabled()
     res = SimpleSegmentRes()
     res.mask = await SegmentBiz.mask(req.file_url)
     return res
