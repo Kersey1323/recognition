@@ -1,9 +1,6 @@
 from urllib.parse import quote_plus
 import urllib.parse
-import aiohttp
-import anyio
 import os
-import sys
 
 from bfrcommon.settings import Settings
 from dotenv import load_dotenv
@@ -161,52 +158,9 @@ def resolve_model_path(path: str | None) -> str:
 sam3_model_path = resolve_model_path(os.getenv("SAM3_MODEL_PATH", "sam3"))
 
 
-async def download_file(url, file_path):
-    timeout = aiohttp.ClientTimeout(total=10000, sock_connect=3)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.get(url) as response:
-            if response.status == 200:
-                async with await anyio.open_file(file_path, "wb") as file:
-                    while True:
-                        chunk = await response.content.read(8192)
-                        if not chunk:
-                            break
-                        await file.write(chunk)
-            else:
-                print(f"下载失败，状态码: {response.status}")
-
-
 SAM_MODEL = resolve_model_path(
     os.getenv("SAM_MODEL_PATH", "sam_vit_h_4b8939/sam_vit_h_4b8939.pth")
 )
-
-obj_model_path = os.path.join(model_dir, "yolo_obj_det.onnx")
-edge_model_path = os.path.join(model_dir, "yolo_edge_det.onnx")
-cls_model_path = os.path.join(model_dir, "paddle_cls_det.onnx")
-
-
-# async def make_sure_models():
-#     print("检查需要的model是否存在,如果不存在则自动下载")
-#     if os.path.exists(SAM_MODEL) is False:
-#         await download_file(
-#             "https://bfr-assets.oss-cn-chengdu.aliyuncs.com/models/sam_vit_h_4b8939.pth",
-#             SAM_MODEL,
-#         )
-#     if os.path.exists(obj_model_path) is False:
-#         await download_file(
-#             "https://bfr-assets.oss-cn-chengdu.aliyuncs.com/ocr_models/yolo_obj_det.onnx",
-#             obj_model_path,
-#         )
-#     if os.path.exists(edge_model_path) is False:
-#         await download_file(
-#             "https://bfr-assets.oss-cn-chengdu.aliyuncs.com/ocr_models/yolo_edge_det.onnx",
-#             edge_model_path,
-#         )
-#     if os.path.exists(cls_model_path) is False:
-#         await download_file(
-#             "https://bfr-assets.oss-cn-chengdu.aliyuncs.com/ocr_models/paddle_cls_det.onnx",
-#             cls_model_path,
-#         )
 
 
 class AISettings(Settings):

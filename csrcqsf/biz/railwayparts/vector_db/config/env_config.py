@@ -34,35 +34,11 @@ def _resolve_path(path: str, base_dir: Path = PROJECT_ROOT) -> str:
         return str(base_dir / path)
 
 
-def _resolve_model_path(relative_path: str, model_dir: str) -> str:
-    """
-    解析模型路径：相对于MODEL_DIR
-    
-    Args:
-        relative_path: 相对路径
-        model_dir: 模型根目录
-    
-    Returns:
-        完整的模型路径
-    """
-    if not relative_path:
-        return relative_path
-    
-    # 如果已经是绝对路径，直接返回
-    if Path(relative_path).is_absolute():
-        return relative_path
-    
-    # 否则拼接MODEL_DIR
-    return str(Path(model_dir) / relative_path)
-
-
 class VectorDBConfig:
     """向量数据库配置类"""
     
     def __init__(self):
         """从环境变量加载配置"""
-        # 获取MODEL_DIR
-        self.model_dir = os.getenv("MODEL_DIR", "/home/ubuntu/CV/models")
         
         # ============================================
         # PostgreSQL配置
@@ -91,43 +67,17 @@ class VectorDBConfig:
         self.milvus_password = os.getenv("MILVUS_PASSWORD", "")
         
         # ============================================
-        # SigLIP模型配置（相对于MODEL_DIR）
+        # SigLIP 集合配置（模型推理已迁移至独立服务）
         # ============================================
-        self.siglip_model_name = os.getenv("SIGLIP_MODEL_NAME", "google/siglip-so400m-patch14-384")
-        self.siglip_model_path = _resolve_model_path(
-            os.getenv("SIGLIP_MODEL_PATH", "siglip2-so400m-patch14-384"),
-            self.model_dir
-        )
-        self.siglip_vector_dim = int(os.getenv("SIGLIP_VECTOR_DIM", "1152"))
         self.siglip_collection_name = os.getenv("SIGLIP_COLLECTION_NAME", "PARTS_SIGLIP_SO400M_1152D_V1")
-        self.siglip_batch_size = int(os.getenv("SIGLIP_BATCH_SIZE", "32"))
-        self.siglip_device = os.getenv("SIGLIP_DEVICE", "cuda")
-        
+
         # ============================================
-        # DINOv2模型配置（相对于MODEL_DIR）
+        # DINOv2 集合配置（模型推理已迁移至独立服务）
         # ============================================
-        self.dinov2_model_name = os.getenv("DINOV2_MODEL_NAME", "facebook/dinov2-large")
-        self.dinov2_model_path = _resolve_model_path(
-            os.getenv("DINOV2_MODEL_PATH", "dinov2-large"),
-            self.model_dir
-        )
-        self.dinov2_vector_dim = int(os.getenv("DINOV2_VECTOR_DIM", "1024"))
         self.dinov2_collection_name = os.getenv("DINOV2_COLLECTION_NAME", "PARTS_DINOV2_LARGE_1024D_V1")
         self.dinov2_patch_tokens_dir = _resolve_path(
             os.getenv("DINOV2_PATCH_TOKENS_DIR", "csrcqsf/biz/railwayparts/vector_db/patch_tokens")
         )
-        self.dinov2_device = os.getenv("DINOV2_DEVICE", "cuda")
-        
-        # ============================================
-        # SAM3模型配置（相对于MODEL_DIR）
-        # ============================================
-        self.sam3_model_path = _resolve_model_path(
-            os.getenv("SAM3_MODEL_PATH", "sam3"),
-            self.model_dir
-        )
-        self.sam3_mask_dilate = int(os.getenv("SAM3_MASK_DILATE", "20"))
-        self.sam3_bg_color = os.getenv("SAM3_BG_COLOR", "white")
-        self.sam3_device = os.getenv("SAM3_DEVICE", "cuda")
         
         # ============================================
         # 索引配置（相对于项目根目录）
@@ -168,26 +118,11 @@ class VectorDBConfig:
                 'password': self.milvus_password,
             },
             'siglip': {
-                'model_name': self.siglip_model_name,
-                'model_path': self.siglip_model_path,
-                'vector_dim': self.siglip_vector_dim,
                 'collection_name': self.siglip_collection_name,
-                'batch_size': self.siglip_batch_size,
-                'device': self.siglip_device,
             },
             'dinov2': {
-                'model_name': self.dinov2_model_name,
-                'model_path': self.dinov2_model_path,
-                'vector_dim': self.dinov2_vector_dim,
                 'collection_name': self.dinov2_collection_name,
                 'patch_tokens_dir': self.dinov2_patch_tokens_dir,
-                'device': self.dinov2_device,
-            },
-            'sam3': {
-                'model_path': self.sam3_model_path,
-                'mask_dilate': self.sam3_mask_dilate,
-                'bg_color': self.sam3_bg_color,
-                'device': self.sam3_device,
             },
             'indexing': {
                 'checkpoint_file': self.indexing_checkpoint_file,
