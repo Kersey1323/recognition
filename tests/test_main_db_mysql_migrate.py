@@ -102,3 +102,11 @@ def test_db_migrate_bootstraps_database_then_creates_all_tables():
     ensure_item_mock.assert_awaited_once_with(fake_conn)
     ensure_history_mock.assert_awaited_once_with(fake_conn)
     ensure_reconstruction_mock.assert_awaited_once_with(fake_conn)
+
+
+def test_db_migrate_contains_reconstruction_upload_column_backfills():
+    text = Path("csrcqsf/data/pg.py").read_text(encoding="utf-8")
+
+    assert '"reconstruction_video_upload_session"' in text
+    assert '"storage_mode"' in text
+    assert '"remote_upload_id"' in text

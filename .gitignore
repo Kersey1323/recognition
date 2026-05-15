@@ -39,3 +39,4 @@ csrcqsf/biz/reconstruction/gaussians/data/
 csrcqsf/biz/reconstruction/gaussians/output/
 
 docker/recognition-cpu.tar
+/state/*

@@ -27,6 +27,9 @@ def test_reconstruction_routes_include_multipart_source_video_endpoints():
     text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
 
     assert "@parts_router.post('/v2/reconstruct/video/upload/init'" in text
+    assert "@parts_router.post('/v2/reconstruct/video/upload/local'" not in text
+    assert "@parts_router.post('/v2/reconstruct/video/upload/part'" in text
+    assert "@parts_router.post('/v2/reconstruct/video/upload/minio/health'" in text
     assert "@parts_router.post('/v2/reconstruct/video/upload/progress'" in text
     assert "@parts_router.post('/v2/reconstruct/video/upload/urls'" in text
     assert "@parts_router.post('/v2/reconstruct/video/upload/complete'" in text

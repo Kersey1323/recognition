@@ -280,6 +280,8 @@ from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionVideoUploadCompleteReq,
     ReconstructionVideoUploadInitReq,
     ReconstructionVideoUploadInitRes,
+    ReconstructionVideoUploadMinioHealthRes,
+    ReconstructionVideoUploadPartReq,
     ReconstructionVideoUploadProgressReq,
     ReconstructionVideoUploadProgressRes,
     ReconstructionVideoUploadUrlsReq,
@@ -346,12 +348,27 @@ async def init_reconstruct_v2_video_upload(req: ReconstructionVideoUploadInitReq
         file_name=req.file_name,
         file_size=req.file_size,
         content_type=req.content_type or "application/octet-stream",
+        storage_mode=req.storage_mode,
         height=req.height,
         length=req.length,
         width=req.width,
         weight=req.weight,
     )
     return ReconstructionVideoUploadInitRes(**result)
+
+
+@parts_router.post('/v2/reconstruct/video/upload/part', tags=["算法-3D重建V2"], summary='V2: 本地模式上传单个视频分片')
+async def upload_reconstruct_v2_video_part(
+    upload_session_id: str = Form(...),
+    part_number: int = Form(...),
+    file: UploadFile = File(...),
+):
+    result = await ReconstructionManager.upload_source_video_local_part(
+        upload_session_id=int(upload_session_id),
+        part_number=part_number,
+        file=file,
+    )
+    return result
 
 
 @parts_router.post('/v2/reconstruct/video/upload/progress', tags=["算法-3D重建V2"], summary='V2: 查询原始视频分片上传进度')
@@ -385,6 +402,12 @@ async def abort_reconstruct_v2_video_upload(req: ReconstructionVideoUploadAbortR
         upload_session_id=int(req.upload_session_id),
     )
     return ReconstructionSourceVideoMessageRes(**result)
+
+
+@parts_router.post('/v2/reconstruct/video/upload/minio/health', tags=["算法-3D重建V2"], summary='V2: 检查 MinIO 并批量同步本地上传任务')
+async def health_reconstruct_v2_video_minio_and_sync():
+    result = await ReconstructionManager.check_minio_and_sync_local_uploads()
+    return ReconstructionVideoUploadMinioHealthRes(**result)
 
 
 @parts_router.post('/v2/reconstruct/video/list', tags=["算法-3D重建V2"], summary='V2: 分页列出三维重构原始视频')

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionMultipartUploadUrlItem,
     ReconstructionMultipartUploadedPartItem,
@@ -15,6 +17,8 @@ from csrcqsf.biz.railwayparts.reconstruction_api_models import (
     ReconstructionVideoUploadCompleteReq,
     ReconstructionVideoUploadInitReq,
     ReconstructionVideoUploadInitRes,
+    ReconstructionVideoUploadMinioHealthRes,
+    ReconstructionVideoUploadPartReq,
     ReconstructionVideoUploadProgressReq,
     ReconstructionVideoUploadProgressRes,
     ReconstructionVideoUploadRes,
@@ -398,6 +402,46 @@ def test_reconstruction_video_multipart_models_keep_bucket_object_contract():
     assert urls_res.upload_urls[0].part_number == 2
     assert complete_req.upload_session_id == "9001"
     assert abort_req.upload_session_id == "9001"
+
+
+def test_reconstruction_video_upload_init_req_accepts_storage_mode():
+    req = ReconstructionVideoUploadInitReq(
+        item_id=BIG_ITEM_ID,
+        file_name="demo.mp4",
+        file_size=1024,
+        storage_mode="local",
+    )
+
+    assert req.storage_mode == "local"
+
+
+def test_reconstruction_video_upload_part_req_normalizes_upload_session_id():
+    req = ReconstructionVideoUploadPartReq(
+        upload_session_id=9001,
+        part_number=2,
+    )
+
+    assert req.upload_session_id == "9001"
+    assert req.part_number == 2
+
+
+def test_reconstruction_minio_health_response_contract():
+    res = ReconstructionVideoUploadMinioHealthRes(
+        available=True,
+        message="ok",
+        total_pending=3,
+        synced_count=2,
+        failed_count=1,
+    )
+
+    assert res.available is True
+    assert res.total_pending == 3
+
+
+def test_reconstruction_video_local_upload_request_model_removed():
+    text = Path("csrcqsf/biz/railwayparts/reconstruction_api_models.py").read_text(encoding="utf-8")
+
+    assert "class ReconstructionVideoLocalUploadReq" not in text
 
 
 def test_reconstruction_source_video_list_response_serializes_nested_item_id_as_string():

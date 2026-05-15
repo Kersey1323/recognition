@@ -1,8 +1,10 @@
 import asyncio
 from datetime import datetime
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from csrcqsf.biz.railwayparts.local_upload_storage import LocalUploadStorage
 from csrcqsf.biz.railwayparts.reconstruction_manager import (
     ReconstructionBusinessError,
     ReconstructionManager,
@@ -18,6 +20,20 @@ class _AsyncSessionContext:
 
     async def __aexit__(self, exc_type, exc, tb):
         return False
+
+
+class _UploadFileStub:
+    def __init__(self, data: bytes, filename: str = "part.bin"):
+        self._data = data
+        self.filename = filename
+        self.file = BytesIO(data)
+        self.closed = False
+
+    async def read(self):
+        return self._data
+
+    async def close(self):
+        self.closed = True
 
 
 def test_choose_multipart_part_size_matches_reference_guide():
@@ -89,10 +105,32 @@ def test_init_source_video_multipart_upload_returns_session_and_urls():
     session.commit.assert_awaited_once()
 
 
+def test_init_source_video_multipart_upload_local_mode_does_not_create_minio_upload():
+    item = SimpleNamespace(id=101, source_video_path=None)
+
+    with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=item)), \
+         patch.object(ReconstructionManager, "_init_local_source_video_upload", AsyncMock(return_value={"upload_session_id": 2, "part_size": 10, "total_parts": 1, "upload_urls": []})) as local_mock, \
+         patch.object(ReconstructionManager, "_init_remote_source_video_upload", AsyncMock()) as remote_mock:
+        result = asyncio.run(
+            ReconstructionManager.init_source_video_multipart_upload(
+                item_id=101,
+                file_name="demo.mp4",
+                file_size=1024,
+                content_type="video/mp4",
+                storage_mode="local",
+            )
+        )
+
+    local_mock.assert_awaited_once()
+    remote_mock.assert_not_awaited()
+    assert result["upload_session_id"] == 2
+
+
 def test_get_source_video_upload_progress_returns_uploaded_parts():
     upload_session = SimpleNamespace(
         id=9001,
         item_id=101,
+        storage_mode="remote",
         upload_id="upload-1",
         bucket="bfr-3d-videos",
         object_name="raw-videos/101/20260513/demo.mp4",
@@ -116,6 +154,7 @@ def test_get_source_video_upload_urls_returns_requested_part_urls():
     upload_session = SimpleNamespace(
         id=9001,
         item_id=101,
+        storage_mode="remote",
         upload_id="upload-1",
         bucket="bfr-3d-videos",
         object_name="raw-videos/101/20260513/demo.mp4",
@@ -171,6 +210,7 @@ def test_complete_source_video_multipart_upload_persists_item_after_complete():
     upload_session = SimpleNamespace(
         id=9001,
         item_id=101,
+        storage_mode="remote",
         upload_id="upload-1",
         bucket="bfr-3d-videos",
         object_name="raw-videos/101/20260513/demo.mp4",
@@ -232,6 +272,7 @@ def test_abort_source_video_multipart_upload_marks_session_aborted():
     upload_session = SimpleNamespace(
         id=9001,
         item_id=101,
+        storage_mode="remote",
         upload_id="upload-1",
         bucket="bfr-3d-videos",
         object_name="raw-videos/101/20260513/demo.mp4",
@@ -248,3 +289,127 @@ def test_abort_source_video_multipart_upload_marks_session_aborted():
     abort_mock.assert_awaited_once()
     mark_aborted_mock.assert_awaited_once()
     assert result == {"item_id": 101, "message": "原始视频分片上传已取消"}
+
+
+def test_complete_local_source_video_upload_does_not_bind_item_info(tmp_path):
+    upload_session = SimpleNamespace(
+        id=9001,
+        item_id=101,
+        storage_mode="local",
+        local_status="uploading",
+        remote_status="pending",
+        local_dir=str(tmp_path / "9001"),
+        file_name="demo.mp4",
+        total_parts=2,
+        status="initiated",
+    )
+
+    with patch.object(ReconstructionManager, "_require_upload_session", AsyncMock(return_value=upload_session)), \
+         patch.object(ReconstructionManager, "_complete_local_source_video_upload", AsyncMock(return_value={"item_id": 101, "message": "本地分片合并完成，等待 MinIO 同步"})) as complete_mock:
+        result = asyncio.run(
+            ReconstructionManager.complete_source_video_multipart_upload(upload_session_id=9001)
+        )
+
+    complete_mock.assert_awaited_once_with(upload_session)
+    assert "等待 MinIO 同步" in result["message"]
+
+
+def test_upload_source_video_local_part_allows_unexpected_part_size(tmp_path):
+    storage = LocalUploadStorage(tmp_path)
+    storage.ensure_session_dirs(9001)
+    upload_session = SimpleNamespace(
+        id=9001,
+        item_id=101,
+        storage_mode="local",
+        total_parts=3,
+        part_size=10,
+        file_size=25,
+        local_dir=str(tmp_path / "9001"),
+    )
+    upload_file = _UploadFileStub(b"x" * 25)
+    session = AsyncMock()
+
+    with patch.object(ReconstructionManager, "_require_upload_session", AsyncMock(return_value=upload_session)), \
+         patch.object(ReconstructionManager, "_get_local_upload_storage", return_value=storage), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionVideoUploadSession.update_sync_state", AsyncMock()) as update_state_mock:
+        result = asyncio.run(
+            ReconstructionManager.upload_source_video_local_part(
+                upload_session_id=9001,
+                part_number=1,
+                file=upload_file,
+            )
+        )
+
+    update_state_mock.assert_awaited_once()
+    assert result["size"] == 25
+
+
+def test_upload_source_video_local_part_accepts_expected_last_part_size(tmp_path):
+    storage = LocalUploadStorage(tmp_path)
+    storage.ensure_session_dirs(9001)
+    upload_session = SimpleNamespace(
+        id=9001,
+        item_id=101,
+        storage_mode="local",
+        total_parts=3,
+        part_size=10,
+        file_size=25,
+        local_dir=str(tmp_path / "9001"),
+    )
+    upload_file = _UploadFileStub(b"x" * 5)
+    session = AsyncMock()
+
+    with patch.object(ReconstructionManager, "_require_upload_session", AsyncMock(return_value=upload_session)), \
+         patch.object(ReconstructionManager, "_get_local_upload_storage", return_value=storage), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionVideoUploadSession.update_sync_state", AsyncMock()) as update_state_mock:
+        result = asyncio.run(
+            ReconstructionManager.upload_source_video_local_part(
+                upload_session_id=9001,
+                part_number=3,
+                file=upload_file,
+            )
+        )
+
+    update_state_mock.assert_awaited_once()
+    assert result["size"] == 5
+
+
+def test_check_minio_and_sync_local_uploads_returns_unavailable_when_env_missing():
+    with patch("csrcqsf.biz.railwayparts.reconstruction_manager.minio_env_configured", return_value=False):
+        result = asyncio.run(ReconstructionManager.check_minio_and_sync_local_uploads())
+
+    assert result["available"] is False
+    assert result["total_pending"] == 0
+
+
+def test_check_minio_and_sync_local_uploads_binds_item_after_remote_sync():
+    pending_session = SimpleNamespace(
+        id=9001,
+        item_id=101,
+        storage_mode="local",
+        local_status="completed",
+        remote_status="pending",
+        merged_file_path="/tmp/demo.mp4",
+        part_size=10,
+        file_name="demo.mp4",
+        file_size=20,
+        content_type="video/mp4",
+        height=1.0,
+        length=2.0,
+        width=3.0,
+        weight=4.0,
+    )
+    session = AsyncMock()
+
+    with patch("csrcqsf.biz.railwayparts.reconstruction_manager.minio_env_configured", return_value=True), \
+         patch.object(ReconstructionManager, "_minio_health_check", AsyncMock(return_value=True)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionVideoUploadSession.list_local_sessions_pending_remote_sync", AsyncMock(return_value=[pending_session])), \
+         patch.object(ReconstructionManager, "_sync_local_session_to_remote", AsyncMock(return_value=True)) as sync_mock:
+        result = asyncio.run(ReconstructionManager.check_minio_and_sync_local_uploads())
+
+    sync_mock.assert_awaited_once_with(pending_session, session)
+    assert result["available"] is True
+    assert result["synced_count"] == 1

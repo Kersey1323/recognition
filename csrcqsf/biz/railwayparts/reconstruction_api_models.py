@@ -130,10 +130,18 @@ class ReconstructionVideoUploadInitReq(BaseModel):
     length: Optional[float] = Field(None, description="长度")
     width: Optional[float] = Field(None, description="宽度")
     weight: Optional[float] = Field(None, description="重量")
+    storage_mode: str = Field(default="remote", description="上传模式: remote/local")
 
     @validator("item_id", pre=True)
     def normalize_item_id(cls, value):
         return str(value)
+
+    @validator("storage_mode")
+    def validate_storage_mode(cls, value):
+        normalized = str(value).strip().lower()
+        if normalized not in {"remote", "local"}:
+            raise ValueError("storage_mode 仅支持 remote 或 local")
+        return normalized
 
 
 class ReconstructionVideoUploadInitRes(BaseModel):
@@ -208,6 +216,23 @@ class ReconstructionVideoUploadAbortReq(BaseModel):
     @validator("upload_session_id", pre=True)
     def normalize_upload_session_id(cls, value):
         return str(value)
+
+
+class ReconstructionVideoUploadPartReq(BaseModel):
+    upload_session_id: str = Field(..., description="上传会话ID")
+    part_number: int = Field(..., ge=1, description="分片编号")
+
+    @validator("upload_session_id", pre=True)
+    def normalize_upload_session_id(cls, value):
+        return str(value)
+
+
+class ReconstructionVideoUploadMinioHealthRes(BaseModel):
+    available: bool = Field(..., description="MinIO 是否可用")
+    message: str = Field(..., description="检查结果")
+    total_pending: int = Field(..., description="待同步任务数")
+    synced_count: int = Field(..., description="同步成功数")
+    failed_count: int = Field(..., description="同步失败数")
 
 
 class ReconstructionResultMessageRes(BaseModel):

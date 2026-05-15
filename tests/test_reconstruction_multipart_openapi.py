@@ -55,6 +55,8 @@ def _import_parts_service():
         "ReconstructionVideoUploadCompleteReq",
         "ReconstructionVideoUploadInitReq",
         "ReconstructionVideoUploadInitRes",
+        "ReconstructionVideoUploadPartReq",
+        "ReconstructionVideoUploadMinioHealthRes",
         "ReconstructionVideoUploadProgressReq",
         "ReconstructionVideoUploadProgressRes",
         "ReconstructionVideoUploadUrlsReq",
@@ -76,6 +78,7 @@ def _import_parts_service():
                 "length": float | None,
                 "width": float | None,
                 "weight": float | None,
+                "storage_mode": str,
             }
         },
     )
@@ -121,4 +124,5 @@ def test_reconstruction_multipart_init_route_uses_json_metadata_only():
     assert body_schema["properties"]["file_size"]["type"] == "integer"
     assert "file_name" in body_schema["required"]
     assert "file_size" in body_schema["required"]
+    assert "storage_mode" in body_schema["properties"]
     assert "file" not in body_schema["properties"]

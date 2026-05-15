@@ -316,6 +316,75 @@ async def _ensure_reconstruction_columns(conn) -> None:
     )
 
 
+async def _ensure_reconstruction_upload_session_columns(conn) -> None:
+    await _ensure_column(
+        conn,
+        "reconstruction_video_upload_session",
+        "storage_mode",
+        "`storage_mode` VARCHAR(20) NOT NULL DEFAULT 'remote'",
+    )
+    await _ensure_column(
+        conn,
+        "reconstruction_video_upload_session",
+        "local_status",
+        "`local_status` VARCHAR(50) NOT NULL DEFAULT 'initiated'",
+    )
+    await _ensure_column(
+        conn,
+        "reconstruction_video_upload_session",
+        "remote_status",
+        "`remote_status` VARCHAR(50) NOT NULL DEFAULT 'pending'",
+    )
+    await _ensure_column(
+        conn,
+        "reconstruction_video_upload_session",
+        "local_dir",
+        "`local_dir` VARCHAR(700) NULL",
+    )
+    await _ensure_column(
+        conn,
+        "reconstruction_video_upload_session",
+        "merged_file_path",
+        "`merged_file_path` VARCHAR(700) NULL",
+    )
+    await _ensure_column(
+        conn,
+        "reconstruction_video_upload_session",
+        "remote_upload_id",
+        "`remote_upload_id` VARCHAR(200) NULL",
+    )
+    await _ensure_column(
+        conn,
+        "reconstruction_video_upload_session",
+        "remote_object_name",
+        "`remote_object_name` VARCHAR(500) NULL",
+    )
+    await _ensure_column(
+        conn,
+        "reconstruction_video_upload_session",
+        "remote_video_path",
+        "`remote_video_path` VARCHAR(700) NULL",
+    )
+    await _ensure_column(
+        conn,
+        "reconstruction_video_upload_session",
+        "sync_attempts",
+        "`sync_attempts` INT NOT NULL DEFAULT 0",
+    )
+    await _ensure_column(
+        conn,
+        "reconstruction_video_upload_session",
+        "last_sync_error",
+        "`last_sync_error` VARCHAR(1000) NULL",
+    )
+    await _ensure_column(
+        conn,
+        "reconstruction_video_upload_session",
+        "synced_at",
+        "`synced_at` DATETIME NULL",
+    )
+
+
 async def db_migrate():
     """
     主业务库迁移：自动建库、创建所有业务表，并为历史表补齐 MySQL 兼容字段。
@@ -332,3 +401,4 @@ async def db_migrate():
         await _ensure_item_info_columns(conn)
         await _ensure_search_history_columns(conn)
         await _ensure_reconstruction_columns(conn)
+        await _ensure_reconstruction_upload_session_columns(conn)
