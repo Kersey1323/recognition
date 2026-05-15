@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
 
     if segment_model_enabled():
         await SegmentBiz.init()  # 初始化SAM模型
-    SGOBiz.init()  # 初始化SGO业务
+    # SGOBiz.init()  # 初始化SGO业务
     RunVar("_default_thread_limiter").set(CapacityLimiter(200))  # 线程池限制
     yield
 

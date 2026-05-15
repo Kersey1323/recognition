@@ -1,4 +1,5 @@
 from urllib.parse import quote_plus
+import urllib.parse
 import aiohttp
 import anyio
 import os
@@ -6,6 +7,7 @@ import sys
 
 from bfrcommon.settings import Settings
 from dotenv import load_dotenv
+import urllib
 
 _EXPLICIT_ENV_KEYS = frozenset(os.environ.keys())
 
@@ -281,10 +283,10 @@ def _apply_runtime_connection_overrides(settings: AISettings) -> None:
         "SGO_MYSQL_USERNAME",
         default=settings.sgo_mysql_username,
     )
-    settings.sgo_mysql_password = _first_non_empty_env(
+    settings.sgo_mysql_password = urllib.parse.quote_plus(_first_non_empty_env(
         "SGO_MYSQL_PASSWORD",
         default=settings.sgo_mysql_password,
-    )
+    ))
     settings.basis_api_grpc_url = _first_non_empty_env(
         "BASIS_API_GRPC_URL",
         default=settings.basis_api_grpc_url,
