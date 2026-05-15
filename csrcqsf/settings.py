@@ -131,8 +131,8 @@ sgo_url = os.getenv(
     "https://sgo.csrcqsf.com/uc/sfsso/authByAccount?tenantId=1463844437338755072",
 )
 model_dir = os.getenv(
-    "MODEL_DIR",
-    "/home/ubuntu/CV/models" if not sys.platform.startswith("win") else "D:\\models",
+    "MODEL_DIR"
+
 )
 main_db_database = _first_explicit_then_non_empty_env(
     "MAIN_DB_DATABASE",
@@ -185,28 +185,28 @@ edge_model_path = os.path.join(model_dir, "yolo_edge_det.onnx")
 cls_model_path = os.path.join(model_dir, "paddle_cls_det.onnx")
 
 
-async def make_sure_models():
-    print("检查需要的model是否存在,如果不存在则自动下载")
-    if os.path.exists(SAM_MODEL) is False:
-        await download_file(
-            "https://bfr-assets.oss-cn-chengdu.aliyuncs.com/models/sam_vit_h_4b8939.pth",
-            SAM_MODEL,
-        )
-    if os.path.exists(obj_model_path) is False:
-        await download_file(
-            "https://bfr-assets.oss-cn-chengdu.aliyuncs.com/ocr_models/yolo_obj_det.onnx",
-            obj_model_path,
-        )
-    if os.path.exists(edge_model_path) is False:
-        await download_file(
-            "https://bfr-assets.oss-cn-chengdu.aliyuncs.com/ocr_models/yolo_edge_det.onnx",
-            edge_model_path,
-        )
-    if os.path.exists(cls_model_path) is False:
-        await download_file(
-            "https://bfr-assets.oss-cn-chengdu.aliyuncs.com/ocr_models/paddle_cls_det.onnx",
-            cls_model_path,
-        )
+# async def make_sure_models():
+#     print("检查需要的model是否存在,如果不存在则自动下载")
+#     if os.path.exists(SAM_MODEL) is False:
+#         await download_file(
+#             "https://bfr-assets.oss-cn-chengdu.aliyuncs.com/models/sam_vit_h_4b8939.pth",
+#             SAM_MODEL,
+#         )
+#     if os.path.exists(obj_model_path) is False:
+#         await download_file(
+#             "https://bfr-assets.oss-cn-chengdu.aliyuncs.com/ocr_models/yolo_obj_det.onnx",
+#             obj_model_path,
+#         )
+#     if os.path.exists(edge_model_path) is False:
+#         await download_file(
+#             "https://bfr-assets.oss-cn-chengdu.aliyuncs.com/ocr_models/yolo_edge_det.onnx",
+#             edge_model_path,
+#         )
+#     if os.path.exists(cls_model_path) is False:
+#         await download_file(
+#             "https://bfr-assets.oss-cn-chengdu.aliyuncs.com/ocr_models/paddle_cls_det.onnx",
+#             cls_model_path,
+#         )
 
 
 class AISettings(Settings):
@@ -215,25 +215,36 @@ class AISettings(Settings):
     sgo_mysql_port: str = "33306"
     sgo_mysql_password: str = "REMOVED_CREDENTIAL"
     sgo_mysql_username: str = "root"
+    # basis 平台 gRPC 地址，用于文件解析结果导出后向外部平台发送文件任务通知。
     basis_api_grpc_url: str = "10.144.145.6:8701"
 
-    def get_main_db_dsn(self):
+    @property
+    def mysql(self):
+        return self.pg
+
+    def get_mysql_dsn(self):
         return (
-            f"mysql+pymysql://{self.pg.user_name}:{quote_plus(self.pg.password)}"
-            f"@{self.pg.url}:{self.pg.port}/{main_db_database}"
+            f"mysql+pymysql://{self.mysql.user_name}:{quote_plus(self.mysql.password)}"
+            f"@{self.mysql.url}:{self.mysql.port}/{main_db_database}"
         )
+
+    def get_async_mysql_dsn(self):
+        return (
+            f"mysql+asyncmy://{self.mysql.user_name}:{quote_plus(self.mysql.password)}"
+            f"@{self.mysql.url}:{self.mysql.port}/{main_db_database}"
+        )
+
+    def get_main_db_dsn(self):
+        return self.get_mysql_dsn()
 
     def get_async_main_db_dsn(self):
-        return (
-            f"mysql+asyncmy://{self.pg.user_name}:{quote_plus(self.pg.password)}"
-            f"@{self.pg.url}:{self.pg.port}/{main_db_database}"
-        )
+        return self.get_async_mysql_dsn()
 
     def get_pg_dsn(self):
-        return self.get_main_db_dsn()
+        return self.get_mysql_dsn()
 
     def get_async_pg_dsn(self):
-        return self.get_async_main_db_dsn()
+        return self.get_async_mysql_dsn()
 
     def get_sgo_dsn(self):
         return (
@@ -243,25 +254,25 @@ class AISettings(Settings):
 
 
 def _apply_runtime_connection_overrides(settings: AISettings) -> None:
-    settings.pg.url = _first_explicit_then_non_empty_env(
+    settings.mysql.url = _first_explicit_then_non_empty_env(
         "MAIN_DB_HOST",
         "PG_HOST",
-        default=settings.pg.url,
+        default=settings.mysql.url,
     )
-    settings.pg.port = _first_explicit_then_non_empty_env(
+    settings.mysql.port = _first_explicit_then_non_empty_env(
         "MAIN_DB_PORT",
         "PG_PORT",
-        default=settings.pg.port,
+        default=settings.mysql.port,
     )
-    settings.pg.user_name = _first_explicit_then_non_empty_env(
+    settings.mysql.user_name = _first_explicit_then_non_empty_env(
         "MAIN_DB_USER",
         "PG_USER",
-        default=settings.pg.user_name,
+        default=settings.mysql.user_name,
     )
-    settings.pg.password = _first_explicit_then_non_empty_env(
+    settings.mysql.password = _first_explicit_then_non_empty_env(
         "MAIN_DB_PASSWORD",
         "PG_PASSWORD",
-        default=settings.pg.password,
+        default=settings.mysql.password,
     )
     settings.milvus_url = _build_service_url(
         explicit_url=_first_non_empty_env("MILVUS_URL"),

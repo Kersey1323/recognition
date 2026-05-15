@@ -14,10 +14,10 @@ async def test_current_db():
     print("测试当前应用配置的数据库")
     print("=" * 60)
     print(f"\n配置信息:")
-    print(f"  主机: {ai_settings.pg.url}")
-    print(f"  端口: {ai_settings.pg.port}")
-    print(f"  用户: {ai_settings.pg.user_name}")
-    print(f"  DSN: {ai_settings.get_async_pg_dsn()}")
+    print(f"  主机: {ai_settings.mysql.url}")
+    print(f"  端口: {ai_settings.mysql.port}")
+    print(f"  用户: {ai_settings.mysql.user_name}")
+    print(f"  DSN: {ai_settings.get_async_mysql_dsn()}")
     print("\n" + "=" * 60)
     
     try:

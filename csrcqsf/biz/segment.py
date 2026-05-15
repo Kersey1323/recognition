@@ -8,7 +8,7 @@ from ultralytics import SAM
 import time
 from ultralytics.engine.results import Results
 from csrcqsf.api_models import OCRResult, PointAndText, Point
-from csrcqsf.settings import SAM_MODEL, temp_dir, minio_bucket, make_sure_models
+from csrcqsf.settings import SAM_MODEL, temp_dir, minio_bucket
 import os
 from csrcqsf.data.minio import minio_instance
 from anyio.to_thread import run_sync
@@ -55,7 +55,7 @@ class SegmentBiz:
 
     @classmethod
     async def init(cls):
-        await make_sure_models()
+        # await make_sure_models()
         model_type = "vit_h"
         cls.sam_model = sam_model_registry[model_type](checkpoint=SAM_MODEL)
         if device == 'cpu':

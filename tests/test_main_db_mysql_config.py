@@ -33,8 +33,23 @@ def test_main_db_mysql_dsn_uses_new_env_names(monkeypatch):
         MAIN_DB_DATABASE="coronavirusdb",
     )
 
+    assert settings.ai_settings.mysql.url == "192.168.100.2"
+    assert settings.ai_settings.mysql.port == "3307"
+    assert settings.ai_settings.mysql.user_name == "root"
+    assert settings.ai_settings.mysql.password == "REMOVED_CREDENTIAL"
+    assert settings.ai_settings.get_mysql_dsn() == (
+        "mysql+pymysql://root:REMOVED_CREDENTIAL@192.168.100.2:3307/coronavirusdb"
+    )
+    assert settings.ai_settings.get_async_mysql_dsn() == (
+        "mysql+asyncmy://root:REMOVED_CREDENTIAL@192.168.100.2:3307/coronavirusdb"
+    )
     assert settings.ai_settings.get_async_main_db_dsn() == (
         "mysql+asyncmy://root:REMOVED_CREDENTIAL@192.168.100.2:3307/coronavirusdb"
+    )
+    assert settings.ai_settings.get_pg_dsn() == settings.ai_settings.get_mysql_dsn()
+    assert (
+        settings.ai_settings.get_async_pg_dsn()
+        == settings.ai_settings.get_async_mysql_dsn()
     )
 
 
@@ -48,8 +63,23 @@ def test_main_db_mysql_dsn_falls_back_to_pg_env_compat(monkeypatch):
         PG_DATABASE="legacy_db",
     )
 
+    assert settings.ai_settings.mysql.url == "192.168.100.9"
+    assert settings.ai_settings.mysql.port == "3309"
+    assert settings.ai_settings.mysql.user_name == "legacy_user"
+    assert settings.ai_settings.mysql.password == "legacy_pass"
+    assert settings.ai_settings.get_mysql_dsn() == (
+        "mysql+pymysql://legacy_user:legacy_pass@192.168.100.9:3309/legacy_db"
+    )
+    assert settings.ai_settings.get_async_mysql_dsn() == (
+        "mysql+asyncmy://legacy_user:legacy_pass@192.168.100.9:3309/legacy_db"
+    )
     assert settings.ai_settings.get_async_main_db_dsn() == (
         "mysql+asyncmy://legacy_user:legacy_pass@192.168.100.9:3309/legacy_db"
+    )
+    assert settings.ai_settings.get_pg_dsn() == settings.ai_settings.get_mysql_dsn()
+    assert (
+        settings.ai_settings.get_async_pg_dsn()
+        == settings.ai_settings.get_async_mysql_dsn()
     )
 
 

@@ -128,8 +128,8 @@ def sync_reconstruction_tasks_sync():
         )
         from csrcqsf.settings import ai_settings
         
-        # 创建同步数据库引擎（使用 psycopg2 驱动）
-        sync_db_url = ai_settings.get_pg_dsn()
+        # 创建同步数据库引擎
+        sync_db_url = ai_settings.get_mysql_dsn()
         engine = create_engine(sync_db_url, pool_pre_ping=True)
         
         with Session(engine) as session:
