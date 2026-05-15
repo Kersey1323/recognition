@@ -29,6 +29,8 @@ from csrcqsf.settings import (
     redis_env_configured,
 )
 
+API_PREFIX = "/recognition_api"
+
 # 导入 scheduler 以启动定时任务（包括重建任务状态同步）
 
 # CORS配置：允许所有来源
@@ -69,14 +71,20 @@ async def lifespan(app: FastAPI):
         logger.warning("未显式配置 Redis/Celery 环境变量，重建状态同步任务将按需跳过")
 
     if segment_model_enabled():
-        await SegmentBiz.init()  # 初始化SAM模型
+        await SegmentBiz.init()
     # SGOBiz.init()  # 初始化SGO业务
     RunVar("_default_thread_limiter").set(CapacityLimiter(200))  # 线程池限制
+    logger.info("模型推理已迁移至独立服务（MODEL_SERVICE_URL），本地不再加载模型")
     yield
 
 
 # 创建FastAPI应用实例
-app = FastAPI(default_response_class=DefaultResponse, lifespan=lifespan, redirect_slashes=False,openapi_url="/recognition_api/openapi.json")
+app = FastAPI(
+    default_response_class=DefaultResponse,
+    lifespan=lifespan,
+    redirect_slashes=False,
+    openapi_url=f"{API_PREFIX}/openapi.json",
+)
 
 
 # ============================================
@@ -127,12 +135,12 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # ============================================
 # 路由注册
 # ============================================
-app.include_router(parts_router)
-app.include_router(sgo_router)
-app.include_router(parts_docs_router)
-app.include_router(image_router)
+app.include_router(parts_router, prefix=API_PREFIX)
+app.include_router(sgo_router, prefix=API_PREFIX)
+app.include_router(parts_docs_router, prefix=API_PREFIX)
+app.include_router(image_router, prefix=API_PREFIX)
 
-@app.post("/segment/simple", tags=["算法-图像分割"], summary='简单的图像物体提取 (SAM)', responses={
+@app.post(f"{API_PREFIX}/segment/simple", tags=["算法-图像分割"], summary='简单的图像物体提取 (SAM)', responses={
     200: {
         'model': SimpleSegmentRes
     }

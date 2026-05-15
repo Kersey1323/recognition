@@ -45,6 +45,18 @@ def _import_parts_service():
         "ReconstructionAllTasksReq",
         "ReconstructionAllTasksRes",
         "ReconstructionIndexRebuildRes",
+        "ReconstructionMultipartUploadUrlItem",
+        "ReconstructionMultipartUploadedPartItem",
+        "ReconstructionVideoUploadInitReq",
+        "ReconstructionVideoUploadInitRes",
+        "ReconstructionVideoUploadProgressReq",
+        "ReconstructionVideoUploadProgressRes",
+        "ReconstructionVideoUploadUrlsReq",
+        "ReconstructionVideoUploadUrlsRes",
+        "ReconstructionVideoUploadCompleteReq",
+        "ReconstructionVideoUploadAbortReq",
+        "ReconstructionVideoUploadPartReq",
+        "ReconstructionVideoUploadMinioHealthRes",
     ]:
         setattr(fake_reconstruction_api_models_module, name, type(name, (BaseModel,), {}))
 

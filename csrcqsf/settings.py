@@ -306,3 +306,5 @@ def _apply_runtime_connection_overrides(settings: AISettings) -> None:
 
 ai_settings = AISettings()
 _apply_runtime_connection_overrides(ai_settings)
+
+model_service_url = os.getenv("MODEL_SERVICE_URL", "http://localhost:5555")
