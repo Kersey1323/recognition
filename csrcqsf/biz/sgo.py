@@ -46,22 +46,30 @@ def _get_minio_helpers():
 class SGOBiz:
 
     token = ''
+    _api_url = os.getenv("SGO_API_URL", "https://sgo.csrcqsf.com")
+    _tenant_id = os.getenv("SGO_TENANT_ID", "1463844437338755072")
+    _username = os.getenv("SGO_USERNAME", "wrps")
+    _password = os.getenv("SGO_PASSWORD", "REMOVED_CREDENTIAL")
 
     @classmethod
     def init(cls):
-        scheduler.add_job(cls.get_token, "interval", minutes=60)
         scheduler.add_job(cls.sync_parts_items, "interval", minutes=100)
-        cls.get_token()
+        if os.getenv("SGO_ENABLE_IMAGE_SYNC", "false").lower() == "true":
+            scheduler.add_job(cls.get_token, "interval", minutes=60)
+            cls.get_token()
+        else:
+            logger.info("SGO 图片同步已禁用（SGO_ENABLE_IMAGE_SYNC != true）")
 
     @classmethod
     def get_token(cls):
+        url = f"{cls._api_url}/uc/sfsso/authByAccount?tenantId={cls._tenant_id}"
         with PoolManager(ssl_context=ctx) as pool:
             try:
-                d = pool.request("POST", "https://sgo.csrcqsf.com/uc/sfsso/authByAccount?tenantId=1463844437338755072", json={
-                    "password": "REMOVED_CREDENTIAL",
-                    "username": "wrps",
+                d = pool.request("POST", url, json={
+                    "password": cls._password,
+                    "username": cls._username,
                     "encryption": "REMOVED_CREDENTIAL"
-                })
+                }, timeout=10)
 
                 res = TokenResponse.parse_raw(d.data)
                 cls.token = res.token
@@ -284,8 +292,7 @@ class SGOBiz:
             'Authorization': 'Bearer {}'.format(cls.token)
         }
         zip_file_name = f"{get_id()}.zip"
-        api_url = "https://sgo.csrcqsf.com/portal/system/file/v1/downloadFileZipCus?zipName={}&fileIds={}".format(
-            zip_file_name, ",".join(files_name))
+        api_url = f"{cls._api_url}/portal/system/file/v1/downloadFileZipCus?zipName={zip_file_name}&fileIds={','.join(files_name)}"
 
         with PoolManager(ssl_context=ctx) as pool:
             try:

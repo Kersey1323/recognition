@@ -27,9 +27,10 @@ from csrcqsf.settings import (
     milvus_env_configured,
     minio_env_configured,
     redis_env_configured,
+    sgo_env_configured,
 )
 
-API_PREFIX = "/recognition_api"
+API_PREFIX = ""
 
 # 导入 scheduler 以启动定时任务（包括重建任务状态同步）
 
@@ -72,7 +73,10 @@ async def lifespan(app: FastAPI):
 
     if segment_model_enabled():
         await SegmentBiz.init()
-    # SGOBiz.init()  # 初始化SGO业务
+    if sgo_env_configured():
+        SGOBiz.init()
+    else:
+        logger.warning("未显式配置 SGO 数据库环境变量，跳过 SGO 数据同步初始化")
     RunVar("_default_thread_limiter").set(CapacityLimiter(200))  # 线程池限制
     logger.info("模型推理已迁移至独立服务（MODEL_SERVICE_URL），本地不再加载模型")
     yield

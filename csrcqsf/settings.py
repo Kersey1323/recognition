@@ -102,6 +102,13 @@ def redis_env_configured() -> bool:
     )
 
 
+def sgo_env_configured() -> bool:
+    return _all_explicit_env(
+        "SGO_MYSQL_HOST",
+        "SGO_MYSQL_PORT",
+    )
+
+
 minio_bucket = os.getenv("MINIO_BUCKET", "bfr-ai-files")
 minio_reconstruction_video_bucket = os.getenv(
     "MINIO_RECONSTRUCTION_VIDEO_BUCKET",
@@ -122,10 +129,6 @@ minio_secure = _env_bool("MINIO_SECURE", False)
 temp_dir = os.getenv(
     "TEMP_DIR",
     os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp"),
-)
-sgo_url = os.getenv(
-    "SGO_URL",
-    "https://sgo.csrcqsf.com/uc/sfsso/authByAccount?tenantId=1463844437338755072",
 )
 model_dir = os.getenv(
     "MODEL_DIR"
