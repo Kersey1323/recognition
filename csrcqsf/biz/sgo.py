@@ -50,6 +50,7 @@ class SGOBiz:
     _tenant_id = os.getenv("SGO_TENANT_ID", "1463844437338755072")
     _username = os.getenv("SGO_USERNAME", "wrps")
     _password = os.getenv("SGO_PASSWORD", "REMOVED_CREDENTIAL")
+    _encryption = os.getenv("SGO_ENCRYPTION", "REMOVED_CREDENTIAL")
 
     @classmethod
     def init(cls):
@@ -68,7 +69,7 @@ class SGOBiz:
                 d = pool.request("POST", url, json={
                     "password": cls._password,
                     "username": cls._username,
-                    "encryption": "REMOVED_CREDENTIAL"
+                    "encryption": cls._encryption
                 }, timeout=10)
 
                 res = TokenResponse.parse_raw(d.data)

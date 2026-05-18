@@ -168,11 +168,10 @@ SAM_MODEL = resolve_model_path(
 
 class AISettings(Settings):
     milvus_url: str = "http://192.168.100.12:19530"
-    sgo_mysql_url: str = "192.168.100.12"
-    sgo_mysql_port: str = "33306"
-    sgo_mysql_password: str = "REMOVED_CREDENTIAL"
-    sgo_mysql_username: str = "root"
-    # basis 平台 gRPC 地址，用于文件解析结果导出后向外部平台发送文件任务通知。
+    sgo_mysql_url: str = ""
+    sgo_mysql_port: str = ""
+    sgo_mysql_password: str = ""
+    sgo_mysql_username: str = ""
     basis_api_grpc_url: str = "10.144.145.6:8701"
 
     @property
