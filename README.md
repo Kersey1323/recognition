@@ -47,8 +47,7 @@ recognition/
 ├── tests/                           # 单元测试
 ├── scripts/                         # 工具脚本
 ├── docs/                            # 项目文档
-└── csrcqsf/biz/railwayparts/reconstruction_server/
-                                     # 三维重构独立服务
+└── docs/superpowers/                # spec / plan 文档
 ```
 
 ## 快速开始
@@ -93,20 +92,18 @@ python main.py
 
 - Swagger: `http://127.0.0.1:65432/docs`
 
-### 5. 按需启动三维重构后台服务
+### 5. 按需连接三维重构后台服务
 
-如果需要使用视频三维重构，还需要启动：
+如果需要使用视频三维重构，还需要单独部署并启动：
 
-- Redis
-- Celery Worker
-- Flower
-- reconstruction_server API
+- `/home/ubuntu/project-train/reconstruction_server`
+- 其内部的 Redis / Celery Worker / Flower / API
 
 详细步骤见：
 
 - [部署文档](部署文档.md)
-- [reconstruction_server README](csrcqsf/biz/railwayparts/reconstruction_server/README.md)
-- [Celery 说明](csrcqsf/biz/railwayparts/reconstruction_server/docs/README_CELERY.md)
+- `/home/ubuntu/project-train/reconstruction_server/README.md`
+- `/home/ubuntu/project-train/reconstruction_server/docs/README_CELERY.md`
 
 ## Dual-Service Deployment
 
@@ -115,6 +112,12 @@ python main.py
 
 ```env
 RECONSTRUCTION_SERVER_URL=http://<gpu-host>:8000
+```
+
+推荐的独立服务代码位置：
+
+```text
+/home/ubuntu/project-train/reconstruction_server
 ```
 
 未配置时，主业务的三维重构提交、取消、场景查询和状态同步能力将被禁用。

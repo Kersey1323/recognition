@@ -1,60 +1,10 @@
 import asyncio
-import sys
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from csrcqsf.models.reconstruction import ReconstructionStatus
-
-
-RECONSTRUCTION_SERVER_DIR = Path("csrcqsf/biz/railwayparts/reconstruction_server").resolve()
-if str(RECONSTRUCTION_SERVER_DIR) not in sys.path:
-    sys.path.insert(0, str(RECONSTRUCTION_SERVER_DIR))
-
-
-def test_reconstruction_server_get_task_info_treats_business_failed_payload_as_failure():
-    from csrcqsf.biz.railwayparts.reconstruction_server import api
-
-    task_result = {
-        "status": "failed",
-        "error": "视频重建失败，退出码: 1",
-        "log_file": "/tmp/reconstruction.log",
-    }
-    celery_result = SimpleNamespace(
-        state="SUCCESS",
-        result=task_result,
-        info=None,
-    )
-
-    with patch.object(api, "AsyncResult", return_value=celery_result):
-        response = api.get_task_info("task-id")
-
-    assert response == {
-        "task_id": "task-id",
-        "status": "FAILURE",
-        "result": task_result,
-        "error": "视频重建失败，退出码: 1",
-        "stage": "失败",
-        "progress": 0,
-    }
-
-
-def test_upload_result_if_needed_returns_input_path_when_item_id_missing():
-    from csrcqsf.biz.railwayparts.reconstruction_server import tasks
-
-    assert (
-        tasks._upload_result_if_needed("task-id", None, "/tmp/point_cloud.ply")
-        == "/tmp/point_cloud.ply"
-    )
-
-
-def test_upload_result_if_needed_reuses_minio_path_without_reupload():
-    from csrcqsf.biz.railwayparts.reconstruction_server import tasks
-
-    minio_path = "bfr-reconstruction-files/results/1001/task-id/point_cloud.ply"
-
-    assert tasks._upload_result_if_needed("task-id", "1001", minio_path) == minio_path
 
 
 class _AsyncSessionContext:
@@ -154,24 +104,3 @@ def test_persist_task_result_marks_failed_payload_with_completed_at_and_elapsed_
     session.commit.assert_awaited_once()
 
 
-def test_video_reconstruction_failure_payload_includes_elapsed_sec():
-    from csrcqsf.biz.railwayparts.reconstruction_server import tasks
-
-    fake_self = SimpleNamespace(
-        request=SimpleNamespace(id="task-id"),
-        update_progress=lambda *args, **kwargs: None,
-    )
-
-    with patch.object(tasks.os.path, "exists", return_value=True), \
-         patch.object(tasks.subprocess, "Popen", side_effect=RuntimeError("boom")), \
-         patch.object(tasks.time, "time", side_effect=[100.0, 101.6]):
-        result = tasks.video_reconstruction.run.__func__(
-            fake_self,
-            video_path="/tmp/demo.mp4",
-            name="demo",
-            iterations=30000,
-            output_name="demo",
-        )
-
-    assert result["status"] == "failed"
-    assert result["elapsed_sec"] == 1.6

@@ -11,8 +11,6 @@ def _iter_public_business_files() -> list[Path]:
     files: list[Path] = []
 
     for path in RAILWAYPARTS_BIZ_ROOT.rglob("*.py"):
-        if "reconstruction_server" in path.parts:
-            continue
         files.append(path)
 
     files.append(PUBLIC_SERVICE_FILE)
