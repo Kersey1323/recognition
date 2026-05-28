@@ -40,37 +40,21 @@ def test_reconstruction_server_get_task_info_treats_business_failed_payload_as_f
     }
 
 
-def test_finalize_reconstruction_result_calls_persistence_helper():
+def test_upload_result_if_needed_returns_input_path_when_item_id_missing():
     from csrcqsf.biz.railwayparts.reconstruction_server import tasks
 
-    calls = []
-
-    def fake_persist(task_id, task_result):
-        calls.append((task_id, task_result))
-        return True
-
-    task_result = {
-        "ply_path": "/tmp/point_cloud.ply",
-        "output_dir": "/tmp/output",
-    }
-
-    with patch.object(tasks, "_persist_reconstruction_result_by_task_id", fake_persist):
-        assert tasks._finalize_reconstruction_result("task-id", task_result) is True
-    assert calls == [("task-id", task_result)]
+    assert (
+        tasks._upload_result_if_needed("task-id", None, "/tmp/point_cloud.ply")
+        == "/tmp/point_cloud.ply"
+    )
 
 
-def test_finalize_reconstruction_result_skips_when_no_ply_path():
+def test_upload_result_if_needed_reuses_minio_path_without_reupload():
     from csrcqsf.biz.railwayparts.reconstruction_server import tasks
 
-    calls = []
+    minio_path = "bfr-reconstruction-files/results/1001/task-id/point_cloud.ply"
 
-    def fake_persist(task_id, task_result):
-        calls.append((task_id, task_result))
-        return True
-
-    with patch.object(tasks, "_persist_reconstruction_result_by_task_id", fake_persist):
-        assert tasks._finalize_reconstruction_result("task-id", {"status": "success"}) is False
-    assert calls == []
+    assert tasks._upload_result_if_needed("task-id", "1001", minio_path) == minio_path
 
 
 class _AsyncSessionContext:

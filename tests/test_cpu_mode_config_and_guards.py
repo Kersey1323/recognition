@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -29,6 +29,11 @@ def _clear_module(prefix: str) -> None:
 
 def _build_api_model_module() -> ModuleType:
     module = ModuleType("csrcqsf.biz.railwayparts.api_models")
+    flexible_model = type(
+        "_FlexibleModel",
+        (BaseModel,),
+        {"Config": type("Config", (), {"extra": "allow"})},
+    )
 
     names = [
         "CreateItemReq",
@@ -74,7 +79,7 @@ def _build_api_model_module() -> ModuleType:
         "SearchHistoryDeleteRes",
     ]
     for name in names:
-        setattr(module, name, type(name, (BaseModel,), {}))
+        setattr(module, name, type(name, (flexible_model,), {}))
 
     module.__all__ = names
     return module
@@ -82,6 +87,11 @@ def _build_api_model_module() -> ModuleType:
 
 def _build_reconstruction_api_model_module() -> ModuleType:
     module = ModuleType("csrcqsf.biz.railwayparts.reconstruction_api_models")
+    flexible_model = type(
+        "_FlexibleModel",
+        (BaseModel,),
+        {"Config": type("Config", (), {"extra": "allow"})},
+    )
     names = [
         "ReconstructionAllTasksReq",
         "ReconstructionAllTasksRes",
@@ -105,13 +115,15 @@ def _build_reconstruction_api_model_module() -> ModuleType:
         "ReconstructionVideoUploadCompleteReq",
         "ReconstructionVideoUploadInitReq",
         "ReconstructionVideoUploadInitRes",
+        "ReconstructionVideoUploadMinioHealthRes",
+        "ReconstructionVideoUploadPartReq",
         "ReconstructionVideoUploadProgressReq",
         "ReconstructionVideoUploadProgressRes",
         "ReconstructionVideoUploadUrlsReq",
         "ReconstructionVideoUploadUrlsRes",
     ]
     for name in names:
-        setattr(module, name, type(name, (BaseModel,), {}))
+        setattr(module, name, type(name, (flexible_model,), {}))
 
     module.__all__ = names
     return module
@@ -144,6 +156,13 @@ def _import_parts_service():
 
     fake_settings_module = ModuleType("csrcqsf.settings")
     fake_settings_module.ai_settings = SimpleNamespace()
+    fake_settings_module.reconstruction_server_env_configured = lambda: bool(
+        os.getenv("RECONSTRUCTION_SERVER_URL")
+        or (
+            os.getenv("RECONSTRUCTION_SERVER_HOST")
+            and os.getenv("RECONSTRUCTION_SERVER_PORT")
+        )
+    )
 
     with patch.dict(
         sys.modules,
@@ -179,7 +198,7 @@ def _import_image_service():
 
 
 def test_env_cpu_disables_gpu_and_model_capabilities():
-    values = _parse_env_file(Path(".env.cpu"))
+    values = _parse_env_file(Path("docker/.env.cpu"))
 
     assert values["ENABLE_CPU_SAFE_MODE"] == "1"
     assert values["ENABLE_GPU_RECONSTRUCTION"] == "0"
@@ -192,7 +211,7 @@ def test_env_cpu_disables_gpu_and_model_capabilities():
 
 
 def test_dockerfile_cpu_uses_cpu_base_and_no_cuda_install():
-    text = Path("Dockerfile.cpu").read_text(encoding="utf-8")
+    text = Path("docker/Dockerfile.cpu").read_text(encoding="utf-8")
 
     assert "FROM python:3.10-slim" in text
     assert "nvidia/cuda" not in text
@@ -214,7 +233,7 @@ def test_run_docker_cpu_script_has_no_gpu_flag():
 
 
 def test_dockerfile_cpu_supports_configurable_mirrors():
-    text = Path("Dockerfile.cpu").read_text(encoding="utf-8")
+    text = Path("docker/Dockerfile.cpu").read_text(encoding="utf-8")
 
     assert "ARG APT_MIRROR" in text
     assert "ARG PIP_INDEX_URL" in text
@@ -229,14 +248,15 @@ def test_dockerfile_cpu_supports_configurable_mirrors():
 def test_run_docker_cpu_script_runs_prebuilt_image_with_host_mount():
     text = Path("scripts/deployment/run_docker_cpu.sh").read_text(encoding="utf-8")
 
-    assert "HOST_DIR" in text
+    assert "HOST_MODEL_DIR" in text
     assert 'docker rm -f "${CONTAINER_NAME}"' in text
     assert '--env-file "${ENV_FILE}"' in text
-    assert '-v "${HOST_DIR}":/app' in text
+    assert '-v "${HOST_MODEL_DIR}:/models"' in text
 
 
 def test_parts_service_rejects_gpu_reconstruction_when_disabled(monkeypatch):
     monkeypatch.setenv("ENABLE_GPU_RECONSTRUCTION", "0")
+    monkeypatch.delenv("RECONSTRUCTION_SERVER_URL", raising=False)
     parts_service = _import_parts_service()
 
     req = SimpleNamespace(item_id="1001", scene="demo", iterations=1000, output_name=None)
@@ -244,9 +264,61 @@ def test_parts_service_rejects_gpu_reconstruction_when_disabled(monkeypatch):
     try:
         asyncio.run(parts_service.reconstruct_v2_train(req))
     except Exception as exc:
-        assert "当前无GPU，无法使用" in str(exc)
+        assert "未配置重构服务" in str(exc)
     else:
         raise AssertionError("expected GPU reconstruction route to be blocked")
+
+
+def test_parts_service_allows_reconstruction_when_remote_service_configured(monkeypatch):
+    monkeypatch.setenv("ENABLE_GPU_RECONSTRUCTION", "0")
+    monkeypatch.setenv("RECONSTRUCTION_SERVER_URL", "http://gpu-service:8000")
+    parts_service = _import_parts_service()
+
+    req = SimpleNamespace(item_id="1001", scene="demo", iterations=1000, output_name=None)
+
+    with patch.object(
+        parts_service.ReconstructionManager,
+        "submit_train_task",
+        AsyncMock(
+            return_value={
+                "task_id": "task-1",
+                "item_id": "1001",
+                "mode": "train",
+                "message": "训练任务已提交",
+            }
+        ),
+        create=True,
+    ):
+        result = asyncio.run(parts_service.reconstruct_v2_train(req))
+
+    assert result.task_id == "task-1"
+
+
+def test_app_no_longer_warns_about_local_reconstruction_redis_dependency():
+    text = Path("csrcqsf/app.py").read_text(encoding="utf-8")
+
+    assert "重建状态同步任务将按需跳过" not in text
+    assert "重构服务未配置时将禁用三维重构能力" in text
+
+
+def test_cpu_env_template_mentions_reconstruction_server_url():
+    text = Path("docker/.env.cpu").read_text(encoding="utf-8")
+
+    assert "RECONSTRUCTION_SERVER_URL=" in text
+
+
+def test_readme_mentions_dual_service_boundary():
+    text = Path("README.md").read_text(encoding="utf-8")
+
+    assert "RECONSTRUCTION_SERVER_URL" in text
+    assert "reconstruction_server" in text
+
+
+def test_reconstruction_server_env_configured_accepts_dotenv_loaded_url():
+    from csrcqsf.settings import reconstruction_server_env_configured
+
+    with patch("csrcqsf.settings._first_non_empty_env", return_value="http://gpu-service:8000"):
+        assert reconstruction_server_env_configured() is True
 
 
 def test_parts_service_rejects_vector_routes_when_cpu_safe_mode_enabled(monkeypatch):
@@ -326,6 +398,9 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
     fake_sgo_module = ModuleType("csrcqsf.biz.sgo")
     fake_sgo_module.SGOBiz = type("SGOBiz", (), {"init": staticmethod(lambda: None)})
 
+    fake_scheduler_module = ModuleType("csrcqsf.scheduler")
+    fake_scheduler_module.register_main_async_loop = MagicMock()
+
     fake_api_models_module = ModuleType("csrcqsf.api_models")
     fake_api_models_module.SimpleSegmentReq = type(
         "SimpleSegmentReq",
@@ -350,6 +425,7 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
             "csrcqsf.data.pg": fake_pg_module,
             "csrcqsf.data.minio": fake_minio_module,
             "csrcqsf.biz.sgo": fake_sgo_module,
+            "csrcqsf.scheduler": fake_scheduler_module,
             "csrcqsf.api_models": fake_api_models_module,
         },
     ):
@@ -362,6 +438,7 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
         asyncio.run(_run())
 
     fake_segment_module.SegmentBiz.init.assert_not_awaited()
+    fake_scheduler_module.register_main_async_loop.assert_called_once()
 
 
 def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured(monkeypatch):
@@ -423,6 +500,9 @@ def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured
     fake_sgo_module = ModuleType("csrcqsf.biz.sgo")
     fake_sgo_module.SGOBiz = type("SGOBiz", (), {"init": staticmethod(lambda: None)})
 
+    fake_scheduler_module = ModuleType("csrcqsf.scheduler")
+    fake_scheduler_module.register_main_async_loop = MagicMock()
+
     fake_api_models_module = ModuleType("csrcqsf.api_models")
     fake_api_models_module.SimpleSegmentReq = type(
         "SimpleSegmentReq",
@@ -446,6 +526,7 @@ def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured
             "csrcqsf.data.pg": fake_pg_module,
             "csrcqsf.data.minio": fake_minio_module,
             "csrcqsf.biz.sgo": fake_sgo_module,
+            "csrcqsf.scheduler": fake_scheduler_module,
             "csrcqsf.api_models": fake_api_models_module,
         },
     ):
@@ -459,9 +540,10 @@ def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured
 
     fake_pg_module.db_migrate.assert_not_awaited()
     fake_minio_module.create_minio_buckets.assert_not_awaited()
+    fake_scheduler_module.register_main_async_loop.assert_called_once()
 
 
-def test_scheduler_skips_sync_when_main_db_or_redis_not_explicitly_configured(monkeypatch):
+def test_scheduler_skips_sync_when_main_db_or_remote_service_not_explicitly_configured(monkeypatch):
     for key in (
         "MAIN_DB_HOST",
         "MAIN_DB_PORT",
@@ -471,10 +553,9 @@ def test_scheduler_skips_sync_when_main_db_or_redis_not_explicitly_configured(mo
         "PG_PORT",
         "PG_USER",
         "PG_PASSWORD",
-        "REDIS_HOST",
-        "REDIS_PORT",
-        "CELERY_BROKER_URL",
-        "CELERY_RESULT_BACKEND",
+        "RECONSTRUCTION_SERVER_URL",
+        "RECONSTRUCTION_SERVER_HOST",
+        "RECONSTRUCTION_SERVER_PORT",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -482,15 +563,12 @@ def test_scheduler_skips_sync_when_main_db_or_redis_not_explicitly_configured(mo
 
     fake_settings_module = ModuleType("csrcqsf.settings")
     fake_settings_module.main_db_env_configured = lambda: False
-    fake_settings_module.redis_env_configured = lambda: False
+    fake_settings_module.reconstruction_server_env_configured = lambda: False
 
     with patch.dict(sys.modules, {"csrcqsf.settings": fake_settings_module}):
         scheduler_module = importlib.import_module("csrcqsf.scheduler")
 
-    with patch("csrcqsf.scheduler.create_engine") as create_engine_mock, patch(
-        "csrcqsf.scheduler.AsyncResult"
-    ) as async_result_mock:
+    with patch("csrcqsf.scheduler.asyncio.run") as run_mock:
         scheduler_module.sync_reconstruction_tasks_sync()
 
-    create_engine_mock.assert_not_called()
-    async_result_mock.assert_not_called()
+    run_mock.assert_not_called()

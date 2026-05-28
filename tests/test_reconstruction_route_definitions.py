@@ -35,3 +35,13 @@ def test_reconstruction_routes_include_multipart_source_video_endpoints():
     assert "@parts_router.post('/v2/reconstruct/video/upload/complete'" in text
     assert "@parts_router.post('/v2/reconstruct/video/upload/abort'" in text
     assert "@parts_router.post('/v2/reconstruct/video'" in text
+
+
+def test_reconstruction_public_routes_remain_compatible_while_server_extracts():
+    text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+
+    assert "@parts_router.post('/v2/reconstruct/train'" in text
+    assert "@parts_router.post('/v2/reconstruct/tasks/video'" in text
+    assert "@parts_router.get('/v2/reconstruct/status/{task_id}'" in text
+    assert "@parts_router.delete('/v2/reconstruct/cancel/{task_id}'" in text
+    assert "@parts_router.get('/v2/reconstruct/scenes'" in text

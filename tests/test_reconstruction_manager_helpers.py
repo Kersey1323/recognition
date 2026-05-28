@@ -217,9 +217,12 @@ def test_build_video_run_name_uses_timestamp_and_item_name():
 def test_get_task_status_treats_celery_success_with_failed_payload_as_failed():
     session = AsyncMock()
     task_result = {
-        "status": "failed",
-        "error": "视频重建失败，退出码: 1",
-        "log_file": "/tmp/reconstruction.log",
+        "task_id": "task-id",
+        "status": "FAILURE",
+        "progress": 85,
+        "current_stage": "失败",
+        "error_message": "视频重建失败，退出码: 1",
+        "ply_path": None,
     }
     record = SimpleNamespace(
         task_id="task-id",
@@ -236,14 +239,10 @@ def test_get_task_status_treats_celery_success_with_failed_payload_as_failed():
         time_created=datetime(2026, 4, 28, 14, 49, 2),
         time_updated=datetime(2026, 4, 28, 14, 53, 38),
     )
-    celery_result = SimpleNamespace(
-        state="SUCCESS",
-        result=task_result,
-        info=None,
-    )
+    fake_client = SimpleNamespace(get_task_status=AsyncMock(return_value=task_result))
 
-    with patch("csrcqsf.biz.railwayparts.reconstruction_manager._get_celery_modules", return_value=(MagicMock(), None, None)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.AsyncResult", return_value=celery_result), \
+    with patch.object(ReconstructionManager, "_get_reconstruction_client", return_value=fake_client), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.reconstruction_server_env_configured", return_value=True), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=True)) as persist_success_result, \
@@ -291,24 +290,28 @@ def test_get_task_status_promotes_success_payload_to_completed_response_and_term
         time_created=datetime(2026, 4, 28, 16, 19, 27),
         time_updated=datetime(2026, 4, 28, 16, 25, 10),
     )
-    celery_result = SimpleNamespace(
-        state="SUCCESS",
-        result={
-            "status": "success",
-            "ply_path": "/tmp/point_cloud.ply",
-            "output_dir": "/tmp/output",
-            "elapsed_sec": 493.4,
-        },
-        info=None,
-        date_done=completed_at,
+    fake_client = SimpleNamespace(
+        get_task_status=AsyncMock(
+            return_value={
+                "task_id": "task-id",
+                "status": "SUCCESS",
+                "progress": 100,
+                "current_stage": "完成",
+                "error_message": None,
+                "ply_path": "bfr-reconstruction-files/results/demo/point_cloud.ply",
+                "elapsed_sec": 493.4,
+            }
+        )
     )
 
-    with patch("csrcqsf.biz.railwayparts.reconstruction_manager._get_celery_modules", return_value=(MagicMock(), None, None)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.AsyncResult", return_value=celery_result), \
+    with patch.object(ReconstructionManager, "_get_reconstruction_client", return_value=fake_client), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.reconstruction_server_env_configured", return_value=True), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=False)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status:
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status, \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.datetime") as datetime_mock:
+        datetime_mock.utcnow.return_value = completed_at
         result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
 
     assert result["status"] == ReconstructionStatus.SUCCESS
@@ -347,15 +350,21 @@ def test_get_task_status_keeps_terminal_success_when_celery_backend_falls_back_t
         time_created=datetime(2026, 4, 28, 16, 19, 27),
         time_updated=datetime(2026, 5, 13, 11, 24, 14),
     )
-    celery_result = SimpleNamespace(
-        state="PENDING",
-        result=None,
-        info=None,
-        date_done=None,
+    fake_client = SimpleNamespace(
+        get_task_status=AsyncMock(
+            return_value={
+                "task_id": "task-id",
+                "status": "PENDING",
+                "progress": 0,
+                "current_stage": "等待中",
+                "error_message": None,
+                "ply_path": None,
+            }
+        )
     )
 
-    with patch("csrcqsf.biz.railwayparts.reconstruction_manager._get_celery_modules", return_value=(MagicMock(), None, None)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.AsyncResult", return_value=celery_result), \
+    with patch.object(ReconstructionManager, "_get_reconstruction_client", return_value=fake_client), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.reconstruction_server_env_configured", return_value=True), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status:
@@ -366,6 +375,39 @@ def test_get_task_status_keeps_terminal_success_when_celery_backend_falls_back_t
     assert result["current_stage"] == "完成"
     assert result["time_updated"] == completed_at.isoformat()
     update_status.assert_not_awaited()
+
+
+def test_get_task_status_returns_local_snapshot_when_remote_service_url_missing():
+    session = AsyncMock()
+    completed_at = datetime(2026, 5, 27, 10, 0, 0)
+    record = SimpleNamespace(
+        task_id="task-id",
+        item_id=2023080809420000001,
+        status=ReconstructionStatus.SUCCESS,
+        progress=100,
+        current_stage="完成",
+        error_message=None,
+        ply_url="bfr-reconstruction-files/results/demo/point_cloud.ply",
+        glb_url=None,
+        total_frames=None,
+        filtered_frames=None,
+        colmap_points=None,
+        completed_at=completed_at,
+        elapsed_sec=493.4,
+        time_created=datetime(2026, 5, 27, 9, 0, 0),
+        time_updated=datetime(2026, 5, 27, 9, 30, 0),
+    )
+
+    with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.reconstruction_server_env_configured", return_value=False), \
+         patch.object(ReconstructionManager, "_get_reconstruction_client") as client_mock:
+        result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
+
+    client_mock.assert_not_called()
+    assert result["status"] == ReconstructionStatus.SUCCESS
+    assert result["ply_url"].endswith("point_cloud.ply")
+    assert result["time_updated"] == completed_at.isoformat()
 
 
 def _fake_upload_file(filename: str, content_type: str = "application/octet-stream", body: bytes = b"ply"):

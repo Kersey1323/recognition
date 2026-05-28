@@ -1,13 +1,16 @@
 from typing import Callable
+import asyncio
+import os
+
 from apscheduler.schedulers.background import BackgroundScheduler, BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
-from celery.result import AsyncResult
 from globals_vars import logger
 from apscheduler.job import Job as apsjob
 from datetime import datetime,timedelta
-from sqlalchemy import create_engine, select, or_
-from sqlalchemy.orm import Session
-from csrcqsf.settings import main_db_env_configured, redis_env_configured
+from csrcqsf.settings import (
+    main_db_env_configured,
+    reconstruction_server_env_configured,
+)
 
 
 class BFRTrigger(CronTrigger):
@@ -53,6 +56,12 @@ executors = {
 }
 
 scheduler = BackgroundScheduler(executors=executors, job_defaults=job_defaults)
+_main_async_loop: asyncio.AbstractEventLoop | None = None
+
+
+def register_main_async_loop(loop: asyncio.AbstractEventLoop) -> None:
+    global _main_async_loop
+    _main_async_loop = loop
 
 
 def excute_job_once(func, *args, **kwargs):
@@ -106,119 +115,34 @@ scheduler.start()
 
 def sync_reconstruction_tasks_sync():
     """
-    定时同步所有进行中的重建任务状态（同步版本）
-    从 Celery 获取最新状态并更新到数据库
-    
-    注意：使用同步数据库操作避免事件循环冲突
+    定时同步所有进行中的重建任务状态（同步包装器）
     """
     if not main_db_env_configured():
         logger.warning("未显式配置主业务库环境变量，跳过重建任务状态同步")
         return
-    if not redis_env_configured():
-        logger.warning("未显式配置 Redis/Celery 环境变量，跳过重建任务状态同步")
+    if not reconstruction_server_env_configured():
+        logger.warning("未显式配置重构服务环境变量，跳过重建任务状态同步")
+        return
+    if _main_async_loop is None or not _main_async_loop.is_running():
+        logger.warning("主事件循环尚未就绪，跳过本轮重建任务状态同步")
         return
 
     try:
-        from csrcqsf.biz.railwayparts.reconstruction_server.celery_app import celery_app
-        from csrcqsf.models.reconstruction import ReconstructionStatus, ReconstructionRecord
-        from csrcqsf.biz.railwayparts.reconstruction_manager import (
-            _normalize_datetime,
-            get_reconstruction_task_failure_message,
-            map_celery_state_to_reconstruction_status,
+        from csrcqsf.biz.railwayparts.reconstruction_sync_manager import ReconstructionSyncManager
+
+        future = asyncio.run_coroutine_threadsafe(
+            ReconstructionSyncManager.sync_running_tasks(),
+            _main_async_loop,
         )
-        from csrcqsf.settings import ai_settings
-        
-        # 创建同步数据库引擎
-        sync_db_url = ai_settings.get_mysql_dsn()
-        engine = create_engine(sync_db_url, pool_pre_ping=True)
-        
-        with Session(engine) as session:
-            # 查询进行中的任务
-            stmt = select(ReconstructionRecord).where(
-                or_(
-                    ReconstructionRecord.status == ReconstructionStatus.PENDING,
-                    ReconstructionRecord.status == ReconstructionStatus.TRAINING
-                )
-            )
-            result = session.execute(stmt)
-            running_tasks = result.scalars().all()
-            
-            # 如果没有进行中的任务，直接返回（不输出日志）
-            if not running_tasks:
-                return
-            
-            logger.debug(f"同步 {len(running_tasks)} 个进行中的重建任务状态")
-            
-            # 逐个同步任务状态
-            synced_count = 0
-            for record in running_tasks:
-                try:
-                    # 从 Celery 获取任务状态
-                    result = AsyncResult(record.task_id, app=celery_app)
-                    
-                    new_status = map_celery_state_to_reconstruction_status(result.state)
-                    progress = record.progress
-                    stage = record.current_stage
-                    error = record.error_message
-                    
-                    # 获取进度和阶段信息
-                    if result.state == "PROGRESS":
-                        info = result.info or {}
-                        stage = info.get("stage", stage)
-                        progress = info.get("progress", progress)
-                    elif result.state == "SUCCESS":
-                        task_error = get_reconstruction_task_failure_message(result.result)
-                        completed_at = _normalize_datetime(getattr(result, "date_done", None))
-                        elapsed_sec = (result.result or {}).get("elapsed_sec") if isinstance(result.result, dict) else None
-                        if task_error is not None:
-                            new_status = ReconstructionStatus.FAILED
-                            stage = "失败"
-                            error = task_error
-                        else:
-                            new_status = ReconstructionStatus.SUCCESS
-                            progress = 100
-                            stage = "完成"
-                            error = None
-                        record.completed_at = completed_at or record.completed_at
-                        if elapsed_sec is not None:
-                            record.elapsed_sec = elapsed_sec
-                    elif result.state == "FAILURE":
-                        new_status = ReconstructionStatus.FAILED
-                        error = str(result.info)
-                        stage = "失败"
-                        record.completed_at = _normalize_datetime(getattr(result, "date_done", None)) or record.completed_at
-                    
-                    # 更新数据库状态
-                    if (
-                        new_status != record.status
-                        or progress != record.progress
-                        or stage != record.current_stage
-                        or error != record.error_message
-                        or getattr(record, "completed_at", None) is not None
-                        or getattr(record, "elapsed_sec", None) is not None
-                    ):
-                        record.status = new_status
-                        record.progress = progress
-                        record.current_stage = stage
-                        record.error_message = error
-                        session.commit()
-                        synced_count += 1
-                        
-                except Exception as e:
-                    logger.error(f"同步任务 {record.task_id} 状态失败: {e}")
-                    session.rollback()
-            
-            # 只在有任务被同步时才输出日志
-            if synced_count > 0:
-                logger.info(f"成功同步 {synced_count}/{len(running_tasks)} 个重建任务状态")
-                
+        result = future.result()
+        if result["synced_count"] > 0:
+            logger.info(f"成功同步 {result['synced_count']}/{result['total']} 个重建任务状态")
     except Exception as e:
         logger.error(f"同步重建任务状态失败: {e}", exc_info=True)
 
 
 # 添加定时任务：同步重建任务状态
 # 从环境变量读取同步间隔（秒），默认 10 秒
-import os
 RECONSTRUCTION_SYNC_INTERVAL = int(os.getenv('RECONSTRUCTION_SYNC_INTERVAL', '10'))
 
 try:

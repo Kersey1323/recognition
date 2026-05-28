@@ -102,6 +102,13 @@ def redis_env_configured() -> bool:
     )
 
 
+def reconstruction_server_env_configured() -> bool:
+    return _first_non_empty_env("RECONSTRUCTION_SERVER_URL") != "" or _all_explicit_env(
+        "RECONSTRUCTION_SERVER_HOST",
+        "RECONSTRUCTION_SERVER_PORT",
+    )
+
+
 def sgo_env_configured() -> bool:
     return _all_explicit_env(
         "SGO_MYSQL_HOST",
@@ -264,3 +271,12 @@ ai_settings = AISettings()
 _apply_runtime_connection_overrides(ai_settings)
 
 model_service_url = os.getenv("MODEL_SERVICE_URL", "http://localhost:5555")
+reconstruction_server_url = _build_service_url(
+    explicit_url=_first_non_empty_env("RECONSTRUCTION_SERVER_URL"),
+    host=_first_non_empty_env("RECONSTRUCTION_SERVER_HOST"),
+    port=_first_non_empty_env("RECONSTRUCTION_SERVER_PORT"),
+    default_url="http://127.0.0.1:8000",
+)
+reconstruction_server_timeout_sec = float(
+    _first_non_empty_env("RECONSTRUCTION_SERVER_TIMEOUT_SEC", default="10")
+)

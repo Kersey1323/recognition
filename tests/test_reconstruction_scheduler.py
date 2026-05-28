@@ -1,77 +1,122 @@
-from datetime import datetime
-import importlib
-import sys
+import asyncio
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from csrcqsf.models.reconstruction import ReconstructionStatus
-from csrcqsf.scheduler import sync_reconstruction_tasks_sync
 
 
-def test_scheduler_marks_success_terminal_records_complete_with_date_done():
+class _AsyncSessionContext:
+    def __init__(self, session):
+        self.session = session
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+def test_sync_manager_updates_running_records_from_remote_batch_status():
+    from csrcqsf.biz.railwayparts.reconstruction_sync_manager import ReconstructionSyncManager
+
+    session = AsyncMock()
     record = SimpleNamespace(
         task_id="task-id",
+        item_id=1001,
         status=ReconstructionStatus.TRAINING,
-        progress=98,
-        current_stage="提取结果",
+        progress=40,
+        current_stage="训练中",
         error_message=None,
+        ply_url=None,
         completed_at=None,
         elapsed_sec=None,
     )
-    async_result = SimpleNamespace(
-        state="SUCCESS",
-        result={"status": "success", "elapsed_sec": 493.4},
-        info=None,
-        date_done=datetime(2026, 4, 28, 16, 27, 53),
+    fake_client = SimpleNamespace(
+        get_task_status_batch=AsyncMock(
+            return_value={
+                "items": [
+                    {
+                        "task_id": "task-id",
+                        "status": "SUCCESS",
+                        "progress": 100,
+                        "current_stage": "完成",
+                        "error_message": None,
+                        "ply_path": "bfr-reconstruction-files/results/task-id/point_cloud.ply",
+                    }
+                ]
+            }
+        )
     )
     fake_scalars = MagicMock()
     fake_scalars.all.return_value = [record]
-    fake_execute = MagicMock(return_value=SimpleNamespace(scalars=lambda: fake_scalars))
-    fake_session = MagicMock()
-    fake_session.execute = fake_execute
+    session.scalars.return_value = fake_scalars
 
+    with patch(
+        "csrcqsf.biz.railwayparts.reconstruction_sync_manager.SessionLocal",
+        return_value=_AsyncSessionContext(session),
+    ), patch(
+        "csrcqsf.biz.railwayparts.reconstruction_sync_manager.ReconstructionServiceClient",
+        return_value=fake_client,
+    ), patch(
+        "csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionManager._persist_success_result",
+        AsyncMock(return_value=True),
+    ):
+        result = asyncio.run(ReconstructionSyncManager.sync_running_tasks())
+
+    assert result["synced_count"] == 1
+    assert record.status == ReconstructionStatus.SUCCESS
+    assert record.current_stage == "完成"
+
+
+def test_scheduler_returns_early_without_remote_service_env():
     with patch("csrcqsf.scheduler.main_db_env_configured", return_value=True), \
-         patch("csrcqsf.scheduler.redis_env_configured", return_value=True), \
-         patch("csrcqsf.scheduler.create_engine"), \
-         patch("csrcqsf.scheduler.Session") as session_cls, \
-         patch("csrcqsf.scheduler.AsyncResult", return_value=async_result):
-        session_cls.return_value.__enter__.return_value = fake_session
+         patch("csrcqsf.scheduler.reconstruction_server_env_configured", return_value=False), \
+         patch("csrcqsf.scheduler.asyncio.run_coroutine_threadsafe") as run_mock:
+        from csrcqsf.scheduler import sync_reconstruction_tasks_sync
+
         sync_reconstruction_tasks_sync()
 
-    assert record.status == ReconstructionStatus.SUCCESS
-    assert record.progress == 100
-    assert record.current_stage == "完成"
-    assert record.completed_at == datetime(2026, 4, 28, 16, 27, 53)
-    assert record.elapsed_sec == 493.4
-    fake_session.commit.assert_called_once()
+    run_mock.assert_not_called()
 
 
-def test_scheduler_returns_early_without_explicit_env(monkeypatch):
-    for key in (
-        "MAIN_DB_HOST",
-        "MAIN_DB_PORT",
-        "MAIN_DB_USER",
-        "MAIN_DB_PASSWORD",
-        "PG_HOST",
-        "PG_PORT",
-        "PG_USER",
-        "PG_PASSWORD",
-        "REDIS_HOST",
-        "REDIS_PORT",
-        "CELERY_BROKER_URL",
-        "CELERY_RESULT_BACKEND",
-    ):
-        monkeypatch.delenv(key, raising=False)
+def test_scheduler_skips_when_main_loop_not_registered():
+    with patch("csrcqsf.scheduler.main_db_env_configured", return_value=True), \
+         patch("csrcqsf.scheduler.reconstruction_server_env_configured", return_value=True), \
+         patch("csrcqsf.scheduler._main_async_loop", None), \
+         patch("csrcqsf.scheduler.asyncio.run_coroutine_threadsafe") as submit_mock:
+        from csrcqsf.scheduler import sync_reconstruction_tasks_sync
 
-    sys.modules.pop("csrcqsf.scheduler", None)
-    scheduler_module = importlib.import_module("csrcqsf.scheduler")
+        sync_reconstruction_tasks_sync()
 
-    with patch("csrcqsf.scheduler.main_db_env_configured", return_value=False), patch(
-        "csrcqsf.scheduler.redis_env_configured", return_value=False
-    ), patch("csrcqsf.scheduler.create_engine") as create_engine_mock, patch(
-        "csrcqsf.scheduler.AsyncResult"
-    ) as async_result_mock:
-        scheduler_module.sync_reconstruction_tasks_sync()
+    submit_mock.assert_not_called()
 
-    create_engine_mock.assert_not_called()
-    async_result_mock.assert_not_called()
+
+def test_scheduler_submits_sync_task_to_registered_main_loop():
+    future = MagicMock()
+    future.result.return_value = {"total": 1, "synced_count": 0}
+    fake_loop = MagicMock()
+    fake_loop.is_running.return_value = True
+
+    def _submit(coro, loop):
+        coro.close()
+        return future
+
+    with patch("csrcqsf.scheduler.main_db_env_configured", return_value=True), \
+         patch("csrcqsf.scheduler.reconstruction_server_env_configured", return_value=True), \
+         patch("csrcqsf.scheduler._main_async_loop", fake_loop), \
+         patch("csrcqsf.scheduler.asyncio.run_coroutine_threadsafe", side_effect=_submit) as submit_mock:
+        from csrcqsf.scheduler import sync_reconstruction_tasks_sync
+
+        sync_reconstruction_tasks_sync()
+
+    submit_mock.assert_called_once()
+    future.result.assert_called_once()
+
+
+def test_reconstruction_manager_no_longer_imports_local_celery_execution_chain():
+    text = Path("csrcqsf/biz/railwayparts/reconstruction_manager.py").read_text(encoding="utf-8")
+
+    assert "_get_celery_modules" not in text
+    assert "from celery.result import AsyncResult" not in text
+    assert 'Path(__file__).parent / "reconstruction_server"' not in text

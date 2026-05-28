@@ -108,6 +108,17 @@ python main.py
 - [reconstruction_server README](csrcqsf/biz/railwayparts/reconstruction_server/README.md)
 - [Celery 说明](csrcqsf/biz/railwayparts/reconstruction_server/docs/README_CELERY.md)
 
+## Dual-Service Deployment
+
+主业务服务不再本地执行三维重构。
+如需启用三维重构能力，必须单独部署 `reconstruction_server`，并在主业务环境变量中配置：
+
+```env
+RECONSTRUCTION_SERVER_URL=http://<gpu-host>:8000
+```
+
+未配置时，主业务的三维重构提交、取消、场景查询和状态同步能力将被禁用。
+
 ## Docker 部署交付
 
 当前项目已补齐第一版 GPU Docker 交付物，适合“乙方打镜像，甲方直接 `docker load` 运行”的场景。

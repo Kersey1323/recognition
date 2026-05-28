@@ -598,7 +598,7 @@ async def list_reconstruction_scenes():
     
     返回已准备好 COLMAP 数据的场景，可直接用于训练
     """
-    scenes = ReconstructionManager.list_scenes()
+    scenes = await ReconstructionManager.list_scenes()
     return {"scenes": scenes}
 
 

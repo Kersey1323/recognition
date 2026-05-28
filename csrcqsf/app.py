@@ -3,6 +3,7 @@ FastAPI 应用主入口
 职责：应用初始化、中间件配置、路由注册
 """
 from contextlib import asynccontextmanager
+import asyncio
 import time
 import uuid
 from anyio import CapacityLimiter
@@ -22,10 +23,12 @@ from csrcqsf.services import *
 from csrcqsf.data.pg import db_migrate
 from csrcqsf.data.minio import create_minio_buckets
 from csrcqsf.biz.sgo import SGOBiz
+from csrcqsf.scheduler import register_main_async_loop
 from csrcqsf.settings import (
     main_db_env_configured,
     milvus_env_configured,
     minio_env_configured,
+    reconstruction_server_env_configured,
     redis_env_configured,
     sgo_env_configured,
 )
@@ -55,6 +58,8 @@ async def lifespan(app: FastAPI):
     关闭时执行：
     - 清理资源（由yield后的代码处理）
     """
+    register_main_async_loop(asyncio.get_running_loop())
+
     if main_db_env_configured():
         await db_migrate()  # 数据库迁移
     else:
@@ -69,14 +74,21 @@ async def lifespan(app: FastAPI):
         logger.warning("未显式配置 Milvus 环境变量，Milvus 相关能力保持跳过/惰性初始化")
 
     if not redis_env_configured():
-        logger.warning("未显式配置 Redis/Celery 环境变量，重建状态同步任务将按需跳过")
+        logger.warning("未显式配置 Redis 环境变量，非重构主业务能力继续可用")
+
+    if not main_db_env_configured():
+        logger.warning("主业务数据库未配置时，将无法记录和查询三维重构任务状态")
+
+    if not sgo_env_configured():
+        logger.warning("未显式配置 SGO 数据库环境变量，跳过 SGO 数据同步初始化")
+
+    if not reconstruction_server_env_configured():
+        logger.warning("重构服务未配置时将禁用三维重构能力，请显式设置 RECONSTRUCTION_SERVER_URL")
 
     if segment_model_enabled():
         await SegmentBiz.init()
     if sgo_env_configured():
         SGOBiz.init()
-    else:
-        logger.warning("未显式配置 SGO 数据库环境变量，跳过 SGO 数据同步初始化")
     RunVar("_default_thread_limiter").set(CapacityLimiter(200))  # 线程池限制
     logger.info("模型推理已迁移至独立服务（MODEL_SERVICE_URL），本地不再加载模型")
     yield

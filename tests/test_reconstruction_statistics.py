@@ -46,8 +46,7 @@ def test_list_all_tasks_uses_completed_at_as_time_updated_for_terminal_tasks():
     ]
 
     with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_all_tasks", AsyncMock(return_value=(records, 1))), \
-         patch.object(ReconstructionManager, "_refresh_records_from_celery", AsyncMock()):
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_all_tasks", AsyncMock(return_value=(records, 1))):
         result = asyncio.run(ReconstructionManager.list_all_tasks(page=1, page_size=10))
 
     assert result["records"][0]["time_updated"] == "2026-04-28T16:27:53"
@@ -85,8 +84,7 @@ def test_list_all_tasks_backfills_item_name_from_items_table():
 
     with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_all_tasks", AsyncMock(return_value=(records, 1))), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id_list", fake_get_item_by_id_list), \
-         patch.object(ReconstructionManager, "_refresh_records_from_celery", AsyncMock()):
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id_list", fake_get_item_by_id_list):
         result = asyncio.run(ReconstructionManager.list_all_tasks(page=1, page_size=10))
 
     assert result["records"][0]["item_name"] == "螺栓M8X22"
@@ -121,8 +119,7 @@ def test_list_item_tasks_backfills_item_name_from_items_table():
 
     with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_item_id", AsyncMock(return_value=records)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id_list", fake_get_item_by_id_list), \
-         patch.object(ReconstructionManager, "_refresh_records_from_celery", AsyncMock()):
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id_list", fake_get_item_by_id_list):
         result = asyncio.run(ReconstructionManager.list_item_tasks(item_id=2023080809420000001))
 
     assert result[0]["item_name"] == "螺栓M8X22"
@@ -156,12 +153,23 @@ def test_list_item_tasks_does_not_refresh_status_from_celery_during_read():
 
     with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_item_id", AsyncMock(return_value=records)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id_list", fake_get_item_by_id_list), \
-         patch.object(ReconstructionManager, "_refresh_records_from_celery", AsyncMock()) as refresh_mock:
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id_list", fake_get_item_by_id_list):
         result = asyncio.run(ReconstructionManager.list_item_tasks(item_id=2023080809420000001))
 
-    refresh_mock.assert_not_awaited()
     assert result[0]["status"] == ReconstructionStatus.TRAINING
+
+
+def test_list_scenes_reads_from_remote_client():
+    from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
+
+    fake_client = SimpleNamespace(
+        list_scenes=AsyncMock(return_value={"scenes": ["scene-a", "scene-b"]})
+    )
+
+    with patch.object(ReconstructionManager, "_get_reconstruction_client", return_value=fake_client):
+        scenes = asyncio.run(ReconstructionManager.list_scenes())
+
+    assert scenes == ["scene-a", "scene-b"]
 
 
 def test_reconstruction_statistics_maps_aggregate_counts_and_elapsed_metrics():
@@ -226,11 +234,9 @@ def test_list_all_tasks_does_not_refresh_status_from_celery_during_read():
 
     with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_all_tasks", AsyncMock(return_value=(records, 1))), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id_list", fake_get_item_by_id_list), \
-         patch.object(ReconstructionManager, "_refresh_records_from_celery", AsyncMock()) as refresh_mock:
+         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id_list", fake_get_item_by_id_list):
         result = asyncio.run(ReconstructionManager.list_all_tasks(page=1, page_size=10))
 
-    refresh_mock.assert_not_awaited()
     assert result["records"][0]["status"] == ReconstructionStatus.TRAINING
 
 
