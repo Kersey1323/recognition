@@ -1,8 +1,19 @@
 from pathlib import Path
 
 
+def _combined_route_source() -> str:
+    return "\n".join(
+        Path(relative_path).read_text(encoding="utf-8")
+        for relative_path in [
+            "csrcqsf/modules/railway_parts/routes/parts_routes.py",
+            "csrcqsf/modules/railway_parts/routes/search_routes.py",
+            "csrcqsf/modules/railway_parts/routes/review_ticket_routes.py",
+        ]
+    )
+
+
 def test_review_console_routes_have_request_body_descriptions():
-    source = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+    source = _combined_route_source()
 
     expected_fragments = [
         "summary='V2检索历史分页查询', responses={",
@@ -25,7 +36,7 @@ def test_review_console_routes_have_request_body_descriptions():
 
 
 def test_review_console_routes_describe_feedback_and_review_ticket_contract():
-    source = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+    source = _combined_route_source()
 
     expected_fragments = [
         "summary='V2检索历史用户反馈提交'",
@@ -54,7 +65,7 @@ def test_review_console_routes_describe_feedback_and_review_ticket_contract():
 
 
 def test_feedback_route_docs_only_describe_selected_item_id():
-    source = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+    source = _combined_route_source()
 
     expected_fragments = [
         "- `selected_item_id`: 可选，用户最终确认正确的配件ID；后端会自动反推该候选在本次结果中的原始排名，并补齐物料编码、名称和代表图",
@@ -79,7 +90,7 @@ def test_feedback_route_docs_only_describe_selected_item_id():
 
 
 def test_search_routes_describe_item_aggregation_contract():
-    source = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+    source = _combined_route_source()
 
     expected_fragments = [
         "summary='V2文本检索'",

@@ -45,11 +45,12 @@ def _import_railway_parts_manager():
     if cached is not None:
         return cached
 
-    existing = sys.modules.get("csrcqsf.biz.railwayparts.parts")
+    existing = sys.modules.get("csrcqsf.modules.railway_parts.services.parts_service")
     if existing is not None:
         _import_railway_parts_manager._cached = existing
         return existing
 
+    preserved_modules = {}
     with patch.dict(
         sys.modules,
         {
@@ -60,11 +61,17 @@ def _import_railway_parts_manager():
             "cv2": _fake_cv2_module(),
         },
     ):
-        import csrcqsf.biz.railwayparts as railwayparts_pkg
-        import csrcqsf.biz.railwayparts.parts as parts_module
+        import csrcqsf.modules.railway_parts.services.parts_service as parts_module
+        preserved_modules = {
+            "csrcqsf.modules.railway_parts.services.parts_service": parts_module,
+            "csrcqsf.models.item": sys.modules.get("csrcqsf.models.item"),
+            "csrcqsf.models.sgo": sys.modules.get("csrcqsf.models.sgo"),
+            "csrcqsf.models.search_history": sys.modules.get("csrcqsf.models.search_history"),
+        }
 
-    railwayparts_pkg.parts = parts_module
-    sys.modules["csrcqsf.biz.railwayparts.parts"] = parts_module
+    for module_name, module in preserved_modules.items():
+        if module is not None:
+            sys.modules[module_name] = module
 
     _import_railway_parts_manager._cached = parts_module
     return parts_module
@@ -107,7 +114,7 @@ def test_get_item_detail_uses_v2_indexed_images_and_returns_image_url():
     with patch.dict(
         sys.modules,
         {
-            "csrcqsf.biz.railwayparts.reconstruction_manager": SimpleNamespace(
+            "csrcqsf.modules.railway_parts.services.reconstruction_service": SimpleNamespace(
                 ReconstructionManager=fake_reconstruction_manager
             )
         },
@@ -168,7 +175,7 @@ def test_get_item_detail_prefers_segmented_image_url_for_index_panel():
     with patch.dict(
         sys.modules,
         {
-            "csrcqsf.biz.railwayparts.reconstruction_manager": SimpleNamespace(
+            "csrcqsf.modules.railway_parts.services.reconstruction_service": SimpleNamespace(
                 ReconstructionManager=fake_reconstruction_manager
             )
         },
@@ -213,7 +220,7 @@ def test_get_item_detail_does_not_persist_reconstruction_result_during_read():
     with patch.dict(
         sys.modules,
         {
-            "csrcqsf.biz.railwayparts.reconstruction_manager": SimpleNamespace(
+            "csrcqsf.modules.railway_parts.services.reconstruction_service": SimpleNamespace(
                 ReconstructionManager=fake_reconstruction_manager
             )
         },

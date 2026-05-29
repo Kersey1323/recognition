@@ -8,7 +8,7 @@ from csrcqsf.data.minio import minio_instance
 from globals_vars import logger
 from csrcqsf.logger import CodeTimer
 from bfrcommon.snowflake import get_id
-from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
+from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
 from csrcqsf.biz.model_client import get_model_client
 
 

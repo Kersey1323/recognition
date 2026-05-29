@@ -11,7 +11,7 @@ sys.path.insert(0, str(project_root))
 
 from PIL import Image
 import numpy as np
-from csrcqsf.biz.railwayparts.vector_db.config.env_config import get_config
+from csrcqsf.modules.railway_parts.vector_search.config.env_config import get_config
 
 print("=" * 60)
 print("测试模型推理")
@@ -28,7 +28,9 @@ print(f"Patch Tokens Dir: {config.dinov2_patch_tokens_dir}")
 # 测试 SigLIP
 print(f"\n【测试 SigLIP】")
 try:
-    from csrcqsf.biz.railwayparts.vector_db.models.siglip_extractor import SigLIPExtractor
+    from csrcqsf.modules.railway_parts.vector_search.extractors.siglip_extractor import (
+        SigLIPExtractor,
+    )
     
     print("加载 SigLIP 模型...")
     siglip = SigLIPExtractor(
@@ -55,7 +57,9 @@ except Exception as e:
 # 测试 DINOv2
 print(f"\n【测试 DINOv2】")
 try:
-    from csrcqsf.biz.railwayparts.vector_db.models.dinov2_extractor import DINOv2VectorExtractor
+    from csrcqsf.modules.railway_parts.vector_search.extractors.dinov2_extractor import (
+        DINOv2VectorExtractor,
+    )
     
     print("加载 DINOv2 模型...")
     dinov2 = DINOv2VectorExtractor(
@@ -82,7 +86,9 @@ except Exception as e:
 # 测试 SAM3
 print(f"\n【测试 SAM3】")
 try:
-    from csrcqsf.biz.railwayparts.vector_db.preprocessing.sam3_preprocessor import SAM3Preprocessor
+    from csrcqsf.modules.railway_parts.vector_search.preprocessing.sam3_preprocessor import (
+        SAM3Preprocessor,
+    )
     
     print("加载 SAM3 模型...")
     sam3 = SAM3Preprocessor(

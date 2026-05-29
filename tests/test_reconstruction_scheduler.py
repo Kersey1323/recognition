@@ -59,7 +59,7 @@ def test_sync_manager_updates_running_records_from_remote_batch_status():
         "csrcqsf.biz.railwayparts.reconstruction_sync_manager.ReconstructionServiceClient",
         return_value=fake_client,
     ), patch(
-        "csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionManager._persist_success_result",
+        "csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionManager._persist_success_result",
         AsyncMock(return_value=True),
     ):
         result = asyncio.run(ReconstructionSyncManager.sync_running_tasks())
@@ -115,7 +115,7 @@ def test_scheduler_submits_sync_task_to_registered_main_loop():
 
 
 def test_reconstruction_manager_no_longer_imports_local_celery_execution_chain():
-    text = Path("csrcqsf/biz/railwayparts/reconstruction_manager.py").read_text(encoding="utf-8")
+    text = Path("csrcqsf/modules/railway_parts/services/reconstruction_service.py").read_text(encoding="utf-8")
 
     assert "_get_celery_modules" not in text
     assert "from celery.result import AsyncResult" not in text

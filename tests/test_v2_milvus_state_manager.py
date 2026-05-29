@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager import (
+from csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager import (
     MilvusStateManagerV2,
 )
 
@@ -19,10 +19,10 @@ def test_state_manager_init_only_builds_collection_manager():
     fake_collection_manager = MagicMock()
 
     with patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.get_config",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.get_config",
         return_value=_fake_env(),
     ), patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.CollectionManager",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.CollectionManager",
         return_value=fake_collection_manager,
     ) as collection_cls:
         manager = MilvusStateManagerV2()
@@ -46,10 +46,10 @@ def test_state_manager_builds_statistics_and_item_snapshot_from_collection_manag
     ]
 
     with patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.get_config",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.get_config",
         return_value=_fake_env(),
     ), patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.CollectionManager",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.CollectionManager",
         return_value=fake_collection_manager,
     ):
         manager = MilvusStateManagerV2()
@@ -77,10 +77,10 @@ def test_state_manager_delete_create_and_drop_delegate_to_collection_manager():
     fake_collection_manager.collection_exists.side_effect = [True, False]
 
     with patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.get_config",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.get_config",
         return_value=_fake_env(),
     ), patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.CollectionManager",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.CollectionManager",
         return_value=fake_collection_manager,
     ):
         manager = MilvusStateManagerV2()
@@ -108,10 +108,10 @@ def test_state_manager_get_indexed_images_by_item_id_uses_intersection_of_two_co
     ]
 
     with patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.get_config",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.get_config",
         return_value=_fake_env(),
     ), patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.CollectionManager",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.CollectionManager",
         return_value=fake_collection_manager,
     ):
         manager = MilvusStateManagerV2()
@@ -132,10 +132,10 @@ def test_state_manager_snapshot_counts_unique_source_images_instead_of_variant_r
     ]
 
     with patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.get_config",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.get_config",
         return_value=_fake_env(),
     ), patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.CollectionManager",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.CollectionManager",
         return_value=fake_collection_manager,
     ):
         manager = MilvusStateManagerV2()
@@ -172,10 +172,10 @@ def test_state_manager_can_build_compat_item_index_view():
     ]
 
     with patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.get_config",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.get_config",
         return_value=_fake_env(),
     ), patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.CollectionManager",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.CollectionManager",
         return_value=fake_collection_manager,
     ):
         manager = MilvusStateManagerV2()
@@ -197,10 +197,10 @@ def test_state_manager_can_list_indexed_item_ids_with_paging():
     ]
 
     with patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.get_config",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.get_config",
         return_value=_fake_env(),
     ), patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager.CollectionManager",
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.CollectionManager",
         return_value=fake_collection_manager,
     ):
         manager = MilvusStateManagerV2()

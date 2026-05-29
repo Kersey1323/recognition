@@ -9,7 +9,7 @@ import pytest
 from PIL import Image, ImageOps
 from sqlalchemy import select
 
-from csrcqsf.data.pg import SessionLocal
+from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.models.item import Items
 from csrcqsf.models.sgo import SgoItemImages
 from csrcqsf.settings import (
@@ -218,7 +218,9 @@ def _extract_info_fields(debug_dir: Path) -> dict[str, str]:
 
 
 def _build_image_loader():
-    from csrcqsf.biz.railwayparts.vector_db.data.image_loader import ImageLoader
+    from csrcqsf.modules.railway_parts.vector_search.repositories.image_loader import (
+        ImageLoader,
+    )
 
     return ImageLoader(
         minio_endpoint=minio_endpoint,
@@ -230,7 +232,9 @@ def _build_image_loader():
 
 
 def _build_preprocessor(debug_root: Path):
-    from csrcqsf.biz.railwayparts.vector_db.preprocessing.sam3_preprocessor import SAM3Preprocessor
+    from csrcqsf.modules.railway_parts.vector_search.preprocessing.sam3_preprocessor import (
+        SAM3Preprocessor,
+    )
 
     assert Path(sam3_model_path).exists(), f"SAM3 模型路径不存在: {sam3_model_path}"
     debug_root.mkdir(parents=True, exist_ok=True)

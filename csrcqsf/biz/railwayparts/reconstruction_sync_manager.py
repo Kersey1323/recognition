@@ -7,9 +7,9 @@ from csrcqsf.biz.railwayparts.reconstruction_client import (
     ReconstructionServiceClient,
     ReconstructionServiceClientError,
 )
-from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
-from csrcqsf.data.pg import SessionLocal
+from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.models.reconstruction import ReconstructionRecord, ReconstructionStatus
+from csrcqsf.modules.railway_parts.services.reconstruction_service import ReconstructionManager
 
 
 class ReconstructionSyncManager:

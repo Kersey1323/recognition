@@ -2,7 +2,9 @@ from pathlib import Path
 
 
 def test_reconstruction_routes_use_post_list_endpoints():
-    text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+    text = Path(
+        "csrcqsf/modules/railway_parts/routes/reconstruction_routes.py"
+    ).read_text(encoding="utf-8")
 
     assert "@parts_router.post('/v2/reconstruct/video/list'" in text
     assert "@parts_router.post('/v2/reconstruct/tasks/list'" in text
@@ -11,20 +13,26 @@ def test_reconstruction_routes_use_post_list_endpoints():
 
 
 def test_reconstruction_routes_include_manual_result_upload():
-    text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+    text = Path(
+        "csrcqsf/modules/railway_parts/routes/reconstruction_routes.py"
+    ).read_text(encoding="utf-8")
 
     assert "@parts_router.post('/v2/reconstruct/result/{item_id}'" in text
     assert "@parts_router.delete('/v2/reconstruct/result/{item_id}'" in text
 
 
 def test_reconstruction_routes_include_statistics_endpoint():
-    text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+    text = Path(
+        "csrcqsf/modules/railway_parts/routes/reconstruction_routes.py"
+    ).read_text(encoding="utf-8")
 
     assert "@parts_router.post('/v2/reconstruct/statistics'" in text
 
 
 def test_reconstruction_routes_include_multipart_source_video_endpoints():
-    text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+    text = Path(
+        "csrcqsf/modules/railway_parts/routes/reconstruction_routes.py"
+    ).read_text(encoding="utf-8")
 
     assert "@parts_router.post('/v2/reconstruct/video/upload/init'" in text
     assert "@parts_router.post('/v2/reconstruct/video/upload/local'" not in text
@@ -38,7 +46,9 @@ def test_reconstruction_routes_include_multipart_source_video_endpoints():
 
 
 def test_reconstruction_public_routes_remain_compatible_while_server_extracts():
-    text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+    text = Path(
+        "csrcqsf/modules/railway_parts/routes/reconstruction_routes.py"
+    ).read_text(encoding="utf-8")
 
     assert "@parts_router.post('/v2/reconstruct/train'" in text
     assert "@parts_router.post('/v2/reconstruct/tasks/video'" in text

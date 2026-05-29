@@ -1,7 +1,7 @@
 
 import requests
 from sqlalchemy import Null, null, select, text
-from csrcqsf.data.pg import SessionLocal
+from csrcqsf.infra.db.main_db import SessionLocal
 from globals_vars import logger
 from pydantic import BaseModel
 from urllib3 import PoolManager
@@ -10,7 +10,7 @@ from csrcqsf.models.item import Items
 from csrcqsf.models.sgo_models import SgoMaterielFileImg, SgoMaterielMasterplate, SgoCodeInquiry, SgoCodeInquiryReturn
 from csrcqsf.scheduler import scheduler
 from csrcqsf.data.mdpdb import sgo_sessionLocal, sgo_engine
-from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
+from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
 from bfrcommon.snowflake import get_id
 from csrcqsf.models.sgo import ImageSourceType, SgoItemImages
 import os

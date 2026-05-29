@@ -26,7 +26,7 @@ from csrcqsf.biz.railwayparts.milvus import (
 )
 from csrcqsf.biz.segment import SegmentBiz
 from csrcqsf.data.minio import minio_instance
-from csrcqsf.data.pg import SessionLocal
+from csrcqsf.infra.db.main_db import SessionLocal
 from globals_vars import logger
 from csrcqsf.logger import CodeTimer
 from csrcqsf.models.item import Items, ItemsParent, ItemsVechile
@@ -132,7 +132,7 @@ class AutoPartProcessor:
         Returns:
             AutoSegmentResult: 处理结果
         """
-        from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
+        from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
         
         result = AutoSegmentResult(item_id=str(item_id))
         

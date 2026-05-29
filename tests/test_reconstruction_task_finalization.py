@@ -1,4 +1,6 @@
 import asyncio
+import importlib
+import sys
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,8 +20,21 @@ class _AsyncSessionContext:
         return False
 
 
+def _import_reconstruction_service_module():
+    module_name = "csrcqsf.modules.railway_parts.services.reconstruction_service"
+    sys.modules.pop(module_name, None)
+
+    import csrcqsf.modules.railway_parts.services as services_pkg
+
+    if hasattr(services_pkg, "reconstruction_service"):
+        delattr(services_pkg, "reconstruction_service")
+
+    return importlib.import_module(module_name)
+
+
 def test_persist_task_result_marks_record_success_with_completed_at_and_elapsed_sec():
-    from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
+    service_module = _import_reconstruction_service_module()
+    ReconstructionManager = service_module.ReconstructionManager
 
     session = AsyncMock()
     record = SimpleNamespace(
@@ -29,11 +44,11 @@ def test_persist_task_result_marks_record_success_with_completed_at_and_elapsed_
         progress=98,
     )
 
-    with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+    with patch.object(service_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(service_module.ReconstructionRecord, "get_by_task_id", AsyncMock(return_value=record)), \
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=True)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.datetime") as datetime_mock:
+         patch.object(service_module.ReconstructionRecord, "update_status", AsyncMock()) as update_status, \
+         patch.object(service_module, "datetime") as datetime_mock:
         datetime_mock.utcnow.return_value = datetime(2026, 4, 28, 16, 27, 53)
         changed = asyncio.run(
             ReconstructionManager.persist_task_result_by_task_id(
@@ -62,7 +77,8 @@ def test_persist_task_result_marks_record_success_with_completed_at_and_elapsed_
 
 
 def test_persist_task_result_marks_failed_payload_with_completed_at_and_elapsed_sec():
-    from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
+    service_module = _import_reconstruction_service_module()
+    ReconstructionManager = service_module.ReconstructionManager
 
     session = AsyncMock()
     record = SimpleNamespace(
@@ -72,11 +88,11 @@ def test_persist_task_result_marks_failed_payload_with_completed_at_and_elapsed_
         progress=65,
     )
 
-    with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+    with patch.object(service_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(service_module.ReconstructionRecord, "get_by_task_id", AsyncMock(return_value=record)), \
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=True)) as persist_success_result, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.datetime") as datetime_mock:
+         patch.object(service_module.ReconstructionRecord, "update_status", AsyncMock()) as update_status, \
+         patch.object(service_module, "datetime") as datetime_mock:
         datetime_mock.utcnow.return_value = datetime(2026, 4, 28, 16, 27, 53)
         changed = asyncio.run(
             ReconstructionManager.persist_task_result_by_task_id(
@@ -102,5 +118,4 @@ def test_persist_task_result_marks_failed_payload_with_completed_at_and_elapsed_
         elapsed_sec=120.5,
     )
     session.commit.assert_awaited_once()
-
 

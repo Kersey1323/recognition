@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Iterator, List
 from bfrcommon.db import PageQueryResult, get_abbr_fn, get_count, async_get_count
 from pydantic import BaseModel
 from bfrcommon.db import PydanticType
-from csrcqsf.data.pg import Base
+from csrcqsf.infra.db.main_db import Base
 
 
 class Files(Base):

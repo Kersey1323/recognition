@@ -27,6 +27,12 @@ def _clear_module(prefix: str) -> None:
             sys.modules.pop(name, None)
 
 
+def _seed_routes_package() -> None:
+    package = ModuleType("csrcqsf.modules.railway_parts.routes")
+    package.__path__ = [str(Path("csrcqsf/modules/railway_parts/routes").resolve())]
+    sys.modules["csrcqsf.modules.railway_parts.routes"] = package
+
+
 def _build_api_model_module() -> ModuleType:
     module = ModuleType("csrcqsf.biz.railwayparts.api_models")
     flexible_model = type(
@@ -130,59 +136,49 @@ def _build_reconstruction_api_model_module() -> ModuleType:
 
 
 def _import_parts_service():
-    _clear_module("csrcqsf.services.parts")
+    _clear_module("csrcqsf.modules.railway_parts.routes")
     _clear_module("csrcqsf.runtime")
+    _seed_routes_package()
 
     fake_api_models = _build_api_model_module()
     fake_reconstruction_api_models = _build_reconstruction_api_model_module()
 
-    fake_parts_manager_module = ModuleType("csrcqsf.biz.railwayparts.parts")
-    fake_parts_manager_module.RailwayPartsManager = type("RailwayPartsManager", (), {})
+    fake_parts_service_module = ModuleType("csrcqsf.modules.railway_parts.services.parts_service")
+    fake_parts_service_module.RailwayPartsManager = type("RailwayPartsManager", (), {})
 
-    fake_milvus_module = ModuleType("csrcqsf.biz.railwayparts.milvus")
-    fake_milvus_module.MilvusManager = type("MilvusManager", (), {})
+    fake_reconstruction_service_module = ModuleType("csrcqsf.modules.railway_parts.services.reconstruction_service")
+    fake_reconstruction_service_module.ReconstructionManager = type("ReconstructionManager", (), {})
 
-    fake_auto_processor_module = ModuleType("csrcqsf.biz.railwayparts.auto_processor")
-    fake_auto_processor_module.AutoPartProcessor = type("AutoPartProcessor", (), {})
-
-    fake_state_manager_module = ModuleType("csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager")
+    fake_state_manager_module = ModuleType("csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager")
     fake_state_manager_module.MilvusStateManagerV2 = type("MilvusStateManagerV2", (), {})
-
-    fake_reconstruction_manager_module = ModuleType("csrcqsf.biz.railwayparts.reconstruction_manager")
-    fake_reconstruction_manager_module.ReconstructionManager = type("ReconstructionManager", (), {})
 
     fake_sgo_module = ModuleType("csrcqsf.biz.sgo")
     fake_sgo_module.SGOBiz = type("SGOBiz", (), {"list_parts_sgo_image": staticmethod(lambda item_id: [])})
-
-    fake_settings_module = ModuleType("csrcqsf.settings")
-    fake_settings_module.ai_settings = SimpleNamespace()
-    fake_settings_module.reconstruction_server_env_configured = lambda: bool(
-        os.getenv("RECONSTRUCTION_SERVER_URL")
-        or (
-            os.getenv("RECONSTRUCTION_SERVER_HOST")
-            and os.getenv("RECONSTRUCTION_SERVER_PORT")
-        )
-    )
 
     with patch.dict(
         sys.modules,
         {
             "csrcqsf.biz.railwayparts.api_models": fake_api_models,
             "csrcqsf.biz.railwayparts.reconstruction_api_models": fake_reconstruction_api_models,
-            "csrcqsf.biz.railwayparts.parts": fake_parts_manager_module,
-            "csrcqsf.biz.railwayparts.milvus": fake_milvus_module,
-            "csrcqsf.biz.railwayparts.auto_processor": fake_auto_processor_module,
-            "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager": fake_state_manager_module,
-            "csrcqsf.biz.railwayparts.reconstruction_manager": fake_reconstruction_manager_module,
+            "csrcqsf.modules.railway_parts.services.parts_service": fake_parts_service_module,
+            "csrcqsf.modules.railway_parts.services.reconstruction_service": fake_reconstruction_service_module,
+            "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager": fake_state_manager_module,
             "csrcqsf.biz.sgo": fake_sgo_module,
-            "csrcqsf.settings": fake_settings_module,
         },
     ):
-        return importlib.import_module("csrcqsf.services.parts")
+        router_module = importlib.import_module("csrcqsf.modules.railway_parts.routes.router")
+        search_routes_module = importlib.import_module("csrcqsf.modules.railway_parts.routes.search_routes")
+        reconstruction_routes_module = importlib.import_module("csrcqsf.modules.railway_parts.routes.reconstruction_routes")
+        module = ModuleType("test_parts_routes_subset")
+        module.parts_router = router_module.parts_router
+        module.ReconstructionManager = reconstruction_routes_module.ReconstructionManager
+        module.search_v2_by_text = search_routes_module.search_v2_by_text
+        module.reconstruct_v2_train = reconstruction_routes_module.reconstruct_v2_train
+        return module
 
 
 def _import_image_service():
-    _clear_module("csrcqsf.services.images")
+    _clear_module("csrcqsf.modules.image")
     _clear_module("csrcqsf.runtime")
 
     fake_segment_module = ModuleType("csrcqsf.biz.segment")
@@ -194,7 +190,7 @@ def _import_image_service():
             "csrcqsf.biz.segment": fake_segment_module,
         },
     ):
-        return importlib.import_module("csrcqsf.services.images")
+        return importlib.import_module("csrcqsf.modules.image.routes")
 
 
 def test_env_cpu_disables_gpu_and_model_capabilities():
@@ -295,7 +291,7 @@ def test_parts_service_allows_reconstruction_when_remote_service_configured(monk
 
 
 def test_app_no_longer_warns_about_local_reconstruction_redis_dependency():
-    text = Path("csrcqsf/app.py").read_text(encoding="utf-8")
+    text = Path("csrcqsf/core/app.py").read_text(encoding="utf-8")
 
     assert "重建状态同步任务将按需跳过" not in text
     assert "重构服务未配置时将禁用三维重构能力" in text
@@ -356,12 +352,24 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
 
     _clear_module("csrcqsf.app")
     _clear_module("csrcqsf.runtime")
+    _clear_module("csrcqsf.core.app")
+    _clear_module("csrcqsf.core.runtime")
+    _clear_module("csrcqsf.core.scheduler")
+    _clear_module("csrcqsf.infra.db.main_db")
+    _clear_module("csrcqsf.infra.storage.minio")
+    _clear_module("csrcqsf.modules.doc_parse")
+    _clear_module("csrcqsf.modules.image")
+    _clear_module("csrcqsf.modules.railway_parts.routes")
+    _clear_module("csrcqsf.modules.sgo")
 
-    fake_services_module = ModuleType("csrcqsf.services")
-    fake_services_module.parts_router = APIRouter()
-    fake_services_module.sgo_router = APIRouter()
-    fake_services_module.parts_docs_router = APIRouter()
-    fake_services_module.image_router = APIRouter()
+    fake_parts_routes_module = ModuleType("csrcqsf.modules.railway_parts.routes")
+    fake_parts_routes_module.parts_router = APIRouter()
+    fake_doc_parse_routes_module = ModuleType("csrcqsf.modules.doc_parse.routes")
+    fake_doc_parse_routes_module.parts_docs_router = APIRouter()
+    fake_image_routes_module = ModuleType("csrcqsf.modules.image.routes")
+    fake_image_routes_module.image_router = APIRouter()
+    fake_sgo_routes_module = ModuleType("csrcqsf.modules.sgo.routes")
+    fake_sgo_routes_module.sgo_router = APIRouter()
 
     fake_doc_router_module = ModuleType("bfrcommon.doc_router")
     fake_doc_router_module.make_doc_router = lambda *args, **kwargs: None
@@ -389,16 +397,16 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
     fake_segment_module = ModuleType("csrcqsf.biz.segment")
     fake_segment_module.SegmentBiz = type("SegmentBiz", (), {"init": AsyncMock()})
 
-    fake_pg_module = ModuleType("csrcqsf.data.pg")
+    fake_pg_module = ModuleType("csrcqsf.infra.db.main_db")
     fake_pg_module.db_migrate = AsyncMock()
 
-    fake_minio_module = ModuleType("csrcqsf.data.minio")
+    fake_minio_module = ModuleType("csrcqsf.infra.storage.minio")
     fake_minio_module.create_minio_buckets = AsyncMock()
 
     fake_sgo_module = ModuleType("csrcqsf.biz.sgo")
     fake_sgo_module.SGOBiz = type("SGOBiz", (), {"init": staticmethod(lambda: None)})
 
-    fake_scheduler_module = ModuleType("csrcqsf.scheduler")
+    fake_scheduler_module = ModuleType("csrcqsf.core.scheduler")
     fake_scheduler_module.register_main_async_loop = MagicMock()
 
     fake_api_models_module = ModuleType("csrcqsf.api_models")
@@ -416,16 +424,19 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
     with patch.dict(
         sys.modules,
         {
-            "csrcqsf.services": fake_services_module,
+            "csrcqsf.modules.railway_parts.routes": fake_parts_routes_module,
+            "csrcqsf.modules.doc_parse.routes": fake_doc_parse_routes_module,
+            "csrcqsf.modules.image.routes": fake_image_routes_module,
+            "csrcqsf.modules.sgo.routes": fake_sgo_routes_module,
             "bfrcommon.doc_router": fake_doc_router_module,
             "bfrcommon.middlewares.response": fake_response_module,
             "bfrcommon.middlewares.auth": fake_auth_module,
             "globals_vars": fake_logger_module,
             "csrcqsf.biz.segment": fake_segment_module,
-            "csrcqsf.data.pg": fake_pg_module,
-            "csrcqsf.data.minio": fake_minio_module,
+            "csrcqsf.infra.db.main_db": fake_pg_module,
+            "csrcqsf.infra.storage.minio": fake_minio_module,
             "csrcqsf.biz.sgo": fake_sgo_module,
-            "csrcqsf.scheduler": fake_scheduler_module,
+            "csrcqsf.core.scheduler": fake_scheduler_module,
             "csrcqsf.api_models": fake_api_models_module,
         },
     ):
@@ -463,12 +474,24 @@ def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured
 
     _clear_module("csrcqsf.app")
     _clear_module("csrcqsf.runtime")
+    _clear_module("csrcqsf.core.app")
+    _clear_module("csrcqsf.core.runtime")
+    _clear_module("csrcqsf.core.scheduler")
+    _clear_module("csrcqsf.infra.db.main_db")
+    _clear_module("csrcqsf.infra.storage.minio")
+    _clear_module("csrcqsf.modules.doc_parse")
+    _clear_module("csrcqsf.modules.image")
+    _clear_module("csrcqsf.modules.railway_parts.routes")
+    _clear_module("csrcqsf.modules.sgo")
 
-    fake_services_module = ModuleType("csrcqsf.services")
-    fake_services_module.parts_router = APIRouter()
-    fake_services_module.sgo_router = APIRouter()
-    fake_services_module.parts_docs_router = APIRouter()
-    fake_services_module.image_router = APIRouter()
+    fake_parts_routes_module = ModuleType("csrcqsf.modules.railway_parts.routes")
+    fake_parts_routes_module.parts_router = APIRouter()
+    fake_doc_parse_routes_module = ModuleType("csrcqsf.modules.doc_parse.routes")
+    fake_doc_parse_routes_module.parts_docs_router = APIRouter()
+    fake_image_routes_module = ModuleType("csrcqsf.modules.image.routes")
+    fake_image_routes_module.image_router = APIRouter()
+    fake_sgo_routes_module = ModuleType("csrcqsf.modules.sgo.routes")
+    fake_sgo_routes_module.sgo_router = APIRouter()
 
     fake_response_module = ModuleType("bfrcommon.middlewares.response")
     fake_response_module.DefaultResponse = dict
@@ -491,16 +514,16 @@ def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured
     fake_segment_module = ModuleType("csrcqsf.biz.segment")
     fake_segment_module.SegmentBiz = type("SegmentBiz", (), {"init": AsyncMock()})
 
-    fake_pg_module = ModuleType("csrcqsf.data.pg")
+    fake_pg_module = ModuleType("csrcqsf.infra.db.main_db")
     fake_pg_module.db_migrate = AsyncMock()
 
-    fake_minio_module = ModuleType("csrcqsf.data.minio")
+    fake_minio_module = ModuleType("csrcqsf.infra.storage.minio")
     fake_minio_module.create_minio_buckets = AsyncMock()
 
     fake_sgo_module = ModuleType("csrcqsf.biz.sgo")
     fake_sgo_module.SGOBiz = type("SGOBiz", (), {"init": staticmethod(lambda: None)})
 
-    fake_scheduler_module = ModuleType("csrcqsf.scheduler")
+    fake_scheduler_module = ModuleType("csrcqsf.core.scheduler")
     fake_scheduler_module.register_main_async_loop = MagicMock()
 
     fake_api_models_module = ModuleType("csrcqsf.api_models")
@@ -518,15 +541,18 @@ def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured
     with patch.dict(
         sys.modules,
         {
-            "csrcqsf.services": fake_services_module,
+            "csrcqsf.modules.railway_parts.routes": fake_parts_routes_module,
+            "csrcqsf.modules.doc_parse.routes": fake_doc_parse_routes_module,
+            "csrcqsf.modules.image.routes": fake_image_routes_module,
+            "csrcqsf.modules.sgo.routes": fake_sgo_routes_module,
             "bfrcommon.middlewares.response": fake_response_module,
             "bfrcommon.middlewares.auth": fake_auth_module,
             "globals_vars": fake_logger_module,
             "csrcqsf.biz.segment": fake_segment_module,
-            "csrcqsf.data.pg": fake_pg_module,
-            "csrcqsf.data.minio": fake_minio_module,
+            "csrcqsf.infra.db.main_db": fake_pg_module,
+            "csrcqsf.infra.storage.minio": fake_minio_module,
             "csrcqsf.biz.sgo": fake_sgo_module,
-            "csrcqsf.scheduler": fake_scheduler_module,
+            "csrcqsf.core.scheduler": fake_scheduler_module,
             "csrcqsf.api_models": fake_api_models_module,
         },
     ):

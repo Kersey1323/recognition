@@ -3,7 +3,7 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
-from csrcqsf.biz.railwayparts.vector_db.preprocessing.sam3_preprocessor import (
+from csrcqsf.modules.railway_parts.vector_search.preprocessing.sam3_preprocessor import (
     SAM3Preprocessor,
 )
 

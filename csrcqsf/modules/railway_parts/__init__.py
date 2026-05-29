@@ -1,0 +1,1 @@
+"""Railway parts domain module."""

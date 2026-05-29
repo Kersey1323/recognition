@@ -18,7 +18,7 @@ class _AsyncSessionContext:
 
 
 def test_submit_video_task_persists_local_record_and_calls_remote_client():
-    from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
+    from csrcqsf.modules.railway_parts.services.reconstruction_service import ReconstructionManager
 
     item = SimpleNamespace(id=1001, item_name="闸片", source_video_path="bfr-3d-videos/raw/demo.mp4")
     session = AsyncMock()
@@ -30,9 +30,9 @@ def test_submit_video_task_persists_local_record_and_calls_remote_client():
 
     with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=item)), \
          patch.object(ReconstructionManager, "_get_reconstruction_client", return_value=fake_client), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.create_record", AsyncMock()) as create_record_mock, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()):
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.create_record", AsyncMock()) as create_record_mock, \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.update_status", AsyncMock()):
         result = asyncio.run(ReconstructionManager.submit_video_task(item_id=1001))
 
     assert result == {
@@ -48,7 +48,7 @@ def test_submit_video_task_persists_local_record_and_calls_remote_client():
 
 
 def test_get_task_status_maps_remote_payload_to_existing_public_shape():
-    from csrcqsf.biz.railwayparts.reconstruction_manager import ReconstructionManager
+    from csrcqsf.modules.railway_parts.services.reconstruction_service import ReconstructionManager
 
     session = AsyncMock()
     record = SimpleNamespace(
@@ -86,9 +86,9 @@ def test_get_task_status_maps_remote_payload_to_existing_public_shape():
         return True
 
     with patch.object(ReconstructionManager, "_get_reconstruction_client", return_value=fake_client), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.reconstruction_server_env_configured", return_value=True), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.reconstruction_server_env_configured", return_value=True), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(side_effect=_persist_success_result)):
         result = asyncio.run(ReconstructionManager.get_task_status("task-1"))
 

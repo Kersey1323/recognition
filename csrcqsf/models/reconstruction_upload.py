@@ -6,7 +6,7 @@ from sqlalchemy import BIGINT, DateTime, Float, INT, String, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
-from csrcqsf.data.pg import Base
+from csrcqsf.infra.db.main_db import Base
 
 
 class ReconstructionVideoUploadSession(Base):

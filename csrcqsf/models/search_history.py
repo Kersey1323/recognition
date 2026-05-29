@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Iterator, List
 from bfrcommon.db import PageQueryResult, get_abbr_fn, async_get_count
 from pydantic import BaseModel, Field
 from bfrcommon.db import PydanticType
-from csrcqsf.data.pg import Base
-from csrcqsf.models.sgo import ListInqueryItem
+from csrcqsf.infra.db.main_db import Base
+from csrcqsf.modules.sgo.schemas import ListInqueryItem
 
 
 class SearchParameters(BaseModel):

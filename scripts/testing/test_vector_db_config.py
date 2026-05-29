@@ -18,7 +18,9 @@ print("=" * 60)
 try:
     # 测试1: 加载配置
     print("\n【测试1】加载环境变量配置...")
-    from csrcqsf.biz.railwayparts.vector_db.config.env_config import get_config
+    from csrcqsf.modules.railway_parts.vector_search.config.env_config import (
+        get_config,
+    )
     
     config = get_config()
     print("✅ 配置加载成功")

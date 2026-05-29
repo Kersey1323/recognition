@@ -351,7 +351,7 @@ def test_search_history_list_item_normalizes_public_statuses():
         correct_item_name=None,
         correct_item_code=None,
     )
-    pending_item = SearchHistoryListItem(
+    wrong_item = SearchHistoryListItem(
         history_id="1002",
         search_type="text",
         time_created="2026-04-30 17:00:00",
@@ -367,7 +367,7 @@ def test_search_history_list_item_normalizes_public_statuses():
     )
 
     assert dump_model(correct_item)["status"] == "correct"
-    assert dump_model(pending_item)["status"] == "pending"
+    assert dump_model(wrong_item)["status"] == "wrong"
 
 
 def test_search_history_feedback_request_accepts_optional_selected_fields():

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from bfrcommon.middlewares.response import catch_exceptions_middleware
 from starlette.requests import Request
 
-from csrcqsf.biz.railwayparts.reconstruction_manager import (
+from csrcqsf.modules.railway_parts.services.reconstruction_service import (
     ReconstructionBusinessError,
     ReconstructionManager,
 )
@@ -80,7 +80,7 @@ def test_resolve_record_ply_path_prefers_local_ply_url():
     )
 
     with patch(
-        "csrcqsf.biz.railwayparts.reconstruction_manager._get_minio_helpers",
+        "csrcqsf.modules.railway_parts.services.reconstruction_service._get_minio_helpers",
         return_value=(MagicMock(), MagicMock(return_value=False), MagicMock(), MagicMock(), Exception),
     ):
         assert ReconstructionManager._resolve_record_ply_path(record) == "/tmp/local-point-cloud.ply"
@@ -94,7 +94,7 @@ def test_resolve_record_ply_path_builds_path_from_output_dir():
     )
 
     with patch(
-        "csrcqsf.biz.railwayparts.reconstruction_manager._get_minio_helpers",
+        "csrcqsf.modules.railway_parts.services.reconstruction_service._get_minio_helpers",
         return_value=(MagicMock(), MagicMock(return_value=False), MagicMock(), MagicMock(), Exception),
     ):
         assert ReconstructionManager._resolve_record_ply_path(record) == "/tmp/output/point_cloud/iteration_10000/point_cloud.ply"
@@ -131,8 +131,8 @@ def test_resolve_video_task_inputs_rejects_missing_source_video():
 def test_require_item_exists_rejects_missing_item_with_business_error():
     session = AsyncMock()
 
-    with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id", AsyncMock(return_value=None)):
+    with patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.Items.get_item_by_id", AsyncMock(return_value=None)):
         try:
             asyncio.run(ReconstructionManager._require_item_exists(1935558010375340032))
         except ReconstructionBusinessError as exc:
@@ -242,12 +242,12 @@ def test_get_task_status_treats_celery_success_with_failed_payload_as_failed():
     fake_client = SimpleNamespace(get_task_status=AsyncMock(return_value=task_result))
 
     with patch.object(ReconstructionManager, "_get_reconstruction_client", return_value=fake_client), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.reconstruction_server_env_configured", return_value=True), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.reconstruction_server_env_configured", return_value=True), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=True)) as persist_success_result, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.datetime") as datetime_mock:
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.update_status", AsyncMock()) as update_status, \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.datetime") as datetime_mock:
         datetime_mock.utcnow.return_value = datetime(2026, 4, 28, 16, 27, 53)
         result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
 
@@ -305,12 +305,12 @@ def test_get_task_status_promotes_success_payload_to_completed_response_and_term
     )
 
     with patch.object(ReconstructionManager, "_get_reconstruction_client", return_value=fake_client), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.reconstruction_server_env_configured", return_value=True), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.reconstruction_server_env_configured", return_value=True), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=False)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.datetime") as datetime_mock:
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.update_status", AsyncMock()) as update_status, \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.datetime") as datetime_mock:
         datetime_mock.utcnow.return_value = completed_at
         result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
 
@@ -364,10 +364,10 @@ def test_get_task_status_keeps_terminal_success_when_celery_backend_falls_back_t
     )
 
     with patch.object(ReconstructionManager, "_get_reconstruction_client", return_value=fake_client), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.reconstruction_server_env_configured", return_value=True), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.update_status", AsyncMock()) as update_status:
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.reconstruction_server_env_configured", return_value=True), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.update_status", AsyncMock()) as update_status:
         result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
 
     assert result["status"] == ReconstructionStatus.SUCCESS
@@ -398,9 +398,9 @@ def test_get_task_status_returns_local_snapshot_when_remote_service_url_missing(
         time_updated=datetime(2026, 5, 27, 9, 30, 0),
     )
 
-    with patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.reconstruction_server_env_configured", return_value=False), \
+    with patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.reconstruction_server_env_configured", return_value=False), \
          patch.object(ReconstructionManager, "_get_reconstruction_client") as client_mock:
         result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
 
@@ -461,11 +461,11 @@ def test_upload_reconstruction_result_rolls_back_minio_when_pg_update_fails():
     session = AsyncMock()
 
     with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=item)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.run_sync", AsyncMock(side_effect=lambda func, *args, **kwargs: func(*args, **kwargs))), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.update_obj_url", AsyncMock(side_effect=RuntimeError("pg failed"))), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.run_sync", AsyncMock(side_effect=lambda func, *args, **kwargs: func(*args, **kwargs))), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.Items.update_obj_url", AsyncMock(side_effect=RuntimeError("pg failed"))), \
          patch(
-             "csrcqsf.biz.railwayparts.reconstruction_manager._get_minio_helpers",
+             "csrcqsf.modules.railway_parts.services.reconstruction_service._get_minio_helpers",
              return_value=(
                  MagicMock(),
                  MagicMock(return_value=True),

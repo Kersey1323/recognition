@@ -2,7 +2,7 @@ from docx import Document
 from csrcqsf.settings import minio_bucket
 from csrcqsf.data.minio import minio_instance
 import pandas as pd
-from csrcqsf.data.pg import SessionLocal
+from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.models.files import Files, FileTables
 from bfrcommon.snowflake import get_id
 from anyio.to_thread import run_sync

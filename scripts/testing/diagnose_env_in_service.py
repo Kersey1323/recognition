@@ -51,7 +51,9 @@ for var in key_vars:
 # 测试配置加载
 print(f"\n【测试 env_config.py】")
 try:
-    from csrcqsf.biz.railwayparts.vector_db.config.env_config import get_config
+    from csrcqsf.modules.railway_parts.vector_search.config.env_config import (
+        get_config,
+    )
     config = get_config()
     print(f"✓ 配置加载成功")
     print(f"  MODEL_DIR: {config.model_dir}")
@@ -67,7 +69,9 @@ except Exception as e:
 # 测试 MilvusManager 初始化
 print(f"\n【测试 MilvusManager 初始化】")
 try:
-    from csrcqsf.biz.railwayparts.vector_db.storage.milvus_manager import MilvusManagerV2
+    from csrcqsf.modules.railway_parts.vector_search.storage.milvus_manager import (
+        MilvusManagerV2,
+    )
     print("正在初始化 MilvusManager...")
     manager = MilvusManagerV2(enable_sam3=False)  # 不启用 SAM3 以加快测试
     print("✓ MilvusManager 初始化成功")

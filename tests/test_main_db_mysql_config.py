@@ -84,7 +84,7 @@ def test_main_db_mysql_dsn_falls_back_to_pg_env_compat(monkeypatch):
 
 
 def test_main_db_infra_uses_mysql_engine_contract():
-    text = Path("csrcqsf/data/pg.py").read_text(encoding="utf-8")
+    text = Path("csrcqsf/infra/db/main_db.py").read_text(encoding="utf-8")
 
     assert "get_async_main_db_dsn()" in text
     assert "CREATE SCHEMA IF NOT EXISTS" not in text

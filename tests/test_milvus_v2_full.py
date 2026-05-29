@@ -27,7 +27,7 @@ async def test_basic_integration():
         # 获取实例（使用测试配置）
         manager = MilvusManagerV2.get_instance(
             config_path='test_config_vector_db.ini',
-            db_config_path='csrcqsf/biz/railwayparts/vector_db/config/db_config.ini'
+            db_config_path='csrcqsf/modules/railway_parts/vector_search/config/db_config.ini'
         )
         print("✓ 获取单例实例成功（使用测试配置）")
         
@@ -69,12 +69,14 @@ async def get_test_data():
     print("=" * 80)
     
     try:
-        from csrcqsf.biz.railwayparts.vector_db.data.db_connector import DatabaseConnector
+        from csrcqsf.modules.railway_parts.vector_search.repositories.db_connector import (
+            DatabaseConnector,
+        )
         from configparser import ConfigParser
         
         # 读取数据库配置
         config = ConfigParser()
-        config.read('csrcqsf/biz/railwayparts/vector_db/config/db_config.ini', encoding='utf-8')
+        config.read('csrcqsf/modules/railway_parts/vector_search/config/db_config.ini', encoding='utf-8')
         
         # 创建数据库连接
         db = DatabaseConnector(
@@ -130,12 +132,14 @@ async def test_index_images(manager, test_data):
     print("=" * 80)
     
     try:
-        from csrcqsf.biz.railwayparts.vector_db.data.image_loader import ImageLoader
+        from csrcqsf.modules.railway_parts.vector_search.repositories.image_loader import (
+            ImageLoader,
+        )
         from configparser import ConfigParser
         
         # 读取数据库配置
         config = ConfigParser()
-        config.read('csrcqsf/biz/railwayparts/vector_db/config/db_config.ini', encoding='utf-8')
+        config.read('csrcqsf/modules/railway_parts/vector_search/config/db_config.ini', encoding='utf-8')
         
         # 创建图像加载器
         image_loader = ImageLoader(
@@ -240,12 +244,14 @@ async def test_image_search(manager, test_data):
     print("=" * 80)
     
     try:
-        from csrcqsf.biz.railwayparts.vector_db.data.image_loader import ImageLoader
+        from csrcqsf.modules.railway_parts.vector_search.repositories.image_loader import (
+            ImageLoader,
+        )
         from configparser import ConfigParser
         
         # 读取数据库配置
         config = ConfigParser()
-        config.read('csrcqsf/biz/railwayparts/vector_db/config/db_config.ini', encoding='utf-8')
+        config.read('csrcqsf/modules/railway_parts/vector_search/config/db_config.ini', encoding='utf-8')
         
         # 创建图像加载器
         image_loader = ImageLoader(

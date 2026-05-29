@@ -30,6 +30,14 @@ csrcqsf/biz/railwayparts/vector_db/patch_tokens/
 csrcqsf/biz/railwayparts/vector_db/logs/
 csrcqsf/biz/railwayparts/vector_db/checkpoint.json
 
+# csrcqsf source-tree runtime artifacts
+csrcqsf/**/__pycache__/
+csrcqsf/**/*.pyc
+
+# future externalized vector-db state
+state/vector_db/
+var/vector_db/
+
 docs/*
 data/videos/*
 data/video/*

@@ -1,18 +1,7 @@
-from functools import lru_cache
+"""Compatibility wrapper for `csrcqsf.infra.vector_store.milvus`."""
 
-from pymilvus import MilvusClient
-#from pymilvus import AsyncMilvusClient
-from csrcqsf.settings import ai_settings
+import sys as _sys
+from importlib import import_module as _import_module
 
-
-@lru_cache(maxsize=1)
-def get_milvus_client() -> MilvusClient:
-    return MilvusClient(uri=ai_settings.milvus_url)
-
-
-class _LazyMilvusClient:
-    def __getattr__(self, name: str):
-        return getattr(get_milvus_client(), name)
-
-
-milvus_client = _LazyMilvusClient()
+_impl = _import_module("csrcqsf.infra.vector_store.milvus")
+_sys.modules[__name__] = _impl

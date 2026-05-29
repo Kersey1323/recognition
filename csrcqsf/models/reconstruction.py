@@ -7,7 +7,7 @@ from enum import Enum
 from sqlalchemy import DateTime, String, Text, INT, BIGINT, Float, case, func, select, update, or_, and_
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
-from csrcqsf.data.pg import Base
+from csrcqsf.infra.db.main_db import Base
 
 
 class ReconstructionStatus(str, Enum):

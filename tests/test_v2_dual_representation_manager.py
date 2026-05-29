@@ -4,41 +4,47 @@ from unittest.mock import MagicMock
 import numpy as np
 from PIL import Image
 
-from csrcqsf.biz.railwayparts.vector_db.preprocessing.sam3_preprocessor import (
-    SAM3PreprocessOutcome,
+from csrcqsf.modules.railway_parts.vector_search.storage.milvus_manager import (
+    MilvusManagerV2,
 )
-from csrcqsf.biz.railwayparts.vector_db.storage.milvus_manager import MilvusManagerV2
 
 
-def _build_manager(tmp_path):
+class _FakeModelClient:
+    def __init__(self, segmented_image=None):
+        self.segmented_image = segmented_image
+
+    async def sam3_preprocess(self, image, item_name):
+        return self.segmented_image
+
+    async def siglip_text_features(self, text):
+        return np.array([0.3, 0.4], dtype=float)
+
+    async def siglip_image_features(self, image):
+        return np.array([0.1, 0.2], dtype=float)
+
+    async def dinov2_global_vector(self, image):
+        return np.array([0.5, 0.6], dtype=float)
+
+    async def dinov2_patch_tokens(self, image):
+        return np.array([[0.7, 0.8], [0.9, 1.0]], dtype=float)
+
+
+def _build_manager(tmp_path, segmented_image=None):
     manager = object.__new__(MilvusManagerV2)
     manager.siglip_collection = "SIGLIP_TEST"
     manager.dinov2_collection = "DINOV2_TEST"
     manager.patch_tokens_dir = str(tmp_path)
     manager.collection_manager = MagicMock()
-    manager.siglip_extractor = MagicMock()
-    manager.dinov2_extractor = MagicMock()
-    manager.sam3_preprocessor = MagicMock()
-    manager.siglip_extractor.extract_image_features.return_value = np.array([0.1, 0.2])
-    manager.siglip_extractor.extract_text_features.return_value = np.array([0.3, 0.4])
-    manager.dinov2_extractor.extract_global_vector.return_value = np.array([0.5, 0.6])
-    manager.dinov2_extractor.extract_patch_tokens.return_value = np.array(
-        [[0.7, 0.8], [0.9, 1.0]]
-    )
-    manager.dinov2_extractor.save_patch_tokens = MagicMock()
+    manager.model_client = _FakeModelClient(segmented_image=segmented_image)
+    manager.enable_sam3 = segmented_image is not None
+    manager.image_variant_supported = True
+    manager.last_preprocess_outcome = None
     return manager
 
 
 def test_index_image_writes_original_and_segmented_variants_when_sam3_succeeds(tmp_path):
-    manager = _build_manager(tmp_path)
-    manager.sam3_preprocessor.preprocess_image_with_metadata.return_value = SAM3PreprocessOutcome(
-        result_image=Image.new("RGB", (4, 4), "white"),
-        original_item_name="特殊螺栓M10X40",
-        normalized_item_name="特殊螺栓",
-        prompt_candidates=["bolt", "object"],
-        selected_prompt="bolt",
-        attempt_count=1,
-    )
+    segmented_image = Image.new("RGB", (4, 4), "white")
+    manager = _build_manager(tmp_path, segmented_image=segmented_image)
 
     siglip_ok, dinov2_ok = asyncio.run(
         manager.index_image(
@@ -67,7 +73,9 @@ def test_index_image_writes_original_and_segmented_variants_when_sam3_succeeds(t
     ]
     assert dinov2_records[0]["patch_tokens_path"].endswith("_original.npy")
     assert dinov2_records[1]["patch_tokens_path"].endswith("_sam3_segmented.npy")
-    assert manager.last_preprocess_outcome.selected_prompt == "bolt"
+    assert dinov2_records[0]["patch_token_key"] == "item_101_img_9001_original.npy"
+    assert dinov2_records[1]["patch_token_key"] == "item_101_img_9001_sam3_segmented.npy"
+    assert manager.last_preprocess_outcome is segmented_image
 
 
 def test_dedupe_hits_by_image_id_keeps_highest_scoring_variant():
@@ -88,17 +96,9 @@ def test_dedupe_hits_by_image_id_keeps_highest_scoring_variant():
 
 
 def test_index_image_falls_back_to_legacy_single_record_when_variant_field_missing(tmp_path):
-    manager = _build_manager(tmp_path)
-    manager.image_variant_supported = False
     segmented_image = Image.new("RGB", (4, 4), "white")
-    manager.sam3_preprocessor.preprocess_image_with_metadata.return_value = SAM3PreprocessOutcome(
-        result_image=segmented_image,
-        original_item_name="特殊螺栓M10X40",
-        normalized_item_name="特殊螺栓",
-        prompt_candidates=["bolt", "object"],
-        selected_prompt="bolt",
-        attempt_count=1,
-    )
+    manager = _build_manager(tmp_path, segmented_image=segmented_image)
+    manager.image_variant_supported = False
 
     siglip_ok, dinov2_ok = asyncio.run(
         manager.index_image(
@@ -121,6 +121,84 @@ def test_index_image_falls_back_to_legacy_single_record_when_variant_field_missi
     assert len(dinov2_records) == 1
     assert "image_variant" not in siglip_records[0]
     assert "image_variant" not in dinov2_records[0]
+    assert dinov2_records[0]["patch_token_key"] == "item_101_img_9001.npy"
     assert dinov2_records[0]["patch_tokens_path"].endswith("item_101_img_9001.npy")
-    assert manager.siglip_extractor.extract_image_features.call_args.args[0] is segmented_image
-    assert manager.dinov2_extractor.extract_global_vector.call_args.args[0] is segmented_image
+    assert manager.last_preprocess_outcome is segmented_image
+
+
+def test_resolve_patch_tokens_path_prefers_patch_token_key_and_falls_back_to_legacy_path(
+    tmp_path,
+):
+    manager = object.__new__(MilvusManagerV2)
+    manager.patch_tokens_dir = str(tmp_path)
+
+    new_path = tmp_path / "nested" / "candidate.npy"
+    new_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(new_path, np.array([[1.0, 2.0]], dtype=float))
+
+    legacy_path = tmp_path / "legacy.npy"
+    np.save(legacy_path, np.array([[3.0, 4.0]], dtype=float))
+
+    assert manager._resolve_patch_tokens_path(
+        {
+            "patch_token_key": "nested/candidate.npy",
+            "patch_tokens_path": str(legacy_path),
+        }
+    ) == str(new_path)
+
+    assert manager._resolve_patch_tokens_path(
+        {
+            "patch_token_key": "missing.npy",
+            "patch_tokens_path": str(legacy_path),
+        }
+    ) == str(legacy_path)
+
+
+def test_search_by_image_dinov2_degrades_to_coarse_results_when_patch_tokens_missing(
+    tmp_path,
+):
+    manager = object.__new__(MilvusManagerV2)
+    manager.model_client = _FakeModelClient()
+    manager.collection_manager = MagicMock()
+    manager.dinov2_collection = "DINOV2_TEST"
+    manager.enable_sam3 = False
+    manager.image_variant_supported = False
+    manager.patch_tokens_dir = str(tmp_path)
+
+    manager.collection_manager.client.search.return_value = [[
+        {
+            "entity": {
+                "item_id": 101,
+                "item_name": "橡胶套",
+                "item_code": "40000543491",
+                "image_id": 9001,
+                "image_url": "bfr-ai-files/a.jpg",
+                "patch_token_key": "missing-a.npy",
+                "patch_tokens_path": str(tmp_path / "missing-a.npy"),
+            },
+            "distance": 0.9,
+        },
+        {
+            "entity": {
+                "item_id": 102,
+                "item_name": "橡胶垫",
+                "item_code": "40000543492",
+                "image_id": 9002,
+                "image_url": "bfr-ai-files/b.jpg",
+                "patch_token_key": "missing-b.npy",
+                "patch_tokens_path": str(tmp_path / "missing-b.npy"),
+            },
+            "distance": 0.8,
+        },
+    ]]
+
+    results = asyncio.run(
+        manager._search_by_image_dinov2(
+            image=Image.new("RGB", (8, 8), "white"),
+            coarse_top_k=2,
+            fine_top_k=2,
+        )
+    )
+
+    assert [result["entity"]["image_id"] for result in results] == [9001, 9002]
+    assert all(result["fine_rerank_skipped"] is True for result in results)

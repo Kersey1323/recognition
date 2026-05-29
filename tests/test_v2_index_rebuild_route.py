@@ -1,5 +1,5 @@
 import asyncio
-import importlib.util
+import importlib
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -10,62 +10,62 @@ from pydantic import BaseModel
 from csrcqsf.biz.railwayparts import reconstruction_api_models as real_reconstruction_api_models
 
 
+def _clear_module(prefix: str) -> None:
+    for name in list(sys.modules):
+        if name == prefix or name.startswith(f"{prefix}."):
+            sys.modules.pop(name, None)
+
+
+def _seed_routes_package() -> None:
+    package = ModuleType("csrcqsf.modules.railway_parts.routes")
+    package.__path__ = [str(Path("csrcqsf/modules/railway_parts/routes").resolve())]
+    sys.modules["csrcqsf.modules.railway_parts.routes"] = package
+
+
 def _import_parts_service():
-    fake_parts_manager_module = ModuleType("csrcqsf.biz.railwayparts.parts")
-    fake_parts_manager_module.RailwayPartsManager = type("RailwayPartsManager", (), {})
-    fake_milvus_module = ModuleType("csrcqsf.biz.railwayparts.milvus")
-    fake_milvus_module.MilvusManager = type("MilvusManager", (), {})
-    fake_auto_processor_module = ModuleType("csrcqsf.biz.railwayparts.auto_processor")
-    fake_auto_processor_module.AutoPartProcessor = type("AutoPartProcessor", (), {})
-    fake_state_manager_module = ModuleType("csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager")
+    _clear_module("csrcqsf.modules.railway_parts.routes")
+    _clear_module("csrcqsf.runtime")
+    _seed_routes_package()
+    fake_parts_service_module = ModuleType("csrcqsf.modules.railway_parts.services.parts_service")
+    fake_parts_service_module.RailwayPartsManager = type("RailwayPartsManager", (), {})
+    fake_state_manager_module = ModuleType("csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager")
     fake_state_manager_module.MilvusStateManagerV2 = type("MilvusStateManagerV2", (), {})
-    fake_reconstruction_manager_module = ModuleType("csrcqsf.biz.railwayparts.reconstruction_manager")
-    fake_reconstruction_manager_module.ReconstructionManager = type("ReconstructionManager", (), {})
-    fake_sgo_module = ModuleType("csrcqsf.biz.sgo")
-    fake_sgo_module.SGOBiz = type("SGOBiz", (), {"list_parts_sgo_image": staticmethod(lambda item_id: [])})
-    fake_reconstruction_model_module = ModuleType("csrcqsf.models.reconstruction")
-    fake_reconstruction_model_module.ReconstructionRecord = type("ReconstructionRecord", (), {})
     with patch.dict(
         sys.modules,
         {
-            "csrcqsf.biz.railwayparts.parts": fake_parts_manager_module,
-            "csrcqsf.biz.railwayparts.milvus": fake_milvus_module,
-            "csrcqsf.biz.railwayparts.auto_processor": fake_auto_processor_module,
-            "csrcqsf.biz.railwayparts.vector_db.storage.milvus_state_manager": fake_state_manager_module,
-            "csrcqsf.biz.railwayparts.reconstruction_manager": fake_reconstruction_manager_module,
-            "csrcqsf.biz.railwayparts.reconstruction_api_models": real_reconstruction_api_models,
-            "csrcqsf.biz.sgo": fake_sgo_module,
-            "csrcqsf.models.reconstruction": fake_reconstruction_model_module,
+            "csrcqsf.modules.railway_parts.services.parts_service": fake_parts_service_module,
+            "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager": fake_state_manager_module,
         },
     ):
-        module_name = "test_parts_service_index_rebuild_route"
-        sys.modules.pop(module_name, None)
-        spec = importlib.util.spec_from_file_location(
-            module_name,
-            Path("csrcqsf/services/parts.py"),
-        )
-        module = importlib.util.module_from_spec(spec)
-        assert spec is not None and spec.loader is not None
-        spec.loader.exec_module(module)
-        return module
+        module = importlib.import_module("csrcqsf.modules.railway_parts.routes.search_routes")
+        subset = ModuleType("test_index_rebuild_routes_subset")
+        subset.RailwayPartsManager = module.RailwayPartsManager
+        subset.rebuild_v2_index = module.rebuild_v2_index
+        return subset
 
 
 def test_v2_index_rebuild_route_accepts_rebuild_existing_flag():
-    text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+    text = Path(
+        "csrcqsf/modules/railway_parts/routes/search_routes.py"
+    ).read_text(encoding="utf-8")
 
     assert "async def rebuild_v2_index(" in text
     assert "rebuild_existing: bool = False" in text
 
 
 def test_v2_index_rebuild_route_passes_rebuild_existing_to_background_and_sync_paths():
-    text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+    text = Path(
+        "csrcqsf/modules/railway_parts/routes/search_routes.py"
+    ).read_text(encoding="utf-8")
 
     assert "rebuild_existing=rebuild_existing" in text
     assert "ReconstructionIndexRebuildRes(" in text
 
 
 def test_v2_index_rebuild_route_keeps_single_item_requests_sync():
-    text = Path("csrcqsf/services/parts.py").read_text(encoding="utf-8")
+    text = Path(
+        "csrcqsf/modules/railway_parts/routes/search_routes.py"
+    ).read_text(encoding="utf-8")
 
     assert "should_background = int_item_id is None and (limit is None or limit > 100) and background_tasks is not None" in text
     assert "message=f'索引重建完成: 成功={result[\"success_count\"]}, 失败={result[\"fail_count\"]}'" in text

@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from pymilvus import DataType
 
-from csrcqsf.biz.railwayparts.vector_db.storage.collection_manager import (
+from csrcqsf.modules.railway_parts.vector_search.storage.collection_manager import (
     CollectionManager,
 )
 
@@ -50,7 +50,7 @@ def test_create_siglip_collection_adds_image_variant_field():
     manager.client.prepare_index_params.return_value = fake_index_params
 
     with patch.object(manager, "collection_exists", return_value=False), patch(
-        "csrcqsf.biz.railwayparts.vector_db.storage.collection_manager.MilvusClient.create_schema",
+        "csrcqsf.modules.railway_parts.vector_search.storage.collection_manager.MilvusClient.create_schema",
         return_value=fake_schema,
     ):
         manager.create_siglip_collection("PARTS_SIGLIP_TEST")
@@ -76,3 +76,28 @@ def test_collection_has_field_reads_described_schema():
 
     assert manager.collection_has_field("PARTS_SIGLIP_TEST", "image_variant") is True
     assert manager.collection_has_field("PARTS_SIGLIP_TEST", "patch_tokens_path") is False
+
+
+def test_create_dinov2_collection_keeps_legacy_path_and_adds_patch_token_key():
+    manager = object.__new__(CollectionManager)
+    manager.client = MagicMock()
+    fake_schema = MagicMock()
+    fake_index_params = MagicMock()
+    manager.client.prepare_index_params.return_value = fake_index_params
+
+    with patch.object(manager, "collection_exists", return_value=False), patch(
+        "csrcqsf.modules.railway_parts.vector_search.storage.collection_manager.MilvusClient.create_schema",
+        return_value=fake_schema,
+    ):
+        manager.create_dinov2_collection("PARTS_DINOV2_TEST")
+
+    fake_schema.add_field.assert_any_call(
+        field_name="patch_token_key",
+        datatype=DataType.VARCHAR,
+        max_length=500,
+    )
+    fake_schema.add_field.assert_any_call(
+        field_name="patch_tokens_path",
+        datatype=DataType.VARCHAR,
+        max_length=500,
+    )

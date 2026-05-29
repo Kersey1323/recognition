@@ -4,7 +4,7 @@
 """
 import asyncio
 from csrcqsf.settings import ai_settings
-from csrcqsf.data.pg import engine
+from csrcqsf.infra.db.main_db import engine
 from sqlalchemy import text
 
 

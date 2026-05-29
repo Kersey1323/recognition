@@ -1,4 +1,6 @@
-from csrcqsf.biz.railwayparts.vector_db.storage.collection_manager import CollectionManager
+from csrcqsf.modules.railway_parts.vector_search.storage.collection_manager import (
+    CollectionManager,
+)
 
 
 class _FakeIterator:

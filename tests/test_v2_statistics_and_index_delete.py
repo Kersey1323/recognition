@@ -39,11 +39,12 @@ def _import_railway_parts_manager():
     if cached is not None:
         return cached
 
-    existing = sys.modules.get("csrcqsf.biz.railwayparts.parts")
+    existing = sys.modules.get("csrcqsf.modules.railway_parts.services.parts_service")
     if existing is not None:
         _import_railway_parts_manager._cached = existing
         return existing
 
+    preserved_modules = {}
     with patch.dict(
         sys.modules,
         {
@@ -53,14 +54,17 @@ def _import_railway_parts_manager():
             "cv2": _fake_cv2_module(),
         },
     ):
-        import csrcqsf.biz.railwayparts as railwayparts_pkg
-        import csrcqsf.biz.railwayparts.parts as parts_module
-        item_module = sys.modules.get("csrcqsf.models.item")
+        import csrcqsf.modules.railway_parts.services.parts_service as parts_module
+        preserved_modules = {
+            "csrcqsf.modules.railway_parts.services.parts_service": parts_module,
+            "csrcqsf.models.item": sys.modules.get("csrcqsf.models.item"),
+            "csrcqsf.models.sgo": sys.modules.get("csrcqsf.models.sgo"),
+            "csrcqsf.models.search_history": sys.modules.get("csrcqsf.models.search_history"),
+        }
 
-    railwayparts_pkg.parts = parts_module
-    sys.modules["csrcqsf.biz.railwayparts.parts"] = parts_module
-    if item_module is not None:
-        sys.modules["csrcqsf.models.item"] = item_module
+    for module_name, module in preserved_modules.items():
+        if module is not None:
+            sys.modules[module_name] = module
 
     _import_railway_parts_manager._cached = parts_module
     return parts_module

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from csrcqsf.biz.railwayparts.local_upload_storage import LocalUploadStorage
-from csrcqsf.biz.railwayparts.reconstruction_manager import (
+from csrcqsf.modules.railway_parts.services.reconstruction_service import (
     ReconstructionBusinessError,
     ReconstructionManager,
 )
@@ -76,14 +76,14 @@ def test_init_source_video_multipart_upload_returns_session_and_urls():
         return record
 
     with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=item)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionVideoUploadSession.get_active_by_item_id", AsyncMock(return_value=None)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionVideoUploadSession.create_session", AsyncMock(side_effect=_capture_create)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionVideoUploadSession.get_active_by_item_id", AsyncMock(return_value=None)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionVideoUploadSession.create_session", AsyncMock(side_effect=_capture_create)), \
          patch.object(ReconstructionManager, "_create_multipart_upload", AsyncMock(return_value="upload-1")), \
          patch.object(ReconstructionManager, "_generate_multipart_upload_urls", AsyncMock(return_value=[
              {"part_number": 1, "url": "/bfr-3d-videos/upload-1?partNumber=1&uploadId=upload-1", "expires_at": "2026-05-20T10:00:00"}
          ])), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.datetime") as datetime_mock:
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.datetime") as datetime_mock:
         now = datetime(2026, 5, 13, 10, 0, 0)
         datetime_mock.now.return_value = now
         datetime_mock.utcnow.return_value = now
@@ -190,8 +190,8 @@ def test_get_source_video_upload_urls_returns_requested_part_urls():
 
 
 def test_complete_multipart_upload_is_callable_as_classmethod():
-    with patch("csrcqsf.biz.railwayparts.reconstruction_manager._get_minio_helpers") as helpers_mock, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.run_sync", AsyncMock(side_effect=lambda fn: fn())):
+    with patch("csrcqsf.modules.railway_parts.services.reconstruction_service._get_minio_helpers") as helpers_mock, \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.run_sync", AsyncMock(side_effect=lambda fn: fn())):
         minio_instance = SimpleNamespace(client=SimpleNamespace(_complete_multipart_upload=lambda **_kwargs: None))
         helpers_mock.return_value = (None, None, minio_instance, None, None)
 
@@ -246,11 +246,11 @@ def test_complete_source_video_multipart_upload_persists_item_after_complete():
              {"part_number": 1, "size": 1024, "etag": "etag-1"}
          ])) as list_parts_mock, \
          patch.object(ReconstructionManager, "_complete_multipart_upload", AsyncMock()) as complete_mock, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionVideoUploadSession.get_by_id", AsyncMock(return_value=upload_session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.update_source_video", AsyncMock()) as update_source_video_mock, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionVideoUploadSession.mark_completed", AsyncMock()) as mark_completed_mock, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.Items.get_item_by_id", AsyncMock(return_value=persisted_item)):
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionVideoUploadSession.get_by_id", AsyncMock(return_value=upload_session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.Items.update_source_video", AsyncMock()) as update_source_video_mock, \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionVideoUploadSession.mark_completed", AsyncMock()) as mark_completed_mock, \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.Items.get_item_by_id", AsyncMock(return_value=persisted_item)):
         result = asyncio.run(
             ReconstructionManager.complete_source_video_multipart_upload(
                 upload_session_id=9001,
@@ -282,8 +282,8 @@ def test_abort_source_video_multipart_upload_marks_session_aborted():
 
     with patch.object(ReconstructionManager, "_require_upload_session", AsyncMock(return_value=upload_session)), \
          patch.object(ReconstructionManager, "_abort_multipart_upload", AsyncMock()) as abort_mock, \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionVideoUploadSession.mark_aborted", AsyncMock()) as mark_aborted_mock:
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionVideoUploadSession.mark_aborted", AsyncMock()) as mark_aborted_mock:
         result = asyncio.run(ReconstructionManager.abort_source_video_multipart_upload(upload_session_id=9001))
 
     abort_mock.assert_awaited_once()
@@ -331,8 +331,8 @@ def test_upload_source_video_local_part_allows_unexpected_part_size(tmp_path):
 
     with patch.object(ReconstructionManager, "_require_upload_session", AsyncMock(return_value=upload_session)), \
          patch.object(ReconstructionManager, "_get_local_upload_storage", return_value=storage), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionVideoUploadSession.update_sync_state", AsyncMock()) as update_state_mock:
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionVideoUploadSession.update_sync_state", AsyncMock()) as update_state_mock:
         result = asyncio.run(
             ReconstructionManager.upload_source_video_local_part(
                 upload_session_id=9001,
@@ -362,8 +362,8 @@ def test_upload_source_video_local_part_accepts_expected_last_part_size(tmp_path
 
     with patch.object(ReconstructionManager, "_require_upload_session", AsyncMock(return_value=upload_session)), \
          patch.object(ReconstructionManager, "_get_local_upload_storage", return_value=storage), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionVideoUploadSession.update_sync_state", AsyncMock()) as update_state_mock:
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionVideoUploadSession.update_sync_state", AsyncMock()) as update_state_mock:
         result = asyncio.run(
             ReconstructionManager.upload_source_video_local_part(
                 upload_session_id=9001,
@@ -377,7 +377,7 @@ def test_upload_source_video_local_part_accepts_expected_last_part_size(tmp_path
 
 
 def test_check_minio_and_sync_local_uploads_returns_unavailable_when_env_missing():
-    with patch("csrcqsf.biz.railwayparts.reconstruction_manager.minio_env_configured", return_value=False):
+    with patch("csrcqsf.modules.railway_parts.services.reconstruction_service.minio_env_configured", return_value=False):
         result = asyncio.run(ReconstructionManager.check_minio_and_sync_local_uploads())
 
     assert result["available"] is False
@@ -403,10 +403,10 @@ def test_check_minio_and_sync_local_uploads_binds_item_after_remote_sync():
     )
     session = AsyncMock()
 
-    with patch("csrcqsf.biz.railwayparts.reconstruction_manager.minio_env_configured", return_value=True), \
+    with patch("csrcqsf.modules.railway_parts.services.reconstruction_service.minio_env_configured", return_value=True), \
          patch.object(ReconstructionManager, "_minio_health_check", AsyncMock(return_value=True)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch("csrcqsf.biz.railwayparts.reconstruction_manager.ReconstructionVideoUploadSession.list_local_sessions_pending_remote_sync", AsyncMock(return_value=[pending_session])), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionVideoUploadSession.list_local_sessions_pending_remote_sync", AsyncMock(return_value=[pending_session])), \
          patch.object(ReconstructionManager, "_sync_local_session_to_remote", AsyncMock(return_value=True)) as sync_mock:
         result = asyncio.run(ReconstructionManager.check_minio_and_sync_local_uploads())
 

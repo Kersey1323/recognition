@@ -35,7 +35,9 @@ except Exception as e:
 # 测试 env_config.py
 print("\n【env_config.py 配置】")
 try:
-    from csrcqsf.biz.railwayparts.vector_db.config.env_config import get_config
+    from csrcqsf.modules.railway_parts.vector_search.config.env_config import (
+        get_config,
+    )
     config = get_config()
     print(f"model_dir: {config.model_dir}")
     print(f"siglip_model_path: {config.siglip_model_path}")

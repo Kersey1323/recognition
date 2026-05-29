@@ -1,21 +1,7 @@
+"""Compatibility wrapper for `csrcqsf.infra.db.mdp_db`."""
 
-from bfrcommon.db import with_schema
-from globals_vars import logger
-from sqlalchemy import text
-from csrcqsf.settings import ai_settings
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from anyio import to_thread
-sgo_engine = create_async_engine(
-    f'{ai_settings.get_sgo_dsn()}',
-    echo=False,
-    future=True,
-)
+import sys as _sys
+from importlib import import_module as _import_module
 
-
-sgo_sessionLocal = async_sessionmaker(expire_on_commit=False,
-                                  autoflush=False, bind=sgo_engine)
-
-
-
-
-
+_impl = _import_module("csrcqsf.infra.db.mdp_db")
+_sys.modules[__name__] = _impl
