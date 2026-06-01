@@ -2,6 +2,7 @@
 三维重构管理器 - 业务逻辑层
 主业务只负责重构任务元数据管理，并通过远端 reconstruction_server 执行任务
 """
+import sys
 import math
 import os
 import re
@@ -113,11 +114,11 @@ def _normalize_datetime(value):
 
 
 def _bind_reconstruction_video_runtime():
-    reconstruction_video_service.bind_runtime_dependencies()
+    reconstruction_video_service.bind_runtime_dependencies(sys.modules[__name__])
 
 
 def _bind_reconstruction_task_runtime():
-    reconstruction_task_service.bind_runtime_dependencies()
+    reconstruction_task_service.bind_runtime_dependencies(sys.modules[__name__])
 
 
 class ReconstructionManager:
@@ -741,4 +742,3 @@ def _install_reconstruction_task_service_methods() -> None:
 
 
 _install_reconstruction_task_service_methods()
-

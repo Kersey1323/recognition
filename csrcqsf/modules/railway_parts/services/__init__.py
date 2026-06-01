@@ -3,11 +3,18 @@
 from importlib import import_module
 
 __all__ = [
+    "item_service",
     "parts_service",
+    "parts_index_service",
     "parts_search_service",
     "reconstruction_service",
+    "reconstruction_result_service",
     "reconstruction_task_service",
     "reconstruction_video_service",
+    "review_ticket_service",
+    "search_service",
+    "source_video_service",
+    "upload_service",
 ]
 
 

@@ -5,38 +5,39 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 from uuid import uuid4
-
-
-def bind_runtime_dependencies() -> None:
-    from csrcqsf.modules.railway_parts.services import reconstruction_service
+from csrcqsf.modules.railway_parts.services import reconstruction_result_service
+def bind_runtime_dependencies(reconstruction_service_module: ModuleType | None = None) -> None:
+    if reconstruction_service_module is None:
+        from csrcqsf.modules.railway_parts.services import reconstruction_service as reconstruction_service_module
 
     globals().update(
         {
-            "datetime": reconstruction_service.datetime,
-            "os": reconstruction_service.os,
-            "re": reconstruction_service.re,
-            "Path": reconstruction_service.Path,
-            "uuid4": reconstruction_service.uuid4,
-            "run_sync": reconstruction_service.run_sync,
-            "get_id": reconstruction_service.get_id,
-            "logger": reconstruction_service.logger,
-            "SessionLocal": reconstruction_service.SessionLocal,
-            "ReconstructionBusinessError": reconstruction_service.ReconstructionBusinessError,
-            "ReconstructionServiceClientError": reconstruction_service.ReconstructionServiceClientError,
-            "ReconstructionRecord": reconstruction_service.ReconstructionRecord,
-            "ReconstructionStatus": reconstruction_service.ReconstructionStatus,
-            "Items": reconstruction_service.Items,
-            "reconstruction_server_env_configured": reconstruction_service.reconstruction_server_env_configured,
-            "sam3_model_path": reconstruction_service.sam3_model_path,
-            "minio_reconstruction_file_bucket": reconstruction_service.minio_reconstruction_file_bucket,
-            "map_celery_state_to_reconstruction_status": reconstruction_service.map_celery_state_to_reconstruction_status,
-            "get_reconstruction_task_failure_message": reconstruction_service.get_reconstruction_task_failure_message,
-            "_get_minio_helpers": reconstruction_service._get_minio_helpers,
+            "datetime": reconstruction_service_module.datetime,
+            "os": reconstruction_service_module.os,
+            "re": reconstruction_service_module.re,
+            "Path": reconstruction_service_module.Path,
+            "uuid4": reconstruction_service_module.uuid4,
+            "run_sync": reconstruction_service_module.run_sync,
+            "get_id": reconstruction_service_module.get_id,
+            "logger": reconstruction_service_module.logger,
+            "SessionLocal": reconstruction_service_module.SessionLocal,
+            "ReconstructionBusinessError": reconstruction_service_module.ReconstructionBusinessError,
+            "ReconstructionServiceClientError": reconstruction_service_module.ReconstructionServiceClientError,
+            "ReconstructionRecord": reconstruction_service_module.ReconstructionRecord,
+            "ReconstructionStatus": reconstruction_service_module.ReconstructionStatus,
+            "Items": reconstruction_service_module.Items,
+            "reconstruction_server_env_configured": reconstruction_service_module.reconstruction_server_env_configured,
+            "sam3_model_path": reconstruction_service_module.sam3_model_path,
+            "minio_reconstruction_file_bucket": reconstruction_service_module.minio_reconstruction_file_bucket,
+            "map_celery_state_to_reconstruction_status": reconstruction_service_module.map_celery_state_to_reconstruction_status,
+            "get_reconstruction_task_failure_message": reconstruction_service_module.get_reconstruction_task_failure_message,
+            "_get_minio_helpers": reconstruction_service_module._get_minio_helpers,
         }
     )
-
-
+def _runtime_context():
+    return SimpleNamespace(**globals())
 def _is_terminal_status(cls, status: str | None) -> bool:
     return status in (
         ReconstructionStatus.SUCCESS,
@@ -98,7 +99,6 @@ def _infer_terminal_status_from_record(cls, record) -> str | None:
     if error_message:
         return ReconstructionStatus.FAILED
     return None
-
 def _build_terminal_snapshot_from_record(cls, record, status: str | None = None) -> dict | None:
     terminal_status = status or cls._infer_terminal_status_from_record(record)
     if terminal_status is None:
@@ -126,7 +126,6 @@ def _build_terminal_snapshot_from_record(cls, record, status: str | None = None)
         "completed_at": getattr(record, "completed_at", None),
         "elapsed_sec": getattr(record, "elapsed_sec", None),
     }
-
 def _apply_record_status_snapshot(
     cls,
     record,
@@ -349,34 +348,33 @@ async def statistics(cls) -> dict:
         "success_rate": success_rate,
     }
 
-def _build_result_object_name(cls, item_id: int, task_id: str) -> str:
-    return f"results/{item_id}/{task_id}/point_cloud.ply"
+def _build_result_object_name(cls, item_id: int, task_id: str, runtime=None) -> str:
+    return reconstruction_result_service._build_result_object_name(
+        cls,
+        item_id=item_id,
+        task_id=task_id,
+    )
 
-def _format_reconstruction_result_path(cls, object_name: str) -> str:
-    return f"{minio_reconstruction_file_bucket}/{object_name}"
+def _format_reconstruction_result_path(cls, object_name: str, runtime=None) -> str:
+    return reconstruction_result_service._format_reconstruction_result_path(
+        cls,
+        object_name=object_name,
+        runtime=runtime or _runtime_context(),
+    )
 
-def _safe_result_filename(filename: str | None) -> str:
-    raw_name = Path(filename or "point_cloud.ply").name
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._")
-    return safe_name or "point_cloud.ply"
+def _safe_result_filename(filename: str | None, runtime=None) -> str:
+    return reconstruction_result_service._safe_result_filename(
+        None,
+        filename=filename,
+        runtime=runtime or _runtime_context(),
+    )
 
-def _resolve_record_ply_path(cls, record) -> str | None:
-    _, looks_like_minio_path, _, _, _ = _get_minio_helpers()
-    if record.ply_url and not looks_like_minio_path(
-        record.ply_url,
-        default_bucket=minio_reconstruction_file_bucket,
-    ):
-        return record.ply_url
-
-    if record.output_path:
-        return str(
-            Path(record.output_path)
-            / "point_cloud"
-            / f"iteration_{record.iterations}"
-            / "point_cloud.ply"
-        )
-
-    return None
+def _resolve_record_ply_path(cls, record, runtime=None) -> str | None:
+    return reconstruction_result_service._resolve_record_ply_path(
+        cls,
+        record=record,
+        runtime=runtime or _runtime_context(),
+    )
 
 def _resolve_sam3_model_path(
     cls,
@@ -400,202 +398,53 @@ async def _upload_reconstruction_result_file(
     item_id: int,
     task_id: str,
     ply_path: str,
+    runtime=None,
 ) -> str | None:
-    if not ply_path:
-        return None
+    return await reconstruction_result_service._upload_reconstruction_result_file(
+        cls,
+        item_id=item_id,
+        task_id=task_id,
+        ply_path=ply_path,
+        runtime=runtime or _runtime_context(),
+    )
 
-    if not os.path.exists(ply_path):
-        logger.warning(f"重构结果文件不存在，跳过上传: task_id={task_id}, path={ply_path}")
-        return None
-
-    ensure_minio_bucket, _, minio_instance, _, _ = _get_minio_helpers()
-    ensure_minio_bucket(minio_reconstruction_file_bucket)
-    object_name = cls._build_result_object_name(item_id=item_id, task_id=task_id)
-
-    def _upload() -> None:
-        minio_instance.client.fput_object(
-            minio_reconstruction_file_bucket,
-            object_name,
-            ply_path,
-            content_type="application/octet-stream",
-        )
-
-    await run_sync(_upload)
-    return cls._format_reconstruction_result_path(object_name)
-
-async def _upload_manual_reconstruction_result_file(cls, item_id: int, file) -> dict:
-    ensure_minio_bucket, _, minio_instance, _, _ = _get_minio_helpers()
-    ensure_minio_bucket(minio_reconstruction_file_bucket)
-    safe_name = cls._safe_result_filename(file.filename)
-    object_name = f"results/manual/{item_id}/{get_id()}_{safe_name}"
-    content_type = file.content_type or "application/octet-stream"
-
-    def _upload() -> int:
-        file.file.seek(0, os.SEEK_END)
-        size = file.file.tell()
-        file.file.seek(0)
-        minio_instance.client.put_object(
-            minio_reconstruction_file_bucket,
-            object_name,
-            file.file,
-            length=size,
-            content_type=content_type,
-        )
-        return size
-
-    size = await run_sync(_upload)
-    await file.close()
-    return {
-        "ply_url": cls._format_reconstruction_result_path(object_name),
-        "filename": safe_name,
-        "size": size,
-        "content_type": content_type,
-    }
+async def _upload_manual_reconstruction_result_file(cls, item_id: int, file, runtime=None) -> dict:
+    return await reconstruction_result_service._upload_manual_reconstruction_result_file(
+        cls,
+        item_id=item_id,
+        file=file,
+        runtime=runtime or _runtime_context(),
+    )
 
 async def _persist_success_result(
     cls,
     session,
     record: ReconstructionRecord,
     task_result: dict,
+    runtime=None,
 ) -> bool:
-    ply_path = task_result.get("ply_path")
-    if task_result.get("output_dir") and not record.output_path:
-        await ReconstructionRecord.update_result(
-            session=session,
-            task_id=record.task_id,
-            output_path=task_result.get("output_dir"),
-        )
-    if not ply_path:
-        return False
-
-    _, looks_like_minio_path, _, _, _ = _get_minio_helpers()
-    if looks_like_minio_path(
-        ply_path,
-        default_bucket=minio_reconstruction_file_bucket,
-    ):
-        changed = False
-        await ReconstructionRecord.update_result(
-            session=session,
-            task_id=record.task_id,
-            output_path=task_result.get("output_dir"),
-            ply_url=ply_path,
-        )
-        if record.ply_url != ply_path:
-            record.ply_url = ply_path
-            changed = True
-        item = await Items.get_item_by_id(session, record.item_id)
-        if item is not None and item.obj_url != ply_path:
-            await Items.update_obj_url(
-                session=session,
-                item_id=record.item_id,
-                obj_url=ply_path,
-            )
-            changed = True
-        return changed
-
-    if record.ply_url and looks_like_minio_path(
-        record.ply_url,
-        default_bucket=minio_reconstruction_file_bucket,
-    ):
-        item = await Items.get_item_by_id(session, record.item_id)
-        if item is not None and not item.obj_url:
-            await Items.update_obj_url(
-                session=session,
-                item_id=record.item_id,
-                obj_url=record.ply_url,
-            )
-            return True
-        return False
-
-    result_path = await cls._upload_reconstruction_result_file(
-        item_id=record.item_id,
-        task_id=record.task_id,
-        ply_path=ply_path,
-    )
-    if result_path is None:
-        return False
-
-    await ReconstructionRecord.update_result(
+    return await reconstruction_result_service._persist_success_result(
+        cls,
         session=session,
-        task_id=record.task_id,
-        output_path=task_result.get("output_dir"),
-        ply_url=result_path,
+        record=record,
+        task_result=task_result,
+        runtime=runtime or _runtime_context(),
     )
-    await Items.update_obj_url(
-        session=session,
-        item_id=record.item_id,
-        obj_url=result_path,
+
+async def persist_task_result_by_task_id(cls, task_id: str, task_result: dict, runtime=None) -> bool:
+    return await reconstruction_result_service.persist_task_result_by_task_id(
+        cls,
+        task_id=task_id,
+        task_result=task_result,
+        runtime=runtime or _runtime_context(),
     )
-    record.ply_url = result_path
-    return True
 
-async def persist_task_result_by_task_id(cls, task_id: str, task_result: dict) -> bool:
-    async with SessionLocal() as session:
-        record = await ReconstructionRecord.get_by_task_id(session, task_id)
-        if not record:
-            logger.warning(f"重构结果持久化时未找到任务记录: task_id={task_id}")
-            return False
-
-        completed_at = datetime.utcnow()
-        elapsed_sec = task_result.get("elapsed_sec")
-        task_error = get_reconstruction_task_failure_message(task_result)
-        if task_error is not None:
-            await ReconstructionRecord.update_status(
-                session=session,
-                task_id=task_id,
-                status=ReconstructionStatus.FAILED,
-                progress=record.progress,
-                current_stage="失败",
-                error_message=task_error,
-                completed_at=completed_at,
-                elapsed_sec=elapsed_sec,
-            )
-            await session.commit()
-            return False
-
-        changed = await cls._persist_success_result(
-            session=session,
-            record=record,
-            task_result=task_result,
-        )
-
-        await ReconstructionRecord.update_status(
-            session=session,
-            task_id=task_id,
-            status=ReconstructionStatus.SUCCESS,
-            progress=100,
-            current_stage="完成",
-            error_message=None,
-            completed_at=completed_at,
-            elapsed_sec=elapsed_sec,
-        )
-        await session.commit()
-        return changed
-
-async def ensure_item_result_persisted(cls, item_id: int) -> bool:
-    async with SessionLocal() as session:
-        item = await Items.get_item_by_id(session, item_id)
-        if item is None or item.obj_url:
-            return False
-
-        records = await ReconstructionRecord.get_by_item_id(session, item_id)
-        for record in records:
-            if record.status != ReconstructionStatus.SUCCESS:
-                continue
-
-            changed = await cls._persist_success_result(
-                session=session,
-                record=record,
-                task_result={
-                    "ply_path": cls._resolve_record_ply_path(record),
-                    "output_dir": record.output_path,
-                },
-            )
-            if changed:
-                await session.commit()
-                return True
-
-        return False
+async def ensure_item_result_persisted(cls, item_id: int, runtime=None) -> bool:
+    return await reconstruction_result_service.ensure_item_result_persisted(
+        cls,
+        item_id=item_id,
+        runtime=runtime or _runtime_context(),
+    )
 
 async def submit_train_task(
     cls,
@@ -835,79 +684,20 @@ async def get_task_status(cls, task_id: str) -> dict:
             "time_updated": cls._response_time_updated(record),
         }
 
-async def upload_reconstruction_result(cls, item_id: int, file) -> dict:
-    item = await cls._require_item_exists(item_id)
-    if item.obj_url:
-        raise ReconstructionBusinessError("已经存在重构模型，请先删除后再上传")
-    if not str(file.filename or "").lower().endswith(".ply"):
-        raise ReconstructionBusinessError("仅支持上传 .ply 文件")
-
-    uploaded = await cls._upload_manual_reconstruction_result_file(item_id, file)
-
-    async with SessionLocal() as session:
-        try:
-            await Items.update_obj_url(
-                session=session,
-                item_id=item_id,
-                obj_url=uploaded["ply_url"],
-            )
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            await cls._delete_minio_object(
-                uploaded["ply_url"],
-                default_bucket=minio_reconstruction_file_bucket,
-            )
-            raise
-
-    return {
-        "item_id": item_id,
-        "ply_url": uploaded["ply_url"],
-        "filename": uploaded["filename"],
-        "size": uploaded["size"],
-        "content_type": uploaded["content_type"],
-        "message": "重构模型上传成功",
-    }
-
-async def delete_reconstruction_result(cls, item_id: int) -> dict:
-    item = await cls._require_item_exists(item_id)
-    result_path = item.obj_url
-    if not result_path:
-        raise ReconstructionBusinessError(f"配件未绑定三维重构结果: item_id={item_id}")
-
-    _, looks_like_minio_path, _, _, _ = _get_minio_helpers()
-    is_minio_result = looks_like_minio_path(
-        result_path,
-        default_bucket=minio_reconstruction_file_bucket,
+async def upload_reconstruction_result(cls, item_id: int, file, runtime=None) -> dict:
+    return await reconstruction_result_service.upload_reconstruction_result(
+        cls,
+        item_id=item_id,
+        file=file,
+        runtime=runtime or _runtime_context(),
     )
-    deleted = False
-    if is_minio_result:
-        deleted = await cls._delete_minio_object(
-            result_path,
-            default_bucket=minio_reconstruction_file_bucket,
-        )
-    else:
-        logger.info(f"当前重构结果不是MinIO路径，仅清理数据库引用: item_id={item_id}, path={result_path}")
 
-    async with SessionLocal() as session:
-        await Items.update_obj_url(session=session, item_id=item_id, obj_url=None)
-        await ReconstructionRecord.clear_current_result_by_url(
-            session=session,
-            item_id=item_id,
-            result_url=result_path,
-        )
-        await session.commit()
-
-    if is_minio_result:
-        message = "三维重构结果删除成功" if deleted else "三维重构结果对象不存在，元数据已清理"
-    else:
-        message = "旧本地重构结果引用已清理"
-
-    return {
-        "item_id": item_id,
-        "result_path": result_path,
-        "message": message,
-    }
+async def delete_reconstruction_result(cls, item_id: int, runtime=None) -> dict:
+    return await reconstruction_result_service.delete_reconstruction_result(
+        cls,
+        item_id=item_id,
+        runtime=runtime or _runtime_context(),
+    )
 
 async def list_item_tasks(cls, item_id: int) -> list[dict]:
     """
