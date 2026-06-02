@@ -25,7 +25,7 @@ from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsMan
 from csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager import (
     MilvusStateManagerV2,
 )
-from csrcqsf.runtime import ensure_vector_models_enabled
+from csrcqsf.core.runtime import ensure_vector_models_enabled
 
 from .router import parts_router
 

@@ -15,12 +15,15 @@ from csrcqsf.modules.railway_parts.vector_search.storage.collection_manager impo
     CollectionManager,
 )
 from csrcqsf.modules.railway_parts.vector_search.utils.logger import setup_logger
-from csrcqsf.biz.model_client import get_model_client
+from csrcqsf.infra.external.model_client import get_model_client
 
 logger = setup_logger(__name__)
 
 IMAGE_VARIANT_ORIGINAL = "original"
 IMAGE_VARIANT_SAM3_SEGMENTED = "sam3_segmented"
+LEGACY_PATCH_TOKENS_MARKER = os.path.join(
+    "csrcqsf", "biz", "railwayparts", "vector_db", "patch_tokens"
+) + os.sep
 
 
 class MilvusManagerV2:
@@ -207,6 +210,16 @@ class MilvusManagerV2:
             return patch_token_key
         return os.path.join(self.patch_tokens_dir, patch_token_key)
 
+    def _map_legacy_patch_tokens_path(self, legacy_path: str) -> Optional[str]:
+        normalized = str(legacy_path).replace("\\", os.sep)
+        marker_index = normalized.find(LEGACY_PATCH_TOKENS_MARKER)
+        if marker_index < 0:
+            return None
+        relative_part = normalized[marker_index + len(LEGACY_PATCH_TOKENS_MARKER):]
+        if relative_part == "":
+            return None
+        return os.path.join(self.patch_tokens_dir, relative_part)
+
     def _resolve_patch_tokens_path(self, entity: Dict) -> Optional[str]:
         patch_token_key = entity.get("patch_token_key")
         if patch_token_key:
@@ -215,11 +228,19 @@ class MilvusManagerV2:
                 return candidate
 
         legacy_path = entity.get("patch_tokens_path")
+        if legacy_path:
+            mapped_path = self._map_legacy_patch_tokens_path(str(legacy_path))
+            if mapped_path and os.path.exists(mapped_path):
+                return mapped_path
         if legacy_path and os.path.exists(str(legacy_path)):
             return str(legacy_path)
 
         if patch_token_key:
             return self._build_patch_tokens_path(str(patch_token_key))
+        if legacy_path:
+            mapped_path = self._map_legacy_patch_tokens_path(str(legacy_path))
+            if mapped_path:
+                return mapped_path
         if legacy_path:
             return str(legacy_path)
         return None

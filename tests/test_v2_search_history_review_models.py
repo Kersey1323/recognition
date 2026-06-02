@@ -1,6 +1,6 @@
 import inspect
 
-from csrcqsf.biz.railwayparts.api_models import (
+from csrcqsf.modules.railway_parts.schemas import (
     ItemSuggestReq,
     ItemSuggestRes,
     SearchHistoryDeleteReq,
@@ -11,7 +11,7 @@ from csrcqsf.biz.railwayparts.api_models import (
     SearchHistoryVerifyReq,
     SearchReviewTicketUpdateReq,
 )
-from csrcqsf.models.search_history import SearchHistory, SearchReviewTicket
+from csrcqsf.models.orm.search_history import SearchHistory, SearchReviewTicket
 
 
 def dump_model(model):

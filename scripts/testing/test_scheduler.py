@@ -8,7 +8,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from csrcqsf.scheduler import scheduler
+from csrcqsf.core.scheduler import scheduler
 
 print("✓ 定时任务调度器已启动")
 

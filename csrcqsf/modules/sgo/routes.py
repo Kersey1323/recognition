@@ -3,9 +3,9 @@ from pydantic import BaseModel, Field
 
 from bfrcommon.api_models import PageReq, PageRes
 from csrcqsf.infra.db.main_db import SessionLocal
-from csrcqsf.biz.sgo import SGOBiz
+from csrcqsf.modules.sgo.repositories import SgoItemImages
+from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.modules.sgo.schemas import ListInqueryItem
-from csrcqsf.models.sgo import SgoItemImages
 
 import json
 

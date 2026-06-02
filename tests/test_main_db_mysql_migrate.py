@@ -32,7 +32,7 @@ def test_db_migrate_contains_column_probe_strategy():
 def test_db_migrate_loads_reconstruction_upload_model():
     text = Path("csrcqsf/infra/db/main_db.py").read_text(encoding="utf-8")
 
-    assert '"csrcqsf.models.reconstruction_upload"' in text
+    assert '"csrcqsf.models.orm.reconstruction_upload"' in text
 
 
 def test_load_main_db_models_imports_all_main_db_model_modules():
@@ -48,12 +48,12 @@ def test_load_main_db_models_imports_all_main_db_model_modules():
         pg_module.load_main_db_models()
 
     assert imported == [
-        "csrcqsf.models.files",
-        "csrcqsf.models.item",
-        "csrcqsf.models.reconstruction",
-        "csrcqsf.models.reconstruction_upload",
-        "csrcqsf.models.search_history",
-        "csrcqsf.models.sgo",
+        "csrcqsf.models.orm.files",
+        "csrcqsf.models.orm.item",
+        "csrcqsf.models.orm.reconstruction",
+        "csrcqsf.models.orm.reconstruction_upload",
+        "csrcqsf.models.orm.search_history",
+        "csrcqsf.models.orm.sgo",
     ]
 
 

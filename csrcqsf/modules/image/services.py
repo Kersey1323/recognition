@@ -1,19 +1,20 @@
 import base64
-from typing import List
-import numpy as np
 import os
-from csrcqsf.api_models import OCRResult, PointAndText, Point
-from csrcqsf.settings import temp_dir, minio_bucket
-from csrcqsf.data.minio import minio_instance
-from globals_vars import logger
-from csrcqsf.logger import CodeTimer
+from typing import List
+
+import numpy as np
+
 from bfrcommon.snowflake import get_id
+from csrcqsf.core.logger import CodeTimer
+from csrcqsf.core.settings import minio_bucket, temp_dir
+from csrcqsf.infra.external.model_client import get_model_client
+from csrcqsf.infra.storage.minio import minio_instance
+from csrcqsf.modules.image.schemas import OCRResult, Point, PointAndText
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
-from csrcqsf.biz.model_client import get_model_client
+from globals_vars import logger
 
 
 class SegmentBiz:
-
     @classmethod
     async def init(cls):
         logger.info("SegmentBiz: 模型已迁移至模型服务，本地不再加载")
@@ -22,16 +23,15 @@ class SegmentBiz:
     async def mask(cls, file_url: str):
         image = await RailwayPartsManager.get_image_from_oss(file_url)
 
-        with CodeTimer(name='图像分割计算(远程)'):
+        with CodeTimer(name="图像分割计算(远程)"):
             client = get_model_client()
             image_embedding = await client.sam_embedding(image)
 
-        mask_file_name = f'{get_id()}.npy'
+        mask_file_name = f"{get_id()}.npy"
         mask_file_path = os.path.join(temp_dir, mask_file_name)
         np.save(mask_file_path, image_embedding)
 
-        minio_instance.upload_file(
-            minio_bucket, mask_file_name, mask_file_path)
+        minio_instance.upload_file(minio_bucket, mask_file_name, mask_file_path)
         os.remove(mask_file_path)
         return mask_file_name
 
@@ -39,7 +39,7 @@ class SegmentBiz:
     async def front_end_ocr(cls, file_url):
         image = await RailwayPartsManager.get_image_from_oss(file_url)
 
-        with CodeTimer(name='图片文字识别(远程)'):
+        with CodeTimer(name="图片文字识别(远程)"):
             client = get_model_client()
             results = await client.ocr_recognize(image)
 

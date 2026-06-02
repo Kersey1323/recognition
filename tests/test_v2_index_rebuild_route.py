@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import BaseModel
 
-from csrcqsf.biz.railwayparts import reconstruction_api_models as real_reconstruction_api_models
+from csrcqsf.modules.railway_parts.schemas import reconstruction as real_reconstruction_api_models
 
 
 def _clear_module(prefix: str) -> None:

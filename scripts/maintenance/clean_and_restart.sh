@@ -8,7 +8,7 @@ echo "=========================================="
 # 1. 停止服务
 echo ""
 echo "[1/4] 停止服务..."
-pkill -f "uvicorn.*csrcqsf.app:app" && echo "✓ 服务已停止" || echo "⚠ 没有找到运行中的服务"
+pkill -f "uvicorn.*csrcqsf.core.app:app" && echo "✓ 服务已停止" || echo "⚠ 没有找到运行中的服务"
 
 # 等待进程完全停止
 sleep 2
@@ -37,8 +37,8 @@ echo "=========================================="
 echo "清理完成！"
 echo ""
 echo "请使用以下命令启动服务："
-echo "  .venv/bin/uvicorn csrcqsf.app:app --host 0.0.0.0 --port 65432"
+echo "  .venv/bin/uvicorn csrcqsf.core.app:app --host 0.0.0.0 --port 65432"
 echo ""
 echo "或者如果使用 nohup 后台运行："
-echo "  nohup .venv/bin/uvicorn csrcqsf.app:app --host 0.0.0.0 --port 65432 > logs/app.log 2>&1 &"
+echo "  nohup .venv/bin/uvicorn csrcqsf.core.app:app --host 0.0.0.0 --port 65432 > logs/app.log 2>&1 &"
 echo "=========================================="

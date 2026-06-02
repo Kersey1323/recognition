@@ -26,33 +26,33 @@ def test_core_and_infra_phase_one_modules_exist():
         assert Path(relative_path).exists(), relative_path
 
 
-def test_root_compat_modules_reference_core_implementations():
-    expected_references = {
-        "csrcqsf/app.py": "csrcqsf.core.app",
-        "csrcqsf/settings.py": "csrcqsf.core.settings",
-        "csrcqsf/runtime.py": "csrcqsf.core.runtime",
-        "csrcqsf/logger.py": "csrcqsf.core.logger",
-        "csrcqsf/scheduler.py": "csrcqsf.core.scheduler",
-    }
+def test_legacy_root_compat_modules_are_removed_in_final_state():
+    removed_paths = [
+        "csrcqsf/app.py",
+        "csrcqsf/settings.py",
+        "csrcqsf/runtime.py",
+        "csrcqsf/logger.py",
+        "csrcqsf/scheduler.py",
+        "csrcqsf/api_models.py",
+    ]
 
-    for relative_path, expected in expected_references.items():
-        text = Path(relative_path).read_text(encoding="utf-8")
-        assert expected in text, relative_path
+    for relative_path in removed_paths:
+        assert not Path(relative_path).exists(), relative_path
 
 
-def test_data_and_model_client_compat_modules_reference_infra_implementations():
-    expected_references = {
-        "csrcqsf/data/main_db.py": "csrcqsf.infra.db.main_db",
-        "csrcqsf/data/mdpdb.py": "csrcqsf.infra.db.mdp_db",
-        "csrcqsf/data/minio.py": "csrcqsf.infra.storage.minio",
-        "csrcqsf/data/milvus.py": "csrcqsf.infra.vector_store.milvus",
-        "csrcqsf/data/basis_api.py": "csrcqsf.infra.external.basis_api",
-        "csrcqsf/biz/model_client.py": "csrcqsf.infra.external.model_client",
-    }
+def test_legacy_data_and_model_client_compat_modules_are_removed_in_final_state():
+    removed_paths = [
+        "csrcqsf/data/__init__.py",
+        "csrcqsf/data/main_db.py",
+        "csrcqsf/data/mdpdb.py",
+        "csrcqsf/data/minio.py",
+        "csrcqsf/data/milvus.py",
+        "csrcqsf/data/basis_api.py",
+        "csrcqsf/biz/model_client.py",
+    ]
 
-    for relative_path, expected in expected_references.items():
-        text = Path(relative_path).read_text(encoding="utf-8")
-        assert expected in text, relative_path
+    for relative_path in removed_paths:
+        assert not Path(relative_path).exists(), relative_path
 
 
 def test_legacy_pg_compat_module_removed_in_phase_eight():

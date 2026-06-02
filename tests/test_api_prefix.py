@@ -1,4 +1,4 @@
-from csrcqsf.app import app
+from csrcqsf.core.app import app
 
 
 def test_all_business_routes_are_mounted_under_recognition_api_prefix():

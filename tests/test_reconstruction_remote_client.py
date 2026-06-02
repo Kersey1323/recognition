@@ -1,6 +1,6 @@
 import asyncio
 
-from csrcqsf.biz.railwayparts.reconstruction_client import ReconstructionServiceClient
+from csrcqsf.modules.railway_parts.integrations.reconstruction_client import ReconstructionServiceClient
 
 
 class _FakeResponse:

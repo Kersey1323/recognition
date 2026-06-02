@@ -154,6 +154,26 @@ def test_resolve_patch_tokens_path_prefers_patch_token_key_and_falls_back_to_leg
     ) == str(legacy_path)
 
 
+def test_resolve_patch_tokens_path_maps_legacy_source_tree_path_into_new_state_dir(tmp_path):
+    manager = object.__new__(MilvusManagerV2)
+    manager.patch_tokens_dir = str(tmp_path / "state" / "vector_db" / "patch_tokens")
+
+    mapped_path = tmp_path / "state" / "vector_db" / "patch_tokens" / "nested" / "candidate.npy"
+    mapped_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(mapped_path, np.array([[5.0, 6.0]], dtype=float))
+
+    legacy_path = (
+        "/home/ubuntu/project-train/recognition/"
+        "csrcqsf/biz/railwayparts/vector_db/patch_tokens/nested/candidate.npy"
+    )
+
+    assert manager._resolve_patch_tokens_path(
+        {
+            "patch_tokens_path": legacy_path,
+        }
+    ) == str(mapped_path)
+
+
 def test_search_by_image_dinov2_degrades_to_coarse_results_when_patch_tokens_missing(
     tmp_path,
 ):

@@ -13,7 +13,7 @@ from csrcqsf.modules.railway_parts.services.reconstruction_service import (
     ReconstructionBusinessError,
     ReconstructionManager,
 )
-from csrcqsf.models.reconstruction import ReconstructionStatus
+from csrcqsf.models.orm.reconstruction import ReconstructionStatus
 
 
 class _AsyncSessionContext:

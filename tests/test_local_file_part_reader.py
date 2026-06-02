@@ -1,4 +1,4 @@
-from csrcqsf.biz.railwayparts.local_file_part_reader import LocalFilePartReader
+from csrcqsf.modules.railway_parts.utils.local_file_part_reader import LocalFilePartReader
 
 
 def test_local_file_part_reader_lists_parts_and_reads_bytes(tmp_path):

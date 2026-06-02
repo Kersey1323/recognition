@@ -5,7 +5,7 @@ from datetime import datetime
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from csrcqsf.models.reconstruction import ReconstructionStatus
+from csrcqsf.models.orm.reconstruction import ReconstructionStatus
 
 
 def _clear_module(prefix: str) -> None:
@@ -247,17 +247,17 @@ def test_list_all_tasks_does_not_refresh_status_from_celery_during_read():
 
 
 def test_reconstruction_statistics_route_returns_manager_payload():
-    from csrcqsf.biz.railwayparts.reconstruction_api_models import ReconstructionStatisticsReq
+    from csrcqsf.modules.railway_parts.schemas.reconstruction import ReconstructionStatisticsReq
 
     fake_parts_service_module = ModuleType("csrcqsf.modules.railway_parts.services.parts_service")
     fake_parts_service_module.RailwayPartsManager = type("RailwayPartsManager", (), {})
     fake_reconstruction_service_module = ModuleType("csrcqsf.modules.railway_parts.services.reconstruction_service")
     fake_reconstruction_service_module.ReconstructionManager = type("ReconstructionManager", (), {})
-    fake_auto_processor_module = ModuleType("csrcqsf.biz.railwayparts.auto_processor")
+    fake_auto_processor_module = ModuleType("csrcqsf.modules.railway_parts.services.auto_processor_service")
     fake_auto_processor_module.AutoPartProcessor = type("AutoPartProcessor", (), {})
     fake_state_manager_module = ModuleType("csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager")
     fake_state_manager_module.MilvusStateManagerV2 = type("MilvusStateManagerV2", (), {})
-    fake_sgo_module = ModuleType("csrcqsf.biz.sgo")
+    fake_sgo_module = ModuleType("csrcqsf.modules.sgo.services")
     fake_sgo_module.SGOBiz = type("SGOBiz", (), {"list_parts_sgo_image": staticmethod(lambda item_id: [])})
 
     payload = {
@@ -277,9 +277,9 @@ def test_reconstruction_statistics_route_returns_manager_payload():
         {
             "csrcqsf.modules.railway_parts.services.parts_service": fake_parts_service_module,
             "csrcqsf.modules.railway_parts.services.reconstruction_service": fake_reconstruction_service_module,
-            "csrcqsf.biz.railwayparts.auto_processor": fake_auto_processor_module,
+            "csrcqsf.modules.railway_parts.services.auto_processor_service": fake_auto_processor_module,
             "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager": fake_state_manager_module,
-            "csrcqsf.biz.sgo": fake_sgo_module,
+            "csrcqsf.modules.sgo.services": fake_sgo_module,
         },
     ):
         _clear_module("csrcqsf.modules.railway_parts.routes")

@@ -5,7 +5,7 @@
 """
 import asyncio
 from sqlalchemy import text
-from csrcqsf.data.pg import engine
+from csrcqsf.infra.db.main_db import engine
 
 
 async def add_missing_columns():

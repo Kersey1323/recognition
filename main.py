@@ -15,7 +15,7 @@ def get_app_port() -> int:
 
 
 def main() -> None:
-    from csrcqsf.app import app
+    from csrcqsf.core.app import app
 
     uvicorn.run(app, host="0.0.0.0", loop="asyncio", port=get_app_port())
 

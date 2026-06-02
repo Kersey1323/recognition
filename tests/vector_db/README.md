@@ -97,7 +97,7 @@ python tests/vector_db/test_siglip_search.py \
     --top-k 3
 
 # 然后使用下载的图像进行图搜图测试
-python vector_db/tests/test_siglip_search.py \
+python tests/vector_db/test_siglip_search.py \
     --mode image \
     --query tests/vector_db/test_images/rank1_score0.9876_半单管卡DN25.jpg \
     --top-k 5
@@ -235,6 +235,6 @@ python tests/vector_db/test_dinov2_search.py \
 
 - 确保 Milvus 服务正在运行
 - 确保已经运行过 `build_index.py` 建立索引
-- MinIO 凭证需要正确配置在 `csrcqsf/modules/railway_parts/vector_search/config/db_config.ini`
+- MinIO 凭证优先通过 `.env` 配置；兼容场景下也可从 `csrcqsf/modules/railway_parts/vector_search/config/db_config.ini` 读取
 - 相似度分数范围：COSINE 距离，越接近 1 表示越相似
 - DINOv2 测试需要 patch tokens 文件存在（由索引构建时生成）

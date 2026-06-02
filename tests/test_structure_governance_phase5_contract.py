@@ -18,15 +18,14 @@ def test_phase_five_schema_packages_exist():
         assert Path(relative_path).exists(), relative_path
 
 
-def test_legacy_api_model_modules_reference_new_schema_packages():
-    expected_references = {
-        "csrcqsf/biz/railwayparts/api_models.py": "csrcqsf.modules.railway_parts.schemas",
-        "csrcqsf/biz/railwayparts/reconstruction_api_models.py": "csrcqsf.modules.railway_parts.schemas.reconstruction",
-    }
+def test_legacy_api_model_modules_are_removed_after_schema_cutover():
+    removed_paths = [
+        "csrcqsf/biz/railwayparts/api_models.py",
+        "csrcqsf/biz/railwayparts/reconstruction_api_models.py",
+    ]
 
-    for relative_path, expected in expected_references.items():
-        text = Path(relative_path).read_text(encoding="utf-8")
-        assert expected in text, relative_path
+    for relative_path in removed_paths:
+        assert not Path(relative_path).exists(), relative_path
 
 
 def test_routes_reference_new_schema_modules_instead_of_legacy_api_models():
@@ -49,8 +48,8 @@ def test_routes_reference_new_schema_modules_instead_of_legacy_api_models():
             assert forbidden not in text, f"{relative_path} still imports {forbidden}"
 
 
-def test_sgo_models_file_is_orm_oriented_and_uses_external_schema_types():
-    text = Path("csrcqsf/models/sgo.py").read_text(encoding="utf-8")
+def test_sgo_models_orm_target_uses_external_schema_types():
+    text = Path("csrcqsf/models/orm/sgo.py").read_text(encoding="utf-8")
     assert "from csrcqsf.modules.sgo.schemas import" in text
     assert "class ListInqueryItem" not in text
 

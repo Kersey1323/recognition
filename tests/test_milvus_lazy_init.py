@@ -31,11 +31,11 @@ def test_data_milvus_client_is_lazy(monkeypatch):
     fake_pymilvus.MilvusClient = FakeMilvusClient
     monkeypatch.setitem(sys.modules, "pymilvus", fake_pymilvus)
 
-    fake_settings = types.ModuleType("csrcqsf.settings")
+    fake_settings = types.ModuleType("csrcqsf.core.settings")
     fake_settings.ai_settings = types.SimpleNamespace(milvus_url="http://milvus:19530")
-    monkeypatch.setitem(sys.modules, "csrcqsf.settings", fake_settings)
+    monkeypatch.setitem(sys.modules, "csrcqsf.core.settings", fake_settings)
 
-    module = _load_module("tests_lazy_data_milvus", "csrcqsf/data/milvus.py")
+    module = _load_module("tests_lazy_data_milvus", "csrcqsf/infra/vector_store/milvus.py")
 
     assert calls == []
 
@@ -52,10 +52,15 @@ def test_railwayparts_milvus_defers_optional_model_loading(monkeypatch):
 
     for package_name in (
         "csrcqsf",
-        "csrcqsf.biz",
-        "csrcqsf.biz.railwayparts",
-        "csrcqsf.data",
-        "csrcqsf.models",
+        "csrcqsf.infra",
+        "csrcqsf.infra.vector_store",
+        "csrcqsf.modules",
+        "csrcqsf.modules.railway_parts",
+        "csrcqsf.modules.railway_parts.integrations",
+        "csrcqsf.modules.railway_parts.vector_search",
+        "csrcqsf.modules.railway_parts.vector_search.config",
+        "csrcqsf.modules.railway_parts.vector_search.storage",
+        "csrcqsf.modules.railway_parts.vector_search.utils",
         "bfrcommon",
         "anyio",
         "sklearn",
@@ -122,36 +127,56 @@ def test_railwayparts_milvus_defers_optional_model_loading(monkeypatch):
     fake_sklearn_preprocessing.normalize = lambda value, norm=None: value
     monkeypatch.setitem(sys.modules, "sklearn.preprocessing", fake_sklearn_preprocessing)
 
-    fake_data_milvus = types.ModuleType("csrcqsf.data.milvus")
+    fake_data_milvus = types.ModuleType("csrcqsf.infra.vector_store.milvus")
     fake_data_milvus.milvus_client = types.SimpleNamespace()
-    monkeypatch.setitem(sys.modules, "csrcqsf.data.milvus", fake_data_milvus)
-
-    fake_data_minio = types.ModuleType("csrcqsf.data.minio")
-    fake_data_minio.minio_instance = types.SimpleNamespace()
-    monkeypatch.setitem(sys.modules, "csrcqsf.data.minio", fake_data_minio)
+    monkeypatch.setitem(sys.modules, "csrcqsf.infra.vector_store.milvus", fake_data_milvus)
 
     fake_globals = types.ModuleType("globals_vars")
     fake_globals.logger = types.SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None)
     monkeypatch.setitem(sys.modules, "globals_vars", fake_globals)
 
-    fake_models_item = types.ModuleType("csrcqsf.models.item")
-    fake_models_item.Enum = Enum
-    monkeypatch.setitem(sys.modules, "csrcqsf.models.item", fake_models_item)
+    fake_env_config = types.ModuleType("csrcqsf.modules.railway_parts.vector_search.config.env_config")
+    fake_env_config.get_config = lambda: types.SimpleNamespace()
+    monkeypatch.setitem(
+        sys.modules,
+        "csrcqsf.modules.railway_parts.vector_search.config.env_config",
+        fake_env_config,
+    )
 
-    fake_models_sgo = types.ModuleType("csrcqsf.models.sgo")
-    fake_models_sgo.SgoItemImages = object
-    monkeypatch.setitem(sys.modules, "csrcqsf.models.sgo", fake_models_sgo)
+    fake_collection_manager = types.ModuleType(
+        "csrcqsf.modules.railway_parts.vector_search.storage.collection_manager"
+    )
+    fake_collection_manager.CollectionManager = object
+    monkeypatch.setitem(
+        sys.modules,
+        "csrcqsf.modules.railway_parts.vector_search.storage.collection_manager",
+        fake_collection_manager,
+    )
 
-    fake_settings = types.ModuleType("csrcqsf.settings")
-    fake_settings.resolve_model_path = lambda path: path if path.startswith("/") else f"/models/{path}"
-    monkeypatch.setitem(sys.modules, "csrcqsf.settings", fake_settings)
+    fake_milvus_manager = types.ModuleType(
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_manager"
+    )
+    fake_milvus_manager.MilvusManagerV2 = object
+    monkeypatch.setitem(
+        sys.modules,
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_manager",
+        fake_milvus_manager,
+    )
 
-    fake_api_models = types.ModuleType("csrcqsf.biz.railwayparts.api_models")
-    monkeypatch.setitem(sys.modules, "csrcqsf.biz.railwayparts.api_models", fake_api_models)
+    fake_vector_logger = types.ModuleType("csrcqsf.modules.railway_parts.vector_search.utils.logger")
+    fake_vector_logger.setup_logger = lambda name: types.SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "csrcqsf.modules.railway_parts.vector_search.utils.logger",
+        fake_vector_logger,
+    )
 
     module = _load_module(
-        "csrcqsf.biz.railwayparts.milvus_lazy_test",
-        "csrcqsf/biz/railwayparts/milvus.py",
+        "csrcqsf.modules.railway_parts.integrations.milvus_state_manager_lazy_test",
+        "csrcqsf/modules/railway_parts/integrations/milvus_state_manager.py",
     )
 
     assert model_loads == {"resnet": 0, "embedding": 0}

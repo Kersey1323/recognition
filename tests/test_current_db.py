@@ -3,7 +3,7 @@
 测试当前应用配置的数据库连接
 """
 import asyncio
-from csrcqsf.settings import ai_settings
+from csrcqsf.core.settings import ai_settings
 from csrcqsf.infra.db.main_db import engine
 from sqlalchemy import text
 

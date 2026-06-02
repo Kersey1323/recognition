@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from csrcqsf.biz.railwayparts.reconstruction_api_models import (
+from csrcqsf.modules.railway_parts.schemas.reconstruction import (
     ReconstructionMultipartUploadUrlItem,
     ReconstructionMultipartUploadedPartItem,
     ReconstructionAllTasksRes,
@@ -166,7 +166,7 @@ def test_reconstruction_status_response_serializes_item_id_as_string():
 
 
 def test_reconstruction_list_response_serializes_nested_item_name():
-    from csrcqsf.biz.railwayparts.reconstruction_api_models import ReconstructionListRes
+    from csrcqsf.modules.railway_parts.schemas.reconstruction import ReconstructionListRes
 
     res = ReconstructionListRes(
         records=[
@@ -307,7 +307,7 @@ def test_reconstruction_index_rebuild_response_serializes_item_id_as_string():
 
 
 def test_reconstruction_source_video_response_serializes_item_id_as_string():
-    from csrcqsf.biz.railwayparts.reconstruction_api_models import ReconstructionSourceVideoRes
+    from csrcqsf.modules.railway_parts.schemas.reconstruction import ReconstructionSourceVideoRes
 
     res = ReconstructionSourceVideoRes(
         item_id=BIG_ITEM_ID,
@@ -439,13 +439,13 @@ def test_reconstruction_minio_health_response_contract():
 
 
 def test_reconstruction_video_local_upload_request_model_removed():
-    text = Path("csrcqsf/biz/railwayparts/reconstruction_api_models.py").read_text(encoding="utf-8")
+    text = Path("csrcqsf/modules/railway_parts/schemas/_reconstruction_api_models.py").read_text(encoding="utf-8")
 
     assert "class ReconstructionVideoLocalUploadReq" not in text
 
 
 def test_reconstruction_source_video_list_response_serializes_nested_item_id_as_string():
-    from csrcqsf.biz.railwayparts.reconstruction_api_models import ReconstructionSourceVideoListRes
+    from csrcqsf.modules.railway_parts.schemas.reconstruction import ReconstructionSourceVideoListRes
 
     res = ReconstructionSourceVideoListRes(
         total=1,
@@ -490,7 +490,7 @@ def test_reconstruction_source_video_list_request_supports_page_and_page_size():
 
 
 def test_reconstruction_source_video_message_response_serializes_item_id_as_string():
-    from csrcqsf.biz.railwayparts.reconstruction_api_models import ReconstructionSourceVideoMessageRes
+    from csrcqsf.modules.railway_parts.schemas.reconstruction import ReconstructionSourceVideoMessageRes
 
     res = ReconstructionSourceVideoMessageRes(
         item_id=BIG_ITEM_ID,
@@ -504,7 +504,7 @@ def test_reconstruction_source_video_message_response_serializes_item_id_as_stri
 
 
 def test_reconstruction_result_message_response_serializes_item_id_as_string():
-    from csrcqsf.biz.railwayparts.reconstruction_api_models import ReconstructionResultMessageRes
+    from csrcqsf.modules.railway_parts.schemas.reconstruction import ReconstructionResultMessageRes
 
     res = ReconstructionResultMessageRes(
         item_id=BIG_ITEM_ID,

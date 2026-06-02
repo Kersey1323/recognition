@@ -3,7 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from csrcqsf.models.reconstruction import ReconstructionStatus
+from csrcqsf.models.orm.reconstruction import ReconstructionStatus
 
 
 class _AsyncSessionContext:
@@ -18,7 +18,7 @@ class _AsyncSessionContext:
 
 
 def test_sync_manager_updates_running_records_from_remote_batch_status():
-    from csrcqsf.biz.railwayparts.reconstruction_sync_manager import ReconstructionSyncManager
+    from csrcqsf.modules.railway_parts.services.reconstruction_sync_service import ReconstructionSyncManager
 
     session = AsyncMock()
     record = SimpleNamespace(
@@ -53,10 +53,10 @@ def test_sync_manager_updates_running_records_from_remote_batch_status():
     session.scalars.return_value = fake_scalars
 
     with patch(
-        "csrcqsf.biz.railwayparts.reconstruction_sync_manager.SessionLocal",
+        "csrcqsf.modules.railway_parts.services.reconstruction_sync_service.SessionLocal",
         return_value=_AsyncSessionContext(session),
     ), patch(
-        "csrcqsf.biz.railwayparts.reconstruction_sync_manager.ReconstructionServiceClient",
+        "csrcqsf.modules.railway_parts.services.reconstruction_sync_service.ReconstructionServiceClient",
         return_value=fake_client,
     ), patch(
         "csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionManager._persist_success_result",
@@ -70,10 +70,10 @@ def test_sync_manager_updates_running_records_from_remote_batch_status():
 
 
 def test_scheduler_returns_early_without_remote_service_env():
-    with patch("csrcqsf.scheduler.main_db_env_configured", return_value=True), \
-         patch("csrcqsf.scheduler.reconstruction_server_env_configured", return_value=False), \
-         patch("csrcqsf.scheduler.asyncio.run_coroutine_threadsafe") as run_mock:
-        from csrcqsf.scheduler import sync_reconstruction_tasks_sync
+    with patch("csrcqsf.core.scheduler.main_db_env_configured", return_value=True), \
+         patch("csrcqsf.core.scheduler.reconstruction_server_env_configured", return_value=False), \
+         patch("csrcqsf.core.scheduler.asyncio.run_coroutine_threadsafe") as run_mock:
+        from csrcqsf.core.scheduler import sync_reconstruction_tasks_sync
 
         sync_reconstruction_tasks_sync()
 
@@ -81,11 +81,11 @@ def test_scheduler_returns_early_without_remote_service_env():
 
 
 def test_scheduler_skips_when_main_loop_not_registered():
-    with patch("csrcqsf.scheduler.main_db_env_configured", return_value=True), \
-         patch("csrcqsf.scheduler.reconstruction_server_env_configured", return_value=True), \
-         patch("csrcqsf.scheduler._main_async_loop", None), \
-         patch("csrcqsf.scheduler.asyncio.run_coroutine_threadsafe") as submit_mock:
-        from csrcqsf.scheduler import sync_reconstruction_tasks_sync
+    with patch("csrcqsf.core.scheduler.main_db_env_configured", return_value=True), \
+         patch("csrcqsf.core.scheduler.reconstruction_server_env_configured", return_value=True), \
+         patch("csrcqsf.core.scheduler._main_async_loop", None), \
+         patch("csrcqsf.core.scheduler.asyncio.run_coroutine_threadsafe") as submit_mock:
+        from csrcqsf.core.scheduler import sync_reconstruction_tasks_sync
 
         sync_reconstruction_tasks_sync()
 
@@ -102,11 +102,11 @@ def test_scheduler_submits_sync_task_to_registered_main_loop():
         coro.close()
         return future
 
-    with patch("csrcqsf.scheduler.main_db_env_configured", return_value=True), \
-         patch("csrcqsf.scheduler.reconstruction_server_env_configured", return_value=True), \
-         patch("csrcqsf.scheduler._main_async_loop", fake_loop), \
-         patch("csrcqsf.scheduler.asyncio.run_coroutine_threadsafe", side_effect=_submit) as submit_mock:
-        from csrcqsf.scheduler import sync_reconstruction_tasks_sync
+    with patch("csrcqsf.core.scheduler.main_db_env_configured", return_value=True), \
+         patch("csrcqsf.core.scheduler.reconstruction_server_env_configured", return_value=True), \
+         patch("csrcqsf.core.scheduler._main_async_loop", fake_loop), \
+         patch("csrcqsf.core.scheduler.asyncio.run_coroutine_threadsafe", side_effect=_submit) as submit_mock:
+        from csrcqsf.core.scheduler import sync_reconstruction_tasks_sync
 
         sync_reconstruction_tasks_sync()
 

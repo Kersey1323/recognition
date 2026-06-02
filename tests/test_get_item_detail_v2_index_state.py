@@ -54,19 +54,19 @@ def _import_railway_parts_manager():
     with patch.dict(
         sys.modules,
         {
-            "csrcqsf.data.milvus": SimpleNamespace(milvus_client=MagicMock()),
-            "csrcqsf.data.mdpdb": SimpleNamespace(sgo_sessionLocal=MagicMock()),
-            "csrcqsf.data.minio": _fake_minio_module(),
-            "csrcqsf.biz.railwayparts.milvus": _fake_v1_milvus_module(),
+            "csrcqsf.infra.vector_store.milvus": SimpleNamespace(milvus_client=MagicMock()),
+            "csrcqsf.infra.db.mdp_db": SimpleNamespace(sgo_sessionLocal=MagicMock()),
+            "csrcqsf.infra.storage.minio": _fake_minio_module(),
+            "csrcqsf.modules.railway_parts.integrations.milvus_state_manager": _fake_v1_milvus_module(),
             "cv2": _fake_cv2_module(),
         },
     ):
         import csrcqsf.modules.railway_parts.services.parts_service as parts_module
         preserved_modules = {
             "csrcqsf.modules.railway_parts.services.parts_service": parts_module,
-            "csrcqsf.models.item": sys.modules.get("csrcqsf.models.item"),
-            "csrcqsf.models.sgo": sys.modules.get("csrcqsf.models.sgo"),
-            "csrcqsf.models.search_history": sys.modules.get("csrcqsf.models.search_history"),
+            "csrcqsf.models.orm.item": sys.modules.get("csrcqsf.models.orm.item"),
+            "csrcqsf.models.orm.sgo": sys.modules.get("csrcqsf.models.orm.sgo"),
+            "csrcqsf.models.orm.search_history": sys.modules.get("csrcqsf.models.orm.search_history"),
         }
 
     for module_name, module in preserved_modules.items():

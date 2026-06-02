@@ -1,13 +1,13 @@
 
 from pydantic import BaseModel
-from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
-from csrcqsf.data.milvus import milvus_client
+from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
+from csrcqsf.infra.vector_store.milvus import milvus_client
 from pymilvus import MilvusClient, DataType
-from csrcqsf.biz.railwayparts.milvus import FeaturesIndex, ImageIndex, MilvusManager
+from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import FeaturesIndex, ImageIndex, MilvusManager
 from typing import Any
 from bfrcommon.snowflake import get_id
-from csrcqsf.data.pg import SessionLocal
-from csrcqsf.models.item import Items
+from csrcqsf.infra.db.main_db import SessionLocal
+from csrcqsf.models.orm.item import Items
 from pymilvus.client.embedding_list import EmbeddingList
 schema = MilvusClient.create_schema(
     enable_dynamic_field=True,

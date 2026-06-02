@@ -1,7 +1,7 @@
 import asyncio
 from unittest.mock import AsyncMock
 
-from csrcqsf.models.sgo import SegmentedImage
+from csrcqsf.models.orm.sgo import SegmentedImage
 
 
 def test_segmented_image_table_matches_runtime_columns():

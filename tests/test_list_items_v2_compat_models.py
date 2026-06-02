@@ -1,5 +1,5 @@
-from csrcqsf.biz.railwayparts.api_models import ListItem, ListItemReq
-from csrcqsf.models.item import Items
+from csrcqsf.modules.railway_parts.schemas.parts import ListItem, ListItemReq
+from csrcqsf.models.orm.item import Items
 
 
 def dump_model(model):

@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from bfrcommon.api_models import PageReq, PageRes
 from pydantic import Field, validator
 
-from csrcqsf.models.search_history import MatchedImage, SearchParameters, SearchResults
+from csrcqsf.models.orm.search_history import MatchedImage, SearchParameters, SearchResults
 from csrcqsf.modules.sgo.schemas import ImageSourceType
 
 

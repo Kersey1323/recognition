@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import aiohttp
 
-from csrcqsf.settings import (
+from csrcqsf.core.settings import (
     reconstruction_server_timeout_sec,
     reconstruction_server_url,
 )

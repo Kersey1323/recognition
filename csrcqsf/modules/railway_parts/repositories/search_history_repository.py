@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from csrcqsf.models.search_history import SearchHistory, SearchReviewTicket
+from csrcqsf.models.orm.search_history import SearchHistory, SearchReviewTicket
 
 
 class SearchHistoryRepository:

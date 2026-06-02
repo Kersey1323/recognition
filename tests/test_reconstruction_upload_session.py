@@ -1,4 +1,4 @@
-from csrcqsf.models.reconstruction_upload import ReconstructionVideoUploadSession
+from csrcqsf.models.orm.reconstruction_upload import ReconstructionVideoUploadSession
 
 
 def test_reconstruction_video_upload_session_has_expected_columns():

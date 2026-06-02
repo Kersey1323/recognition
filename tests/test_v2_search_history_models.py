@@ -1,4 +1,4 @@
-from csrcqsf.biz.railwayparts.api_models import (
+from csrcqsf.modules.railway_parts.schemas import (
     SearchRes,
     SearchTextReq,
     SearchHistoryFeedbackReq,

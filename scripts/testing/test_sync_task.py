@@ -9,7 +9,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 print("正在导入模块...")
-from csrcqsf.scheduler import _sync_reconstruction_tasks_wrapper
+from csrcqsf.core.scheduler import _sync_reconstruction_tasks_wrapper
 
 print("✓ 模块导入成功")
 print("\n执行一次任务同步...")

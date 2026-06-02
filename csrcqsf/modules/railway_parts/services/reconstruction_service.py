@@ -23,18 +23,18 @@ except Exception:  # pragma: no cover - test/runtime fallback when minio extras 
         part_number: int
         etag: str
 from csrcqsf.infra.db.main_db import SessionLocal
-from csrcqsf.biz.railwayparts.reconstruction_client import (
+from csrcqsf.modules.railway_parts.integrations.reconstruction_client import (
     ReconstructionServiceClient,
     ReconstructionServiceClientError,
 )
-from csrcqsf.biz.railwayparts.local_upload_storage import LocalUploadStorage
-from csrcqsf.models.reconstruction import ReconstructionRecord, ReconstructionStatus
-from csrcqsf.models.item import Items
-from csrcqsf.models.reconstruction_upload import ReconstructionVideoUploadSession
+from csrcqsf.modules.railway_parts.utils.local_upload_storage import LocalUploadStorage
+from csrcqsf.models.orm.reconstruction import ReconstructionRecord, ReconstructionStatus
+from csrcqsf.models.orm.item import Items
+from csrcqsf.models.orm.reconstruction_upload import ReconstructionVideoUploadSession
 from csrcqsf.modules.railway_parts.services import reconstruction_video_service
 from csrcqsf.modules.railway_parts.services import reconstruction_task_service
-from csrcqsf.biz.railwayparts.local_file_part_reader import LocalFilePartReader
-from csrcqsf.settings import (
+from csrcqsf.modules.railway_parts.utils.local_file_part_reader import LocalFilePartReader
+from csrcqsf.core.settings import (
     minio_env_configured,
     minio_reconstruction_file_bucket,
     minio_reconstruction_video_bucket,
@@ -43,7 +43,7 @@ from csrcqsf.settings import (
 )
 
 try:
-    from csrcqsf.data.minio import (
+    from csrcqsf.infra.storage.minio import (
         ensure_minio_bucket,
         looks_like_minio_path,
         minio_instance,

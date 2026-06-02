@@ -11,15 +11,21 @@ from types import SimpleNamespace
 from anyio.to_thread import run_sync
 import cv2
 import numpy as np
+from bfrcommon.db import async_get_count
 from bfrcommon.common import date_to_str
 from bfrcommon.snowflake import get_id
+from sqlalchemy import select
 
-from csrcqsf.biz.railwayparts.milvus import MilvusManager, ImageIndex
-from csrcqsf.data.mdpdb import sgo_sessionLocal
+from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import (
+    ImageIndex,
+    MilvusManager,
+)
+from csrcqsf.infra.db.mdp_db import sgo_sessionLocal
 from csrcqsf.infra.db.main_db import SessionLocal
-from csrcqsf.models.item import *
-from csrcqsf.models.search_history import MatchedImage, SearchHistory, SearchResultItem, SearchResults, SearchReviewTicket
-from csrcqsf.models.sgo import SgoItemImages, SegmentedImage
+from csrcqsf.models.orm.item import Items, ItemsParent
+from csrcqsf.models.orm.search_history import MatchedImage, SearchHistory, SearchResultItem, SearchResults, SearchReviewTicket
+from csrcqsf.models.orm.sgo import SgoItemImages, SegmentedImage
+from csrcqsf.models.orm.sgo_external import SgoCodeInquiryReturn
 from csrcqsf.modules.railway_parts.repositories.search_history_repository import SearchHistoryRepository
 from csrcqsf.modules.railway_parts.schemas.parts import (
     GetItemDetailRes,
@@ -53,11 +59,12 @@ from csrcqsf.modules.railway_parts.schemas.search import (
 )
 from csrcqsf.modules.railway_parts.services import item_service, parts_index_service, parts_search_service
 from csrcqsf.modules.sgo.schemas import ImageSourceType, SegmentStatus
-from csrcqsf.settings import minio_bucket, minio_search_history_bucket, temp_dir
+from csrcqsf.core.settings import minio_bucket, minio_search_history_bucket, temp_dir
 from globals_vars import logger
 
+# These names are consumed by split service modules through `_runtime_context()`.
 try:
-    from csrcqsf.data.minio import ensure_minio_bucket, minio_instance, parse_minio_path
+    from csrcqsf.infra.storage.minio import ensure_minio_bucket, minio_instance, parse_minio_path
 except Exception:  # pragma: no cover - import-time fallback for test patching only
     ensure_minio_bucket = None
     minio_instance = None
@@ -65,11 +72,8 @@ except Exception:  # pragma: no cover - import-time fallback for test patching o
 
 MilvusManagerV2 = None
 MilvusStateManagerV2 = None
-
-
 def _get_minio_helpers():
     return ensure_minio_bucket, minio_instance, parse_minio_path
-
 
 def _get_milvus_manager_v2_cls():
     global MilvusManagerV2
@@ -77,10 +81,8 @@ def _get_milvus_manager_v2_cls():
         from csrcqsf.modules.railway_parts.vector_search.storage.milvus_manager import (
             MilvusManagerV2 as _MilvusManagerV2,
         )
-
         MilvusManagerV2 = _MilvusManagerV2
     return MilvusManagerV2
-
 
 def _get_milvus_state_manager_v2_cls():
     global MilvusStateManagerV2
@@ -88,10 +90,8 @@ def _get_milvus_state_manager_v2_cls():
         from csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager import (
             MilvusStateManagerV2 as _MilvusStateManagerV2,
         )
-
         MilvusStateManagerV2 = _MilvusStateManagerV2
     return MilvusStateManagerV2
-
 
 def _bind_parts_search_runtime():
     parts_search_service.bind_runtime_dependencies(sys.modules[__name__])

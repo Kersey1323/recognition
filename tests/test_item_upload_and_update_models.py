@@ -1,12 +1,12 @@
 from pydantic import ValidationError
 
-from csrcqsf.biz.railwayparts.api_models import (
+from csrcqsf.modules.railway_parts.schemas.parts import (
     CreateItemReq,
     CreateItemImagesReq,
     CreateItemImagesRes,
     UpdateItemReq,
 )
-from csrcqsf.biz.railwayparts.reconstruction_api_models import (
+from csrcqsf.modules.railway_parts.schemas.reconstruction import (
     ReconstructionResultUploadRes,
 )
 

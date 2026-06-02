@@ -3,7 +3,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from csrcqsf.models.reconstruction import ReconstructionStatus
+from csrcqsf.models.orm.reconstruction import ReconstructionStatus
 
 
 class _AsyncSessionContext:

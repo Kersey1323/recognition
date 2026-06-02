@@ -25,7 +25,7 @@ print(f"SAM3_MODEL_PATH: {os.getenv('SAM3_MODEL_PATH')}")
 # 测试 settings.py
 print("\n【settings.py 配置】")
 try:
-    from csrcqsf.settings import model_dir, SAM_MODEL
+    from csrcqsf.core.settings import model_dir, SAM_MODEL
     print(f"model_dir: {model_dir}")
     print(f"SAM_MODEL: {SAM_MODEL}")
     print(f"SAM_MODEL exists: {Path(SAM_MODEL).exists()}")

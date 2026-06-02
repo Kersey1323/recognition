@@ -5,15 +5,15 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from csrcqsf.models.item import Items
-from csrcqsf.models.search_history import SearchHistory, SearchResults, SearchReviewTicket
+from csrcqsf.models.orm.item import Items
+from csrcqsf.models.orm.search_history import SearchHistory, SearchResults, SearchReviewTicket
 
 
 def test_search_history_list_helper_applies_search_equipment_filter():
     session = AsyncMock()
     session.scalars = AsyncMock(return_value=SimpleNamespace(all=lambda: []))
 
-    with patch("csrcqsf.models.search_history.async_get_count", AsyncMock(return_value=0)):
+    with patch("csrcqsf.models.orm.search_history.async_get_count", AsyncMock(return_value=0)):
         asyncio.run(
             SearchHistory.list_search_history(
                 session=session,
@@ -40,7 +40,7 @@ def test_search_history_list_helper_treats_partial_as_wrong_filter():
     session = AsyncMock()
     session.scalars = AsyncMock(return_value=SimpleNamespace(all=lambda: []))
 
-    with patch("csrcqsf.models.search_history.async_get_count", AsyncMock(return_value=0)):
+    with patch("csrcqsf.models.orm.search_history.async_get_count", AsyncMock(return_value=0)):
         asyncio.run(
             SearchHistory.list_search_history(
                 session=session,
@@ -60,7 +60,7 @@ def test_search_history_list_helper_supports_user_misjudged_filter():
     session = AsyncMock()
     session.scalars = AsyncMock(return_value=SimpleNamespace(all=lambda: []))
 
-    with patch("csrcqsf.models.search_history.async_get_count", AsyncMock(return_value=0)):
+    with patch("csrcqsf.models.orm.search_history.async_get_count", AsyncMock(return_value=0)):
         asyncio.run(
             SearchHistory.list_search_history(
                 session=session,
@@ -135,7 +135,7 @@ def test_search_history_update_methods_accept_unified_correct_result_fields():
 
 
 def test_sgo_item_images_has_first_image_lookup_helper():
-    from csrcqsf.models.sgo import SgoItemImages
+    from csrcqsf.models.orm.sgo import SgoItemImages
 
     assert hasattr(SgoItemImages, "get_first_image_by_item_id")
 
@@ -199,9 +199,9 @@ def _import_railway_parts_manager():
     with patch.dict(
         sys.modules,
         {
-            "csrcqsf.data.milvus": SimpleNamespace(milvus_client=MagicMock()),
-            "csrcqsf.data.mdpdb": SimpleNamespace(sgo_sessionLocal=MagicMock()),
-            "csrcqsf.biz.railwayparts.milvus": _fake_v1_milvus_module(),
+            "csrcqsf.infra.vector_store.milvus": SimpleNamespace(milvus_client=MagicMock()),
+            "csrcqsf.infra.db.mdp_db": SimpleNamespace(sgo_sessionLocal=MagicMock()),
+            "csrcqsf.modules.railway_parts.integrations.milvus_state_manager": _fake_v1_milvus_module(),
             "cv2": SimpleNamespace(
                 COLOR_BGR2RGB=1,
                 IMREAD_COLOR=1,
@@ -215,9 +215,9 @@ def _import_railway_parts_manager():
         import csrcqsf.modules.railway_parts.services.parts_service as parts_module
         preserved_modules = {
             "csrcqsf.modules.railway_parts.services.parts_service": parts_module,
-            "csrcqsf.models.item": sys.modules.get("csrcqsf.models.item"),
-            "csrcqsf.models.sgo": sys.modules.get("csrcqsf.models.sgo"),
-            "csrcqsf.models.search_history": sys.modules.get("csrcqsf.models.search_history"),
+            "csrcqsf.models.orm.item": sys.modules.get("csrcqsf.models.orm.item"),
+            "csrcqsf.models.orm.sgo": sys.modules.get("csrcqsf.models.orm.sgo"),
+            "csrcqsf.models.orm.search_history": sys.modules.get("csrcqsf.models.orm.search_history"),
         }
 
     for module_name, module in preserved_modules.items():
@@ -229,7 +229,7 @@ def _import_railway_parts_manager():
 
 
 def test_list_v2_search_history_passes_search_equipment_filter_and_latest_ticket_fields():
-    from csrcqsf.biz.railwayparts.api_models import SearchHistoryListReq
+    from csrcqsf.modules.railway_parts.schemas.search import SearchHistoryListReq
 
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     page_result = SimpleNamespace(
@@ -287,7 +287,7 @@ def test_list_v2_search_history_passes_search_equipment_filter_and_latest_ticket
 
 
 def test_list_v2_search_history_returns_wrong_after_review_ticket_resolved():
-    from csrcqsf.biz.railwayparts.api_models import SearchHistoryListReq
+    from csrcqsf.modules.railway_parts.schemas.search import SearchHistoryListReq
 
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     page_result = SimpleNamespace(
@@ -337,7 +337,7 @@ def test_list_v2_search_history_returns_wrong_after_review_ticket_resolved():
 
 
 def test_list_v2_search_history_maps_partial_status_to_wrong():
-    from csrcqsf.biz.railwayparts.api_models import SearchHistoryListReq
+    from csrcqsf.modules.railway_parts.schemas.search import SearchHistoryListReq
 
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     page_result = SimpleNamespace(

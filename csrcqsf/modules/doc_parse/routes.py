@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from bfrcommon.api_models import PageReq, PageRes
 from bfrcommon.common import date_to_str
-from csrcqsf.biz.doc_parse import DocBiz
+from csrcqsf.modules.doc_parse.services import DocBiz
 
 
 parts_docs_router = APIRouter(

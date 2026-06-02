@@ -21,7 +21,7 @@ async def test_basic_integration():
     print("=" * 80)
     
     try:
-        from csrcqsf.biz.railwayparts.milvus import MilvusManagerV2
+        from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import MilvusManagerV2
         print("✓ MilvusManagerV2 导入成功")
         
         # 获取实例（使用测试配置）

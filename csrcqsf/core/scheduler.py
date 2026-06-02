@@ -128,7 +128,9 @@ def sync_reconstruction_tasks_sync():
         return
 
     try:
-        from csrcqsf.biz.railwayparts.reconstruction_sync_manager import ReconstructionSyncManager
+        from csrcqsf.modules.railway_parts.services.reconstruction_sync_service import (
+            ReconstructionSyncManager,
+        )
 
         future = asyncio.run_coroutine_threadsafe(
             ReconstructionSyncManager.sync_running_tasks(),

@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 
-from csrcqsf.api_models import FrontOCRReq
-from csrcqsf.biz.segment import SegmentBiz
-from csrcqsf.runtime import ensure_ocr_model_enabled
+from csrcqsf.core.runtime import ensure_ocr_model_enabled
+from csrcqsf.modules.image.schemas import FrontOCRReq
+from csrcqsf.modules.image.services import SegmentBiz
 
 
 image_router = APIRouter(

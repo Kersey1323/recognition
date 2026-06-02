@@ -4,7 +4,7 @@ from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from csrcqsf.biz.railwayparts.local_upload_storage import LocalUploadStorage
+from csrcqsf.modules.railway_parts.utils.local_upload_storage import LocalUploadStorage
 from csrcqsf.modules.railway_parts.services.reconstruction_service import (
     ReconstructionBusinessError,
     ReconstructionManager,

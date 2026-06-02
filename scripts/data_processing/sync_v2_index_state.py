@@ -1,6 +1,6 @@
 from anyio import run
 
-from csrcqsf.biz.railwayparts.parts import RailwayPartsManager
+from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
 
 
 async def main():

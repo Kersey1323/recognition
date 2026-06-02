@@ -2,11 +2,14 @@ from pathlib import Path
 
 
 def _legacy_vector_db_path(suffix: str) -> str:
-    return "csrcqsf/biz/railwayparts/" + "vector_db/" + suffix
+    return "/".join(("csrcqsf", "biz", "railwayparts", "vector_db", suffix))
 
 
 def _legacy_vector_db_import(suffix: str) -> str:
-    return "csrcqsf.biz.railwayparts." + "vector_db." + suffix
+    parts = ["csrcqsf", "biz", "railwayparts", "vector_db"]
+    if suffix:
+        parts.append(suffix)
+    return ".".join(parts)
 
 
 def test_phase_nine_root_vector_db_scripts_and_tests_remain_available():
@@ -26,39 +29,20 @@ def test_phase_nine_root_vector_db_scripts_and_tests_remain_available():
 
 
 def test_phase_nine_legacy_vector_db_python_compat_tree_removed():
-    removed_paths = [
-        _legacy_vector_db_path("__init__.py"),
-        _legacy_vector_db_path("config/env_config.py"),
-        _legacy_vector_db_path("data/db_connector.py"),
-        _legacy_vector_db_path("data/image_loader.py"),
-        _legacy_vector_db_path("indexing/indexer.py"),
-        _legacy_vector_db_path("models/dinov2_extractor.py"),
-        _legacy_vector_db_path("preprocessing/sam3_preprocessor.py"),
-        _legacy_vector_db_path("storage/collection_manager.py"),
-        _legacy_vector_db_path("storage/milvus_manager.py"),
-        _legacy_vector_db_path("storage/milvus_state_manager.py"),
-        _legacy_vector_db_path("utils/logger.py"),
-        _legacy_vector_db_path("scripts/build_index.py"),
-        _legacy_vector_db_path("tests/test_dinov2_search.py"),
-    ]
+    legacy_root = Path(_legacy_vector_db_path(""))
 
-    for relative_path in removed_paths:
-        assert not Path(relative_path).exists(), relative_path
+    assert not legacy_root.exists()
 
 
-def test_phase_nine_vector_db_runtime_state_dirs_can_remain():
-    allowed_paths = [
-        _legacy_vector_db_path("patch_tokens"),
-        _legacy_vector_db_path("logs"),
-        _legacy_vector_db_path("config/db_config.ini"),
-        _legacy_vector_db_path("config/vector_db.ini"),
-    ]
-
-    for relative_path in allowed_paths:
-        assert Path(relative_path).exists(), relative_path
+def test_phase_nine_vector_db_runtime_state_is_externalized_outside_source_tree():
+    assert Path("csrcqsf/modules/railway_parts/vector_search/config/db_config.ini").exists()
+    assert Path("csrcqsf/modules/railway_parts/vector_search/config/vector_db.ini").exists()
+    assert Path("state/vector_db/patch_tokens").exists()
+    assert not Path(_legacy_vector_db_path("patch_tokens")).exists()
+    assert not Path(_legacy_vector_db_path("config")).exists()
 
 
-def test_phase_nine_governance_and_tests_no_longer_reference_legacy_vector_db_python_paths():
+def test_phase_nine_governance_tests_and_docs_no_longer_reference_legacy_vector_db_python_paths():
     target_paths = [
         "tests/test_structure_governance_phase4_contract.py",
         "tests/test_structure_governance_phase6_contract.py",
@@ -69,6 +53,9 @@ def test_phase_nine_governance_and_tests_no_longer_reference_legacy_vector_db_py
         "tests/test_sam3_prompt_optimization.py",
         "tests/test_sam3_preprocessor_visual.py",
         "tests/test_milvus_v2_full.py",
+        "tests/test_item_image_upload_manager.py",
+        "tests/vector_db/README.md",
+        "docs/VECTOR_DB_CONFIG_MIGRATION.md",
     ]
 
     forbidden_fragments = (

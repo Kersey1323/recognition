@@ -10,9 +10,9 @@ from PIL import Image, ImageOps
 from sqlalchemy import select
 
 from csrcqsf.infra.db.main_db import SessionLocal
-from csrcqsf.models.item import Items
-from csrcqsf.models.sgo import SgoItemImages
-from csrcqsf.settings import (
+from csrcqsf.models.orm.item import Items
+from csrcqsf.models.orm.sgo import SgoItemImages
+from csrcqsf.core.settings import (
     minio_access_key,
     minio_bucket,
     minio_endpoint,

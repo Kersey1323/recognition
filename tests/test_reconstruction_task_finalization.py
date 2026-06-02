@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from csrcqsf.models.reconstruction import ReconstructionStatus
+from csrcqsf.models.orm.reconstruction import ReconstructionStatus
 
 
 class _AsyncSessionContext:
@@ -118,4 +118,3 @@ def test_persist_task_result_marks_failed_payload_with_completed_at_and_elapsed_
         elapsed_sec=120.5,
     )
     session.commit.assert_awaited_once()
-

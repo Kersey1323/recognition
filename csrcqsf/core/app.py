@@ -16,16 +16,16 @@ from bfrcommon.middlewares.auth import add_process_time_header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from globals_vars import logger
-from csrcqsf.api_models import SimpleSegmentReq, SimpleSegmentRes
-from csrcqsf.biz.segment import SegmentBiz
 from csrcqsf.core.runtime import ensure_segment_model_enabled, segment_model_enabled
 from csrcqsf.modules.doc_parse.routes import parts_docs_router
 from csrcqsf.modules.image.routes import image_router
+from csrcqsf.modules.image.schemas import SimpleSegmentReq, SimpleSegmentRes
+from csrcqsf.modules.image.services import SegmentBiz
 from csrcqsf.modules.railway_parts.routes import parts_router
 from csrcqsf.modules.sgo.routes import sgo_router
 from csrcqsf.infra.db.main_db import db_migrate
 from csrcqsf.infra.storage.minio import create_minio_buckets
-from csrcqsf.biz.sgo import SGOBiz
+from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.core.scheduler import register_main_async_loop
 from csrcqsf.core.settings import (
     main_db_env_configured,

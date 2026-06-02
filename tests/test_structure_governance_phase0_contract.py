@@ -2,6 +2,10 @@ from pathlib import Path
 import subprocess
 
 
+def _legacy_vector_db_logs_dir() -> str:
+    return "/".join(("csrcqsf", "biz", "railwayparts", "vector_db", "logs")) + "/"
+
+
 def test_csrcqsf_runtime_artifacts_are_not_git_tracked_and_are_gitignored():
     tracked = subprocess.run(
         [
@@ -15,19 +19,19 @@ def test_csrcqsf_runtime_artifacts_are_not_git_tracked_and_are_gitignored():
     ).stdout.splitlines()
 
     assert not [path for path in tracked if "__pycache__/" in path or path.endswith(".pyc")]
-    assert not [path for path in tracked if "csrcqsf/biz/railwayparts/vector_db/logs/" in path]
+    legacy_logs_dir = _legacy_vector_db_logs_dir()
+    assert not [path for path in tracked if legacy_logs_dir in path]
 
     gitignore = Path(".gitignore").read_text(encoding="utf-8")
     assert "csrcqsf/**/__pycache__/" in gitignore
     assert "csrcqsf/**/*.pyc" in gitignore
-    assert "csrcqsf/biz/railwayparts/vector_db/logs/" in gitignore
+    assert "state/vector_db/" in gitignore
 
 
-def test_app_entrypoint_no_longer_uses_star_imports():
-    text = Path("csrcqsf/app.py").read_text(encoding="utf-8")
+def test_core_app_entrypoint_no_longer_uses_star_imports():
+    text = Path("csrcqsf/core/app.py").read_text(encoding="utf-8")
 
-    assert "from .api_models import *" not in text
-    assert "from csrcqsf.services import *" not in text
+    assert "import *" not in text
 
 
 def test_service_entrypoints_no_longer_use_star_imports():
@@ -41,7 +45,7 @@ def test_service_entrypoints_no_longer_use_star_imports():
         assert "import *" not in text, relative_path
 
 
-def test_main_db_alias_module_exists_for_phase_zero_naming_transition():
-    text = Path("csrcqsf/data/main_db.py").read_text(encoding="utf-8")
+def test_main_db_module_uses_infra_target_path():
+    text = Path("csrcqsf/infra/db/main_db.py").read_text(encoding="utf-8")
 
-    assert "csrcqsf.infra.db.main_db" in text
+    assert "async_engine_from_config" in text or "create_async_engine" in text

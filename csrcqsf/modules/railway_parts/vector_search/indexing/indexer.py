@@ -12,7 +12,7 @@ from csrcqsf.modules.railway_parts.vector_search.storage.collection_manager impo
     CollectionManager,
 )
 from csrcqsf.modules.railway_parts.vector_search.utils.logger import setup_logger
-from csrcqsf.biz.model_client import get_model_client, ModelServiceClient
+from csrcqsf.infra.external.model_client import get_model_client, ModelServiceClient
 
 logger = setup_logger(__name__)
 

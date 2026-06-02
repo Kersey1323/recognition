@@ -23,12 +23,7 @@ models/*
 *.deb
 
 # Vector DB patch tokens (large binary files)
-csrcqsf/biz/railwayparts/vector_db/patch_tokens/
 *.npy
-
-# Vector DB logs and checkpoints
-csrcqsf/biz/railwayparts/vector_db/logs/
-csrcqsf/biz/railwayparts/vector_db/checkpoint.json
 
 # csrcqsf source-tree runtime artifacts
 csrcqsf/**/__pycache__/

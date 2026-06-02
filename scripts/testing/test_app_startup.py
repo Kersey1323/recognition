@@ -8,11 +8,11 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 print("正在导入应用...")
-from csrcqsf.app import app
+from csrcqsf.core.app import app
 
 print("✓ 应用启动成功")
 
-from csrcqsf.scheduler import scheduler
+from csrcqsf.core.scheduler import scheduler
 
 jobs = scheduler.get_jobs()
 print(f"✓ 定时任务数量: {len(jobs)}")

@@ -29,7 +29,7 @@ from csrcqsf.modules.railway_parts.schemas.reconstruction import (
     ReconstructionVideoUploadUrlsRes,
 )
 from csrcqsf.modules.railway_parts.services.reconstruction_service import ReconstructionManager
-from csrcqsf.runtime import ensure_gpu_reconstruction_enabled
+from csrcqsf.core.runtime import ensure_gpu_reconstruction_enabled
 
 from .router import parts_router
 

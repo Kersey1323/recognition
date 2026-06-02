@@ -6,8 +6,8 @@ from pathlib import Path
 def _reload_settings(monkeypatch, **env):
     for key, value in env.items():
         monkeypatch.setenv(key, value)
-    sys.modules.pop("csrcqsf.settings", None)
-    return importlib.import_module("csrcqsf.settings")
+    sys.modules.pop("csrcqsf.core.settings", None)
+    return importlib.import_module("csrcqsf.core.settings")
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:

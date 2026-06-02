@@ -11,68 +11,64 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-async def test_import():
+def test_import():
     """测试导入"""
     print("=" * 60)
     print("测试 1: 导入模块")
     print("=" * 60)
     
     try:
-        from csrcqsf.biz.railwayparts.milvus import MilvusManagerV2
+        from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import MilvusManagerV2
         print("✓ MilvusManagerV2 导入成功")
-        return True
     except Exception as e:
         print(f"✗ 导入失败: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
-async def test_initialization():
+def test_initialization():
     """测试初始化"""
     print("\n" + "=" * 60)
     print("测试 2: 初始化管理器")
     print("=" * 60)
     
-    try:
-        from csrcqsf.biz.railwayparts.milvus import MilvusManagerV2
-        
+    async def _run():
+        from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import MilvusManagerV2
+
         manager = MilvusManagerV2.get_instance()
         print("✓ MilvusManagerV2 实例创建成功")
-        
-        # 触发延迟初始化
         await manager._ensure_initialized()
         print("✓ 底层 MilvusManager 初始化成功")
-        
-        return True
+
+    try:
+        asyncio.run(_run())
     except Exception as e:
         print(f"✗ 初始化失败: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
-async def test_method_signatures():
+def test_method_signatures():
     """测试方法签名"""
     print("\n" + "=" * 60)
     print("测试 3: 检查方法签名")
     print("=" * 60)
     
     try:
-        from csrcqsf.biz.railwayparts.milvus import MilvusManagerV2
+        from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import MilvusManagerV2
         import inspect
-        
+
         manager = MilvusManagerV2.get_instance()
-        
-        # 检查 search_by_text 方法
+
         sig = inspect.signature(manager.search_by_text)
         params = list(sig.parameters.keys())
         print(f"search_by_text 参数: {params}")
         assert 'query_text' in params, "缺少 query_text 参数"
         assert 'top_k' in params, "缺少 top_k 参数"
         print("✓ search_by_text 方法签名正确")
-        
-        # 检查 search_by_image 方法
+
         sig = inspect.signature(manager.search_by_image)
         params = list(sig.parameters.keys())
         print(f"search_by_image 参数: {params}")
@@ -82,46 +78,38 @@ async def test_method_signatures():
         assert 'coarse_top_k' in params, "缺少 coarse_top_k 参数"
         assert 'alpha' in params, "缺少 alpha 参数"
         print("✓ search_by_image 方法签名正确")
-        
-        # 检查 index_image 方法
+
         sig = inspect.signature(manager.index_image)
         params = list(sig.parameters.keys())
         print(f"index_image 参数: {params}")
         assert 'image' in params, "缺少 image 参数"
         assert 'item_id' in params, "缺少 item_id 参数"
         print("✓ index_image 方法签名正确")
-        
-        return True
     except Exception as e:
         print(f"✗ 方法签名检查失败: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
-async def test_backward_compatibility():
+def test_backward_compatibility():
     """测试向后兼容性"""
     print("\n" + "=" * 60)
     print("测试 4: 向后兼容性")
     print("=" * 60)
     
     try:
-        from csrcqsf.biz.railwayparts.milvus import MilvusManager
-        
-        # 检查 MilvusManager 是否仍然存在（旧代码可能还在使用）
+        from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import MilvusManager
+
         print("✓ MilvusManager 类仍然可用（向后兼容）")
-        
-        # 检查旧方法是否存在
         assert hasattr(MilvusManager, 'extract_image_tensor'), "缺少 extract_image_tensor 方法"
         assert hasattr(MilvusManager, 'embedding_encode'), "缺少 embedding_encode 方法"
         print("✓ 旧方法仍然可用")
-        
-        return True
     except Exception as e:
         print(f"✗ 向后兼容性检查失败: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
 async def main():

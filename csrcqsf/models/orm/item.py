@@ -12,8 +12,7 @@ from bfrcommon.db import PageQueryResult, get_abbr_fn, get_count, async_get_coun
 from pydantic import BaseModel
 from bfrcommon.db import PydanticType
 from csrcqsf.infra.db.main_db import Base
-from .sgo_models import SgoCodeInquiry, SgoCodeInquiryReturn
-from .sgo import SgoItemImages
+from csrcqsf.models.orm.sgo import SgoItemImages
 
 
 class ItemType(str, Enum):

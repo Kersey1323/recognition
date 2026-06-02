@@ -1,4 +1,4 @@
-from csrcqsf.biz.railwayparts.local_upload_storage import LocalUploadStorage
+from csrcqsf.modules.railway_parts.utils.local_upload_storage import LocalUploadStorage
 
 
 def test_local_upload_storage_writes_part_and_meta(tmp_path):

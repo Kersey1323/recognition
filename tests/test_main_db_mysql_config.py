@@ -19,8 +19,8 @@ def _reload_settings(monkeypatch, **env):
         monkeypatch.delenv(key, raising=False)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
-    sys.modules.pop("csrcqsf.settings", None)
-    return importlib.import_module("csrcqsf.settings")
+    sys.modules.pop("csrcqsf.core.settings", None)
+    return importlib.import_module("csrcqsf.core.settings")
 
 
 def test_main_db_mysql_dsn_uses_new_env_names(monkeypatch):

@@ -1,5 +1,5 @@
-from csrcqsf.biz.sgo import SGOBiz
-from anyio import run 
+from anyio import run
+
+from csrcqsf.modules.sgo.services import SGOBiz
 
 run(SGOBiz.sync_all_images)
-

@@ -8,8 +8,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from csrcqsf.data.pg import SessionLocal
-from csrcqsf.models.reconstruction import ReconstructionRecord, ReconstructionStatus
+from csrcqsf.infra.db.main_db import SessionLocal
+from csrcqsf.models.orm.reconstruction import ReconstructionRecord, ReconstructionStatus
 from sqlalchemy import select, or_
 
 async def check():

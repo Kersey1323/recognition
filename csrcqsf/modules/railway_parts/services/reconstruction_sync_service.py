@@ -3,12 +3,12 @@ from __future__ import annotations
 from sqlalchemy import or_, select
 
 from globals_vars import logger
-from csrcqsf.biz.railwayparts.reconstruction_client import (
+from csrcqsf.modules.railway_parts.integrations.reconstruction_client import (
     ReconstructionServiceClient,
     ReconstructionServiceClientError,
 )
 from csrcqsf.infra.db.main_db import SessionLocal
-from csrcqsf.models.reconstruction import ReconstructionRecord, ReconstructionStatus
+from csrcqsf.models.orm.reconstruction import ReconstructionRecord, ReconstructionStatus
 from csrcqsf.modules.railway_parts.services.reconstruction_service import ReconstructionManager
 
 

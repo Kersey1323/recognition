@@ -25,10 +25,10 @@ from csrcqsf.modules.railway_parts.schemas.parts import (
     UpdateItemReq,
     UpdateItemSizeStr,
 )
-from csrcqsf.biz.railwayparts.auto_processor import AutoPartProcessor
-from csrcqsf.biz.sgo import SGOBiz
+from csrcqsf.modules.railway_parts.services.auto_processor_service import AutoPartProcessor
+from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
-from csrcqsf.runtime import ensure_segment_model_enabled
+from csrcqsf.core.runtime import ensure_segment_model_enabled
 
 from .router import parts_router
 
