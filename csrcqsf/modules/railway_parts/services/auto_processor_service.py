@@ -26,7 +26,6 @@ from csrcqsf.models.orm.sgo import (
 )
 from csrcqsf.modules.image.services import SegmentBiz
 from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import (
-    FeaturesIndex,
     ImageIndex,
     MilvusManager,
     PartsIndex,

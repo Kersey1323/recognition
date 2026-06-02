@@ -42,6 +42,21 @@
         "strings": "on"
     },
     "editor.fontSize": 16,
+    "python.analysis.extraPaths": [
+        "./"
+    ],
+    "python.analysis.diagnosticMode": "workspace",
+    "python.analysis.exclude": [
+        "**/.venv/**",
+        "**/__pycache__/**",
+        ".pytest_cache/**",
+        ".ruff_cache/**",
+        "logs/**",
+        "temp/**",
+        "state/**",
+        "vector_db/**",
+        "csrcqsf/biz/**"
+    ],
     "python.analysis.inlayHints.functionReturnTypes": true,
     "python.analysis.inlayHints.pytestParameters": true,
     "python.analysis.inlayHints.variableTypes": true,

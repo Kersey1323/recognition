@@ -2,15 +2,40 @@
 from __future__ import annotations
 
 import os
-import re
 from datetime import datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from typing import Any
 from uuid import uuid4
+
 from csrcqsf.modules.railway_parts.services import reconstruction_result_service
+
+# These names are injected by bind_runtime_dependencies() at import-install time.
+# Keep module-level placeholders so IDEs and static analyzers can resolve them.
+run_sync: Any = None
+get_id: Any = None
+logger: Any = None
+SessionLocal: Any = None
+ReconstructionBusinessError: Any = None
+ReconstructionServiceClientError: Any = None
+ReconstructionRecord: Any = None
+ReconstructionStatus: Any = None
+Items: Any = None
+reconstruction_server_env_configured: Any = None
+sam3_model_path: Any = None
+minio_reconstruction_file_bucket: Any = None
+map_celery_state_to_reconstruction_status: Any = None
+get_reconstruction_task_failure_message: Any = None
+_get_minio_helpers: Any = None
+
+ReconstructionRecordType = Any
+
+
 def bind_runtime_dependencies(reconstruction_service_module: ModuleType | None = None) -> None:
     if reconstruction_service_module is None:
-        from csrcqsf.modules.railway_parts.services import reconstruction_service as reconstruction_service_module
+        from csrcqsf.modules.railway_parts.services import (
+            reconstruction_service as reconstruction_service_module,
+        )
 
     globals().update(
         {
@@ -38,6 +63,8 @@ def bind_runtime_dependencies(reconstruction_service_module: ModuleType | None =
     )
 def _runtime_context():
     return SimpleNamespace(**globals())
+
+
 def _is_terminal_status(cls, status: str | None) -> bool:
     return status in (
         ReconstructionStatus.SUCCESS,
@@ -99,6 +126,8 @@ def _infer_terminal_status_from_record(cls, record) -> str | None:
     if error_message:
         return ReconstructionStatus.FAILED
     return None
+
+
 def _build_terminal_snapshot_from_record(cls, record, status: str | None = None) -> dict | None:
     terminal_status = status or cls._infer_terminal_status_from_record(record)
     if terminal_status is None:
@@ -314,7 +343,7 @@ async def _get_item_name_map(cls, session, item_ids: list[int]) -> dict[int, str
 
 def _serialize_task_record(
     cls,
-    record: ReconstructionRecord,
+    record: ReconstructionRecordType,
     item_name_map: dict[int, str] | None = None,
 ) -> dict:
     response_snapshot = cls._build_terminal_snapshot_from_record(record)
@@ -419,7 +448,7 @@ async def _upload_manual_reconstruction_result_file(cls, item_id: int, file, run
 async def _persist_success_result(
     cls,
     session,
-    record: ReconstructionRecord,
+    record: ReconstructionRecordType,
     task_result: dict,
     runtime=None,
 ) -> bool:

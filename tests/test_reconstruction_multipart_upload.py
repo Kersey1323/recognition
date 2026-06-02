@@ -1,14 +1,12 @@
 import asyncio
+import importlib
 from datetime import datetime
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from csrcqsf.modules.railway_parts.utils.local_upload_storage import LocalUploadStorage
-from csrcqsf.modules.railway_parts.services.reconstruction_service import (
-    ReconstructionBusinessError,
-    ReconstructionManager,
-)
+from csrcqsf.modules.railway_parts.services.reconstruction_service import ReconstructionManager
 
 
 class _AsyncSessionContext:
@@ -47,6 +45,9 @@ def test_choose_multipart_part_size_matches_reference_guide():
 
 
 def test_init_source_video_multipart_upload_rejects_existing_source_video():
+    service_module = importlib.import_module(
+        "csrcqsf.modules.railway_parts.services.reconstruction_service"
+    )
     existing_item = SimpleNamespace(id=101, source_video_path="bfr-3d-videos/existing.mp4")
 
     with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=existing_item)):
@@ -59,7 +60,7 @@ def test_init_source_video_multipart_upload_rejects_existing_source_video():
                     content_type="video/mp4",
                 )
             )
-        except ReconstructionBusinessError as exc:
+        except service_module.ReconstructionBusinessError as exc:
             assert "已存在原始视频" in str(exc)
         else:
             raise AssertionError("expected multipart init to reject existing source video")

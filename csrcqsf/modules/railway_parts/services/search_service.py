@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import io
+from typing import Any
+
+
+SearchHistoryListReq: Any = None
 
 
 def _runtime():

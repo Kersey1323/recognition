@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from typing import Any
+
+
+SearchReviewTicketListReq: Any = None
+
 
 def _runtime():
     from csrcqsf.modules.railway_parts.services import parts_search_service

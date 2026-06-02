@@ -2,6 +2,7 @@
 三维重构管理器 - 业务逻辑层
 主业务只负责重构任务元数据管理，并通过远端 reconstruction_server 执行任务
 """
+# ruff: noqa: F401
 import sys
 import math
 import os

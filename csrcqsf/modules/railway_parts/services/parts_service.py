@@ -1,4 +1,5 @@
 """业务逻辑层 - 配件管理兼容门面。"""
+# ruff: noqa: F401
 from __future__ import annotations
 
 from datetime import datetime

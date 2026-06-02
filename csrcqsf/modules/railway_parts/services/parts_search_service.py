@@ -5,7 +5,45 @@ from datetime import datetime
 import io
 import re
 from types import ModuleType, SimpleNamespace
+from typing import Any
 from csrcqsf.modules.railway_parts.services import review_ticket_service, search_service
+
+# These names are injected by bind_runtime_dependencies() from parts_service.
+SessionLocal: Any = None
+Items: Any = None
+MatchedImage: Any = None
+MilvusManagerV2: Any = None
+SearchHistory: Any = None
+SearchResultItem: Any = None
+SearchResults: Any = None
+SearchReviewTicket: Any = None
+SearchHistoryRepository: Any = None
+ItemSuggestItem: Any = None
+ItemSuggestRes: Any = None
+SearchReviewTicketDetailRes: Any = None
+SearchReviewTicketItem: Any = None
+SearchReviewTicketListRes: Any = None
+SearchReviewTicketSummaryRes: Any = None
+SearchReviewTicketUpdateRes: Any = None
+SearchHistoryDeleteRes: Any = None
+SearchHistoryFeedbackRes: Any = None
+SearchHistoryListItem: Any = None
+SearchHistoryListReq: Any = None
+SearchHistoryListRes: Any = None
+SearchHistorySummaryRes: Any = None
+SearchHistoryVerifyRes: Any = None
+SearchItem: Any = None
+SearchRes: Any = None
+SearchReviewTicketListReq: Any = None
+SgoItemImages: Any = None
+date_to_str: Any = None
+logger: Any = None
+get_id: Any = None
+run_sync: Any = None
+select: Any = None
+_get_milvus_manager_v2_cls: Any = None
+_get_minio_helpers: Any = None
+minio_search_history_bucket: Any = None
 
 
 def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) -> None:
@@ -86,6 +124,7 @@ async def _upload_v2_search_query_image(
     )
     return f"{minio_search_history_bucket}/{object_name}"
 
+
 async def _persist_v2_search_history(
     cls,
     *,
@@ -146,6 +185,7 @@ async def _persist_v2_search_history(
     except Exception:
         logger.exception("V2检索历史写入失败")
 
+
 def _aggregate_v2_search_items(cls, search_items: list[SearchItem]) -> list[SearchItem]:
     grouped: dict[str, dict] = {}
 
@@ -199,6 +239,7 @@ def _aggregate_v2_search_items(cls, search_items: list[SearchItem]) -> list[Sear
         key=lambda item: (-item.rate, grouped[str(item.item_id)]["first_index"])
     )
     return aggregated_items
+
 
 def _build_search_item_from_hit(cls, hit: dict) -> SearchItem:
     entity = hit.get("entity", {})

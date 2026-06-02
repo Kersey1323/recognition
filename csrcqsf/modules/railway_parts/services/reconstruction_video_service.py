@@ -1,20 +1,41 @@
 """Reconstruction source-video upload, multipart, and sync service implementations."""
+
 from __future__ import annotations
 
 import math
-import os
 import re
 from urllib.parse import urlsplit, urlunsplit
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from uuid import uuid4
+from typing import Any
 from csrcqsf.modules.railway_parts.services import source_video_service, upload_service
 
+# These names are injected by bind_runtime_dependencies() from reconstruction_service.
+run_sync: Any = None
+get_id: Any = None
+logger: Any = None
+Part: Any = None
+SessionLocal: Any = None
+Items: Any = None
+ReconstructionVideoUploadSession: Any = None
+ReconstructionBusinessError: Any = None
+LocalFilePartReader: Any = None
+minio_env_configured: Any = None
+minio_reconstruction_video_bucket: Any = None
+_get_minio_helpers: Any = None
 
-def bind_runtime_dependencies(reconstruction_service_module: ModuleType | None = None) -> None:
+PartType = Any
+ItemsType = Any
+
+
+def bind_runtime_dependencies(
+    reconstruction_service_module: ModuleType | None = None,
+) -> None:
     if reconstruction_service_module is None:
-        from csrcqsf.modules.railway_parts.services import reconstruction_service as reconstruction_service_module
+        from csrcqsf.modules.railway_parts.services import (
+            reconstruction_service as reconstruction_service_module,
+        )
 
     globals().update(
         {
@@ -52,6 +73,7 @@ def _safe_filename(filename: str | None) -> str:
     safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._")
     return safe_name or "source_video.mp4"
 
+
 def _choose_multipart_part_size(file_size: int) -> int:
     min_part_size = 5 * 1024 * 1024
     max_part_size = 5 * 1024 * 1024 * 1024
@@ -73,19 +95,23 @@ def _choose_multipart_part_size(file_size: int) -> int:
 
     return min(max(part_size, min_part_size), max_part_size)
 
+
 def _build_source_video_multipart_object_name(cls, item_id: int, file_name: str) -> str:
     safe_name = cls._safe_filename(file_name)
     date_dir = datetime.now().strftime("%Y%m%d")
     return f"raw-videos/{item_id}/{date_dir}/{get_id()}_{safe_name}"
 
+
 def _multipart_upload_expires_at() -> str:
     return (datetime.utcnow() + timedelta(days=7)).isoformat()
+
 
 def _strip_presigned_url_host(url: str) -> str:
     parsed = urlsplit(url)
     return urlunsplit(("", "", parsed.path, parsed.query, parsed.fragment))
 
-def _normalize_complete_parts(cls, parts: list[dict], total_parts: int) -> list[Part]:
+
+def _normalize_complete_parts(cls, parts: list[dict], total_parts: int) -> list[PartType]:
     normalized_parts = []
     for item in sorted(parts, key=lambda value: int(value["part_number"])):
         normalized_parts.append(
@@ -102,6 +128,7 @@ def _normalize_complete_parts(cls, parts: list[dict], total_parts: int) -> list[
 
     return normalized_parts
 
+
 def _validate_part_numbers(cls, part_numbers: list[int], total_parts: int) -> list[int]:
     normalized_part_numbers = sorted({int(part_number) for part_number in part_numbers})
     if not normalized_part_numbers:
@@ -110,6 +137,7 @@ def _validate_part_numbers(cls, part_numbers: list[int], total_parts: int) -> li
         if part_number < 1 or part_number > total_parts:
             raise ReconstructionBusinessError(f"分片编号超出范围: {part_number}")
     return normalized_part_numbers
+
 
 def _expected_local_part_size(cls, upload_session, part_number: int) -> int:
     total_parts = int(upload_session.total_parts)
@@ -127,7 +155,10 @@ def _expected_local_part_size(cls, upload_session, part_number: int) -> int:
         raise ReconstructionBusinessError("上传会话分片配置异常")
     return final_part_size
 
-def _build_upload_session_payload(cls, upload_session, upload_urls: list[dict] | None = None) -> dict:
+
+def _build_upload_session_payload(
+    cls, upload_session, upload_urls: list[dict] | None = None
+) -> dict:
     payload = {
         "upload_session_id": upload_session.id,
         "item_id": upload_session.item_id,
@@ -142,10 +173,14 @@ def _build_upload_session_payload(cls, upload_session, upload_urls: list[dict] |
         payload["upload_urls"] = upload_urls
     return payload
 
+
 def _build_local_upload_init_payload(cls, upload_session) -> dict:
     return cls._build_upload_session_payload(upload_session, upload_urls=[])
 
-async def _create_multipart_upload(cls, bucket: str, object_name: str, content_type: str) -> str:
+
+async def _create_multipart_upload(
+    cls, bucket: str, object_name: str, content_type: str
+) -> str:
     ensure_minio_bucket, _, minio_instance, _, _ = _get_minio_helpers()
 
     def _create() -> str:
@@ -157,6 +192,7 @@ async def _create_multipart_upload(cls, bucket: str, object_name: str, content_t
         )
 
     return await run_sync(_create)
+
 
 async def _generate_multipart_upload_urls(
     cls,
@@ -191,7 +227,10 @@ async def _generate_multipart_upload_urls(
 
     return await run_sync(_generate)
 
-async def _list_multipart_uploaded_parts(cls, bucket: str, object_name: str, upload_id: str) -> list[dict]:
+
+async def _list_multipart_uploaded_parts(
+    cls, bucket: str, object_name: str, upload_id: str
+) -> list[dict]:
     _, _, minio_instance, _, _ = _get_minio_helpers()
 
     def _list_parts() -> list[dict]:
@@ -221,6 +260,7 @@ async def _list_multipart_uploaded_parts(cls, bucket: str, object_name: str, upl
 
     return await run_sync(_list_parts)
 
+
 async def _complete_multipart_upload(
     cls,
     bucket: str,
@@ -242,7 +282,10 @@ async def _complete_multipart_upload(
 
     await run_sync(_complete)
 
-async def _abort_multipart_upload(cls, bucket: str, object_name: str, upload_id: str) -> None:
+
+async def _abort_multipart_upload(
+    cls, bucket: str, object_name: str, upload_id: str
+) -> None:
     _, _, minio_instance, _, S3Error = _get_minio_helpers()
 
     def _abort() -> None:
@@ -259,18 +302,26 @@ async def _abort_multipart_upload(cls, bucket: str, object_name: str, upload_id:
 
     await run_sync(_abort)
 
+
 async def _require_upload_session(cls, upload_session_id: int):
     async with SessionLocal() as session:
-        upload_session = await ReconstructionVideoUploadSession.get_by_id(session, upload_session_id)
+        upload_session = await ReconstructionVideoUploadSession.get_by_id(
+            session, upload_session_id
+        )
 
     if upload_session is None:
-        raise ReconstructionBusinessError(f"上传会话不存在: upload_session_id={upload_session_id}")
+        raise ReconstructionBusinessError(
+            f"上传会话不存在: upload_session_id={upload_session_id}"
+        )
     if upload_session.status != "initiated":
-        raise ReconstructionBusinessError(f"上传会话不可继续操作: upload_session_id={upload_session_id}")
+        raise ReconstructionBusinessError(
+            f"上传会话不可继续操作: upload_session_id={upload_session_id}"
+        )
 
     return upload_session
 
-def _format_source_video_item(cls, item: Items, message: str | None = None) -> dict:
+
+def _format_source_video_item(cls, item: ItemsType, message: str | None = None) -> dict:
     return {
         "item_id": item.id,
         "item_name": item.item_name,
@@ -283,9 +334,12 @@ def _format_source_video_item(cls, item: Items, message: str | None = None) -> d
         "filename": item.source_video_filename,
         "size": item.source_video_size,
         "content_type": item.source_video_content_type,
-        "source_video_updated_at": item.source_video_updated_at.isoformat() if item.source_video_updated_at else None,
+        "source_video_updated_at": item.source_video_updated_at.isoformat()
+        if item.source_video_updated_at
+        else None,
         "message": message,
     }
+
 
 async def _upload_multipart_part_bytes(
     cls,
@@ -309,6 +363,7 @@ async def _upload_multipart_part_bytes(
         return str(etag).strip().strip('"')
 
     return await run_sync(_upload)
+
 
 async def _init_remote_source_video_upload(
     cls,
@@ -334,6 +389,7 @@ async def _init_remote_source_video_upload(
         runtime=_runtime_context(),
     )
 
+
 async def _init_local_source_video_upload(
     cls,
     item_id: int,
@@ -358,6 +414,7 @@ async def _init_local_source_video_upload(
         runtime=_runtime_context(),
     )
 
+
 async def _upload_source_video_file(cls, item_id: int, file) -> dict:
     return await source_video_service._upload_source_video_file(
         cls,
@@ -365,6 +422,7 @@ async def _upload_source_video_file(cls, item_id: int, file) -> dict:
         file=file,
         runtime=_runtime_context(),
     )
+
 
 async def upload_source_video(
     cls,
@@ -386,6 +444,7 @@ async def upload_source_video(
         runtime=_runtime_context(),
     )
 
+
 async def upload_source_video_local_part(
     cls,
     upload_session_id: int,
@@ -399,6 +458,7 @@ async def upload_source_video_local_part(
         file=file,
         runtime=_runtime_context(),
     )
+
 
 async def init_source_video_multipart_upload(
     cls,
@@ -426,6 +486,7 @@ async def init_source_video_multipart_upload(
         runtime=_runtime_context(),
     )
 
+
 async def get_source_video_upload_progress(cls, upload_session_id: int) -> dict:
     return await upload_service.get_source_video_upload_progress(
         cls,
@@ -433,13 +494,17 @@ async def get_source_video_upload_progress(cls, upload_session_id: int) -> dict:
         runtime=_runtime_context(),
     )
 
-async def get_source_video_upload_urls(cls, upload_session_id: int, part_numbers: list[int]) -> dict:
+
+async def get_source_video_upload_urls(
+    cls, upload_session_id: int, part_numbers: list[int]
+) -> dict:
     return await upload_service.get_source_video_upload_urls(
         cls,
         upload_session_id=upload_session_id,
         part_numbers=part_numbers,
         runtime=_runtime_context(),
     )
+
 
 async def complete_source_video_multipart_upload(cls, upload_session_id: int) -> dict:
     return await upload_service.complete_source_video_multipart_upload(
@@ -448,12 +513,14 @@ async def complete_source_video_multipart_upload(cls, upload_session_id: int) ->
         runtime=_runtime_context(),
     )
 
+
 async def abort_source_video_multipart_upload(cls, upload_session_id: int) -> dict:
     return await upload_service.abort_source_video_multipart_upload(
         cls,
         upload_session_id=upload_session_id,
         runtime=_runtime_context(),
     )
+
 
 async def _complete_local_source_video_upload(cls, upload_session) -> dict:
     return await upload_service._complete_local_source_video_upload(
@@ -462,6 +529,7 @@ async def _complete_local_source_video_upload(cls, upload_session) -> dict:
         runtime=_runtime_context(),
     )
 
+
 async def _abort_local_source_video_upload(cls, upload_session) -> dict:
     return await upload_service._abort_local_source_video_upload(
         cls,
@@ -469,11 +537,13 @@ async def _abort_local_source_video_upload(cls, upload_session) -> dict:
         runtime=_runtime_context(),
     )
 
+
 async def _minio_health_check(cls) -> bool:
     return await upload_service._minio_health_check(
         cls,
         runtime=_runtime_context(),
     )
+
 
 async def _sync_local_session_to_remote(cls, upload_session, session) -> bool:
     return await upload_service._sync_local_session_to_remote(
@@ -483,11 +553,13 @@ async def _sync_local_session_to_remote(cls, upload_session, session) -> bool:
         runtime=_runtime_context(),
     )
 
+
 async def check_minio_and_sync_local_uploads(cls) -> dict:
     return await upload_service.check_minio_and_sync_local_uploads(
         cls,
         runtime=_runtime_context(),
     )
+
 
 async def list_source_videos(cls, page: int = 1, page_size: int = 100) -> dict:
     return await source_video_service.list_source_videos(
@@ -497,12 +569,14 @@ async def list_source_videos(cls, page: int = 1, page_size: int = 100) -> dict:
         runtime=_runtime_context(),
     )
 
+
 async def get_source_video(cls, item_id: int) -> dict:
     return await source_video_service.get_source_video(
         cls,
         item_id=item_id,
         runtime=_runtime_context(),
     )
+
 
 async def update_source_video(
     cls,
@@ -523,6 +597,7 @@ async def update_source_video(
         weight=weight,
         runtime=_runtime_context(),
     )
+
 
 async def delete_source_video(cls, item_id: int) -> dict:
     return await source_video_service.delete_source_video(
