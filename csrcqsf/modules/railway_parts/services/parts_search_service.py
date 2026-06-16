@@ -5,8 +5,13 @@ from datetime import datetime
 import io
 import re
 from types import ModuleType, SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 from csrcqsf.modules.railway_parts.services import review_ticket_service, search_service
+
+if TYPE_CHECKING:
+    from csrcqsf.modules.railway_parts.schemas.search import SearchItem as SearchItemType
+else:
+    SearchItemType: TypeAlias = Any
 
 # These names are injected by bind_runtime_dependencies() from parts_service.
 SessionLocal: Any = None
@@ -133,7 +138,7 @@ async def _persist_v2_search_history(
     query_image: str | None,
     query_images: list[str] | None,
     search_equipment: str,
-    search_items: list[SearchItem],
+    search_items: list[SearchItemType],
 ) -> None:
     top1 = search_items[0] if search_items else None
     search_results = SearchResults(
@@ -186,7 +191,10 @@ async def _persist_v2_search_history(
         logger.exception("V2检索历史写入失败")
 
 
-def _aggregate_v2_search_items(cls, search_items: list[SearchItem]) -> list[SearchItem]:
+def _aggregate_v2_search_items(
+    cls,
+    search_items: list[SearchItemType],
+) -> list[SearchItemType]:
     grouped: dict[str, dict] = {}
 
     for index, item in enumerate(search_items):
@@ -214,7 +222,7 @@ def _aggregate_v2_search_items(cls, search_items: list[SearchItem]) -> list[Sear
         if item.rate > bucket["best_item"].rate:
             bucket["best_item"] = item
 
-    aggregated_items: list[SearchItem] = []
+    aggregated_items: list[SearchItemType] = []
     for item_id, bucket in grouped.items():
         best_item = bucket["best_item"]
         matched_images = [
@@ -241,7 +249,7 @@ def _aggregate_v2_search_items(cls, search_items: list[SearchItem]) -> list[Sear
     return aggregated_items
 
 
-def _build_search_item_from_hit(cls, hit: dict) -> SearchItem:
+def _build_search_item_from_hit(cls, hit: dict) -> SearchItemType:
     entity = hit.get("entity", {})
     rate = float(hit.get("best_similarity", hit.get("distance", 0)) or 0)
     image_url = entity.get("image_url", "")

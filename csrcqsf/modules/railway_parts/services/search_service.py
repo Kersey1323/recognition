@@ -4,8 +4,8 @@ import io
 from typing import Any
 
 
-SearchHistoryListReq: Any = None
 
+SearchHistoryListReq: Any = None
 
 def _runtime():
     from csrcqsf.modules.railway_parts.services import parts_search_service
@@ -13,7 +13,7 @@ def _runtime():
     return parts_search_service
 
 
-async def list_v2_search_history(cls, req: SearchHistoryListReq, runtime=None):
+async def list_v2_search_history(cls, req: SearchHistoryListReq, runtime=None): # type: ignore
     runtime = runtime or _runtime()
     async with runtime.SessionLocal() as session:
         page_result = await runtime.SearchHistoryRepository.list_search_history(

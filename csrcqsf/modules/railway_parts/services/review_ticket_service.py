@@ -12,7 +12,7 @@ def _runtime():
     return parts_search_service
 
 
-async def list_v2_search_review_tickets(cls, req: SearchReviewTicketListReq, runtime=None):
+async def list_v2_search_review_tickets(cls, req: SearchReviewTicketListReq, runtime=None): # type: ignore
     runtime = runtime or _runtime()
     async with runtime.SessionLocal() as session:
         page_result = await runtime.SearchHistoryRepository.list_tickets(

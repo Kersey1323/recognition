@@ -1,6 +1,14 @@
 from __future__ import annotations
 
 from types import ModuleType
+from typing import TYPE_CHECKING, Any, TypeAlias
+
+if TYPE_CHECKING:
+    from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import (
+        ImageIndex as ImageIndexType,
+    )
+else:
+    ImageIndexType: TypeAlias = Any
 
 
 def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) -> None:
@@ -49,7 +57,7 @@ async def delete_item_image_index(cls, item_id: int, image_url_list: list[str], 
 
     index = now_index_list[item_id]
     image_url_set = set(image_url_list)
-    new_image_index_list: list[runtime.ImageIndex] = []
+    new_image_index_list: list[ImageIndexType] = []
     for image_index in index.images:
         if image_index.filename not in image_url_set:
             new_image_index_list.append(image_index)
