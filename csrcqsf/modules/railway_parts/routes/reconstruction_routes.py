@@ -23,6 +23,7 @@ from csrcqsf.modules.railway_parts.schemas.reconstruction import (
     ReconstructionVideoUploadInitReq,
     ReconstructionVideoUploadInitRes,
     ReconstructionVideoUploadMinioHealthRes,
+    ReconstructionVideoUploadPartRes,
     ReconstructionVideoUploadProgressReq,
     ReconstructionVideoUploadProgressRes,
     ReconstructionVideoUploadUrlsReq,
@@ -102,18 +103,18 @@ async def init_reconstruct_v2_video_upload(req: ReconstructionVideoUploadInitReq
     return ReconstructionVideoUploadInitRes(**result)
 
 
-@parts_router.post('/v2/reconstruct/video/upload/part', tags=["算法-3D重建V2"], summary='V2: 本地模式上传单个视频分片')
+@parts_router.post('/v2/reconstruct/video/upload/part', tags=["算法-3D重建V2"], summary='V2: 上传单个视频分片')
 async def upload_reconstruct_v2_video_part(
     upload_session_id: str = Form(...),
     part_number: int = Form(...),
     file: UploadFile = File(...),
 ):
-    result = await ReconstructionManager.upload_source_video_local_part(
+    result = await ReconstructionManager.upload_source_video_part(
         upload_session_id=int(upload_session_id),
         part_number=part_number,
         file=file,
     )
-    return result
+    return ReconstructionVideoUploadPartRes(**result)
 
 
 @parts_router.post('/v2/reconstruct/video/upload/progress', tags=["算法-3D重建V2"], summary='V2: 查询原始视频分片上传进度')

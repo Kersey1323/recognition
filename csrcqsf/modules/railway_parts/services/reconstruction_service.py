@@ -364,6 +364,25 @@ class ReconstructionManager:
         )
 
     @classmethod
+    async def _upload_part(
+        cls,
+        bucket: str,
+        object_name: str,
+        upload_id: str,
+        part_number: int,
+        data: bytes,
+    ) -> str:
+        _bind_reconstruction_video_runtime()
+        return await reconstruction_video_service._upload_part(
+            cls,
+            bucket=bucket,
+            object_name=object_name,
+            upload_id=upload_id,
+            part_number=part_number,
+            data=data,
+        )
+
+    @classmethod
     async def _init_remote_source_video_upload(
         cls,
         item_id: int,
@@ -491,6 +510,36 @@ class ReconstructionManager:
     ) -> dict:
         _bind_reconstruction_video_runtime()
         return await reconstruction_video_service.upload_source_video_local_part(
+            cls,
+            upload_session_id=upload_session_id,
+            part_number=part_number,
+            file=file,
+        )
+
+    @classmethod
+    async def upload_source_video_remote_part(
+        cls,
+        upload_session_id: int,
+        part_number: int,
+        file,
+    ) -> dict:
+        _bind_reconstruction_video_runtime()
+        return await reconstruction_video_service.upload_source_video_remote_part(
+            cls,
+            upload_session_id=upload_session_id,
+            part_number=part_number,
+            file=file,
+        )
+
+    @classmethod
+    async def upload_source_video_part(
+        cls,
+        upload_session_id: int,
+        part_number: int,
+        file,
+    ) -> dict:
+        _bind_reconstruction_video_runtime()
+        return await reconstruction_video_service.upload_source_video_part(
             cls,
             upload_session_id=upload_session_id,
             part_number=part_number,

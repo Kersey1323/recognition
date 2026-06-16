@@ -43,6 +43,7 @@ def test_reconstruction_routes_include_multipart_source_video_endpoints():
     assert "@parts_router.post('/v2/reconstruct/video/upload/complete'" in text
     assert "@parts_router.post('/v2/reconstruct/video/upload/abort'" in text
     assert "@parts_router.post('/v2/reconstruct/video'" in text
+    assert "summary='V2: 上传单个视频分片'" in text
 
 
 def test_reconstruction_public_routes_remain_compatible_while_server_extracts():

@@ -173,6 +173,32 @@ PYTHONPATH=. .venv/bin/python scripts/testing/debug_model_paths.py
 PYTHONPATH=. .venv/bin/pytest tests/ -q
 ```
 
+### 本地模式分片上传调试页
+
+如果要验证 `/recognition_api/railway/parts/v2/reconstruct/video/upload/part` 是否按真实分片方式上传，不要直接用 Swagger 选择整视频文件。
+
+可直接打开：
+
+- [reconstruct_local_upload_debug.html](/home/ubuntu/project-train/recognition/tools/reconstruct_local_upload_debug.html)
+
+这个调试页会在浏览器里用 `file.slice(start, end)` 切出每个 `partBuffer`，再逐片调用：
+
+- `/recognition_api/railway/parts/v2/reconstruct/video/upload/init`
+- `/recognition_api/railway/parts/v2/reconstruct/video/upload/part`
+- `/recognition_api/railway/parts/v2/reconstruct/video/upload/progress`
+- `/recognition_api/railway/parts/v2/reconstruct/video/upload/complete`
+
+当前分片模式说明：
+
+- `storage_mode=local`
+  - 前端分片后把每片传给主业务服务
+  - 主业务服务先落本地
+  - 后续再同步到 MinIO
+- `storage_mode=remote`
+  - 前端分片后把每片传给主业务服务
+  - 主业务服务立即代理上传当前分片到 MinIO multipart upload
+  - 前端不再直接访问 MinIO 预签名 URL
+
 ## 说明
 
 - README 只保留项目概览、目录说明和导航信息

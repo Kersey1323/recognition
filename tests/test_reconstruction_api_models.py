@@ -19,6 +19,7 @@ from csrcqsf.modules.railway_parts.schemas.reconstruction import (
     ReconstructionVideoUploadInitRes,
     ReconstructionVideoUploadMinioHealthRes,
     ReconstructionVideoUploadPartReq,
+    ReconstructionVideoUploadPartRes,
     ReconstructionVideoUploadProgressReq,
     ReconstructionVideoUploadProgressRes,
     ReconstructionVideoUploadRes,
@@ -423,6 +424,21 @@ def test_reconstruction_video_upload_part_req_normalizes_upload_session_id():
 
     assert req.upload_session_id == "9001"
     assert req.part_number == 2
+
+
+def test_reconstruction_video_upload_part_response_contract():
+    res = ReconstructionVideoUploadPartRes(
+        upload_session_id=9001,
+        part_number=2,
+        size=1024,
+        etag="etag-2",
+        message="分片上传成功",
+    )
+
+    assert res.upload_session_id == "9001"
+    assert res.part_number == 2
+    assert res.size == 1024
+    assert res.etag == "etag-2"
 
 
 def test_reconstruction_minio_health_response_contract():

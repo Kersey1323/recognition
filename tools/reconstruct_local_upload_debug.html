@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>分片上传调试页</title>
+  <style>
+    :root {
+      --bg: #f3f0e8;
+      --panel: #fffdf8;
+      --line: #d9cfbf;
+      --text: #2a241d;
+      --muted: #6a6258;
+      --accent: #a54b2a;
+      --accent-2: #234f52;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(165, 75, 42, 0.12), transparent 32%),
+        radial-gradient(circle at bottom right, rgba(35, 79, 82, 0.16), transparent 28%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      width: min(1100px, calc(100vw - 32px));
+      margin: 28px auto;
+      display: grid;
+      gap: 20px;
+    }
+
+    .hero, .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 16px 40px rgba(42, 36, 29, 0.08);
+    }
+
+    .hero {
+      padding: 24px;
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
+    }
+
+    .panel {
+      padding: 20px;
+    }
+
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 18px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .field label {
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .field input,
+    .field select,
+    .field textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+    }
+
+    .field textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 16px;
+      font: inherit;
+      cursor: pointer;
+      color: #fff;
+      background: var(--accent);
+    }
+
+    button.secondary {
+      background: var(--accent-2);
+    }
+
+    button.ghost {
+      background: #7a736a;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .meta {
+      display: grid;
+      gap: 8px;
+      font-size: 14px;
+    }
+
+    .meta code,
+    .log code {
+      font-family: "JetBrains Mono", "Consolas", monospace;
+    }
+
+    .hint {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: rgba(35, 79, 82, 0.08);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .log {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 13px;
+      line-height: 1.7;
+      background: #1d1b18;
+      color: #f8f3e8;
+      padding: 14px;
+      border-radius: 12px;
+      min-height: 320px;
+      max-height: 620px;
+      overflow: auto;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(165, 75, 42, 0.1);
+      color: var(--accent);
+    }
+
+    @media (max-width: 900px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>视频分片上传调试页</h1>
+      <p>
+        这个页面用于模拟真实的 <code>partBuffer</code> 上传流程。它不会把整文件直接发给
+        <code>/upload/part</code>，而是按后端返回的 <code>part_size</code> 用
+        <code>file.slice(start, end)</code> 切出每一段，再逐片上传。你可以切换
+        <code>local</code> 或 <code>remote</code> 模式，验证两种会话都走同一套
+        <code>init -> part -> progress -> complete</code> 流程。
+      </p>
+    </section>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>配置</h2>
+
+        <div class="field">
+          <label for="baseUrl">服务地址</label>
+          <input id="baseUrl" value="http://192.168.100.3:65432">
+        </div>
+
+        <div class="field">
+          <label for="itemId">配件 ID</label>
+          <input id="itemId" value="">
+        </div>
+
+        <div class="field">
+          <label for="storageMode">上传模式</label>
+          <select id="storageMode">
+            <option value="local">local</option>
+            <option value="remote">remote</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="fileInput">视频文件</label>
+          <input id="fileInput" type="file" accept="video/*">
+        </div>
+
+        <div class="field">
+          <label for="contentType">Content-Type</label>
+          <input id="contentType" value="application/octet-stream">
+        </div>
+
+        <div class="field">
+          <label for="height">高度</label>
+          <input id="height" type="number" step="any" value="1">
+        </div>
+
+        <div class="field">
+          <label for="length">长度</label>
+          <input id="length" type="number" step="any" value="2">
+        </div>
+
+        <div class="field">
+          <label for="width">宽度</label>
+          <input id="width" type="number" step="any" value="3">
+        </div>
+
+        <div class="field">
+          <label for="weight">重量</label>
+          <input id="weight" type="number" step="any" value="4">
+        </div>
+
+        <div class="actions">
+          <button id="startBtn">初始化并开始上传</button>
+          <button id="progressBtn" class="secondary">查询进度</button>
+          <button id="completeBtn" class="secondary">完成上传</button>
+          <button id="clearBtn" class="ghost">清空日志</button>
+        </div>
+
+        <div class="hint">
+          当前页面验证的是“前端先 <code>file.slice(start, end)</code> 切片，再把单片传给
+          <code>/railway/parts/v2/reconstruct/video/upload/part</code>”这个动作本身。<br>
+          当上传会话为 <code>storage_mode=local</code> 时，服务端会先把分片落本地；当会话为
+          <code>storage_mode=remote</code> 时，服务端会立即把当前分片代理上传到 MinIO multipart upload。<br>
+          两种模式都会由当前页面先用 <code>file.slice()</code> 切出单片，再调用你现有的
+          <code>/upload/part</code> 接口，不会直接把整文件提交到服务端。
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>上传状态</h2>
+        <div class="meta">
+          <div><span class="status" id="statusText">未开始</span></div>
+          <div>upload_session_id: <code id="uploadSessionId">-</code></div>
+          <div>part_size: <code id="partSize">-</code></div>
+          <div>total_parts: <code id="totalParts">-</code></div>
+          <div>file_size: <code id="fileSize">-</code></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel">
+      <h2>调试日志</h2>
+      <div id="log" class="log"></div>
+    </section>
+  </div>
+
+  <script>
+    const state = {
+      uploadSessionId: "",
+      partSize: 0,
+      totalParts: 0,
+      file: null,
+    };
+
+    const baseUrlEl = document.getElementById("baseUrl");
+    const itemIdEl = document.getElementById("itemId");
+    const storageModeEl = document.getElementById("storageMode");
+    const fileInputEl = document.getElementById("fileInput");
+    const contentTypeEl = document.getElementById("contentType");
+    const heightEl = document.getElementById("height");
+    const lengthEl = document.getElementById("length");
+    const widthEl = document.getElementById("width");
+    const weightEl = document.getElementById("weight");
+
+    const uploadSessionIdEl = document.getElementById("uploadSessionId");
+    const partSizeEl = document.getElementById("partSize");
+    const totalPartsEl = document.getElementById("totalParts");
+    const fileSizeEl = document.getElementById("fileSize");
+    const statusTextEl = document.getElementById("statusText");
+    const logEl = document.getElementById("log");
+
+    const startBtn = document.getElementById("startBtn");
+    const progressBtn = document.getElementById("progressBtn");
+    const completeBtn = document.getElementById("completeBtn");
+    const clearBtn = document.getElementById("clearBtn");
+
+    function log(message, data) {
+      const time = new Date().toLocaleTimeString();
+      let text = `[${time}] ${message}`;
+      if (data !== undefined) {
+        try {
+          text += `\n${JSON.stringify(data, null, 2)}`;
+        } catch (error) {
+          text += `\n${String(data)}`;
+        }
+      }
+      logEl.textContent += `${text}\n\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setStatus(text) {
+      statusTextEl.textContent = text;
+    }
+
+    function syncStateView() {
+      uploadSessionIdEl.textContent = state.uploadSessionId || "-";
+      partSizeEl.textContent = state.partSize ? String(state.partSize) : "-";
+      totalPartsEl.textContent = state.totalParts ? String(state.totalParts) : "-";
+      fileSizeEl.textContent = state.file ? String(state.file.size) : "-";
+    }
+
+    function getApiUrl(path) {
+      return `${baseUrlEl.value.trim().replace(/\/+$/, "")}${path}`;
+    }
+
+    function getSelectedFile() {
+      const file = fileInputEl.files && fileInputEl.files[0];
+      if (!file) {
+        throw new Error("请先选择视频文件");
+      }
+      return file;
+    }
+
+    function getStorageMode() {
+      return storageModeEl.value === "remote" ? "remote" : "local";
+    }
+
+    function parseNumber(input, fallback = null) {
+      const raw = String(input.value || "").trim();
+      if (!raw) {
+        return fallback;
+      }
+      const value = Number(raw);
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    async function readJson(response) {
+      const text = await response.text();
+      try {
+        return JSON.parse(text);
+      } catch (error) {
+        throw new Error(`响应不是合法 JSON: ${text}`);
+      }
+    }
+
+    async function initUpload(file) {
+      const payload = {
+        item_id: itemIdEl.value.trim(),
+        file_name: file.name,
+        file_size: file.size,
+        content_type: contentTypeEl.value.trim() || file.type || "application/octet-stream",
+        storage_mode: getStorageMode(),
+        height: parseNumber(heightEl),
+        length: parseNumber(lengthEl),
+        width: parseNumber(widthEl),
+        weight: parseNumber(weightEl),
+      };
+
+      log("请求 /upload/init", payload);
+      const response = await fetch(
+        getApiUrl("/railway/parts/v2/reconstruct/video/upload/init"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "accept": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+      const result = await readJson(response);
+      log("响应 /upload/init", result);
+      if (result.status !== "success") {
+        throw new Error(result.message || "初始化上传失败");
+      }
+      return result.data;
+    }
+
+    async function uploadOnePart(partNumber, blob) {
+      const formData = new FormData();
+      formData.append("upload_session_id", state.uploadSessionId);
+      formData.append("part_number", String(partNumber));
+      formData.append("file", blob, `${state.file.name}.part${partNumber}`);
+
+      log(`上传分片 ${partNumber}`, {
+        storage_mode: getStorageMode(),
+        part_number: partNumber,
+        size: blob.size,
+      });
+      const response = await fetch(
+        getApiUrl("/railway/parts/v2/reconstruct/video/upload/part"),
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+      const result = await readJson(response);
+      log(`响应 /upload/part part=${partNumber}`, result);
+      if (result.status !== "success") {
+        throw new Error(result.message || `分片 ${partNumber} 上传失败`);
+      }
+      return result;
+    }
+
+    async function uploadAllParts() {
+      for (let partNumber = 1; partNumber <= state.totalParts; partNumber += 1) {
+        const start = (partNumber - 1) * state.partSize;
+        const end = Math.min(start + state.partSize, state.file.size);
+        const partBuffer = state.file.slice(start, end);
+        log("切片信息", {
+          part_number: partNumber,
+          start,
+          end,
+          expected_size: end - start,
+          actual_blob_size: partBuffer.size,
+        });
+        await uploadOnePart(partNumber, partBuffer);
+      }
+    }
+
+    async function queryProgress() {
+      if (!state.uploadSessionId) {
+        throw new Error("当前没有 upload_session_id");
+      }
+      const payload = {
+        upload_session_id: state.uploadSessionId,
+      };
+      log("请求 /upload/progress", payload);
+      const response = await fetch(
+        getApiUrl("/railway/parts/v2/reconstruct/video/upload/progress"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "accept": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+      const result = await readJson(response);
+      log("响应 /upload/progress", result);
+      if (result.status !== "success") {
+        throw new Error(result.message || "查询进度失败");
+      }
+      return result.data;
+    }
+
+    async function completeUpload() {
+      if (!state.uploadSessionId) {
+        throw new Error("当前没有 upload_session_id");
+      }
+      const payload = {
+        upload_session_id: state.uploadSessionId,
+      };
+      log("请求 /upload/complete", payload);
+      const response = await fetch(
+        getApiUrl("/railway/parts/v2/reconstruct/video/upload/complete"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "accept": "application/json",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+      const result = await readJson(response);
+      log("响应 /upload/complete", result);
+      if (result.status !== "success") {
+        throw new Error(result.message || "完成上传失败");
+      }
+      return result.data;
+    }
+
+    startBtn.addEventListener("click", async () => {
+      try {
+        startBtn.disabled = true;
+        setStatus("初始化中");
+        state.file = getSelectedFile();
+        syncStateView();
+
+        const initData = await initUpload(state.file);
+        state.uploadSessionId = String(initData.upload_session_id);
+        state.partSize = Number(initData.part_size);
+        state.totalParts = Number(initData.total_parts);
+        syncStateView();
+
+        setStatus("上传分片中");
+        await uploadAllParts();
+
+        setStatus("查询进度");
+        await queryProgress();
+        setStatus("已完成分片上传，可手动点完成上传");
+      } catch (error) {
+        setStatus("失败");
+        log("错误", { message: error.message || String(error) });
+      } finally {
+        startBtn.disabled = false;
+      }
+    });
+
+    progressBtn.addEventListener("click", async () => {
+      try {
+        progressBtn.disabled = true;
+        setStatus("查询进度");
+        await queryProgress();
+        setStatus("进度已刷新");
+      } catch (error) {
+        setStatus("失败");
+        log("错误", { message: error.message || String(error) });
+      } finally {
+        progressBtn.disabled = false;
+      }
+    });
+
+    completeBtn.addEventListener("click", async () => {
+      try {
+        completeBtn.disabled = true;
+        setStatus("完成上传");
+        await completeUpload();
+        setStatus("上传流程完成");
+      } catch (error) {
+        setStatus("失败");
+        log("错误", { message: error.message || String(error) });
+      } finally {
+        completeBtn.disabled = false;
+      }
+    });
+
+    clearBtn.addEventListener("click", () => {
+      logEl.textContent = "";
+    });
+
+    log("页面已加载", {
+      note: "请选择文件后开始。该页面会使用 file.slice(start, end) 按 part_size 切片，支持 local/remote 两种模式。",
+    });
+  </script>
+</body>
+</html>

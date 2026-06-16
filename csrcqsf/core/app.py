@@ -36,7 +36,7 @@ from csrcqsf.core.settings import (
     sgo_env_configured,
 )
 
-API_PREFIX = "/recognition_api"
+API_PREFIX = ""
 
 # 导入 scheduler 以启动定时任务（包括重建任务状态同步）
 

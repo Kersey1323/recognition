@@ -210,8 +210,98 @@ async def upload_source_video_local_part(
         "upload_session_id": upload_session.id,
         "part_number": part_number,
         "size": len(data),
+        "etag": "",
         "message": "分片上传成功",
     }
+
+
+async def upload_source_video_remote_part(
+    cls,
+    upload_session_id: int,
+    part_number: int,
+    file,
+    runtime=None,
+) -> dict:
+    runtime = runtime or _runtime()
+    upload_session = await cls._require_upload_session(upload_session_id)
+    if upload_session.storage_mode != "remote":
+        raise runtime.ReconstructionBusinessError("当前上传会话不是远端分片模式")
+    if part_number < 1 or part_number > int(upload_session.total_parts):
+        raise runtime.ReconstructionBusinessError(f"分片编号超出范围: {part_number}")
+
+    expires_at = getattr(upload_session, "expires_at", None)
+    if expires_at is not None and runtime.datetime.utcnow() > expires_at:
+        raise runtime.ReconstructionBusinessError(
+            f"上传会话已过期，请重新初始化: upload_session_id={upload_session_id}"
+        )
+
+    data = await file.read()
+    await file.close()
+    if not data:
+        raise runtime.ReconstructionBusinessError("上传分片内容不能为空")
+
+    expected_part_size = cls._expected_local_part_size(upload_session, part_number)
+    if len(data) != expected_part_size:
+        runtime.logger.warning(
+            "远端上传分片大小与预期不一致: upload_session_id=%s, part_number=%s, expected=%s, actual=%s",
+            upload_session_id,
+            part_number,
+            expected_part_size,
+            len(data),
+        )
+
+    etag = await cls._upload_part(
+        bucket=upload_session.bucket,
+        object_name=upload_session.object_name,
+        upload_id=upload_session.upload_id,
+        part_number=part_number,
+        data=data,
+    )
+
+    async with runtime.SessionLocal() as session:
+        await runtime.ReconstructionVideoUploadSession.update_sync_state(
+            session,
+            upload_session.id,
+            remote_status="uploading",
+        )
+        await session.commit()
+
+    return {
+        "upload_session_id": upload_session.id,
+        "part_number": part_number,
+        "size": len(data),
+        "etag": etag,
+        "message": "分片上传成功",
+    }
+
+
+async def upload_source_video_part(
+    cls,
+    upload_session_id: int,
+    part_number: int,
+    file,
+    runtime=None,
+) -> dict:
+    runtime = runtime or _runtime()
+    upload_session = await cls._require_upload_session(upload_session_id)
+
+    if upload_session.storage_mode == "local":
+        return await cls.upload_source_video_local_part(
+            upload_session_id=upload_session_id,
+            part_number=part_number,
+            file=file,
+        )
+
+    if upload_session.storage_mode == "remote":
+        return await cls.upload_source_video_remote_part(
+            upload_session_id=upload_session_id,
+            part_number=part_number,
+            file=file,
+        )
+
+    raise runtime.ReconstructionBusinessError(
+        f"不支持的上传会话模式: {upload_session.storage_mode}"
+    )
 
 
 async def init_source_video_multipart_upload(

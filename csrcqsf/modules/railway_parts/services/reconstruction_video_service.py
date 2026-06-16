@@ -365,6 +365,23 @@ async def _upload_multipart_part_bytes(
     return await run_sync(_upload)
 
 
+async def _upload_part(
+    cls,
+    bucket: str,
+    object_name: str,
+    upload_id: str,
+    part_number: int,
+    data: bytes,
+) -> str:
+    return await cls._upload_multipart_part_bytes(
+        bucket=bucket,
+        object_name=object_name,
+        upload_id=upload_id,
+        part_number=part_number,
+        data=data,
+    )
+
+
 async def _init_remote_source_video_upload(
     cls,
     item_id: int,
@@ -452,6 +469,36 @@ async def upload_source_video_local_part(
     file,
 ) -> dict:
     return await upload_service.upload_source_video_local_part(
+        cls,
+        upload_session_id=upload_session_id,
+        part_number=part_number,
+        file=file,
+        runtime=_runtime_context(),
+    )
+
+
+async def upload_source_video_remote_part(
+    cls,
+    upload_session_id: int,
+    part_number: int,
+    file,
+) -> dict:
+    return await upload_service.upload_source_video_remote_part(
+        cls,
+        upload_session_id=upload_session_id,
+        part_number=part_number,
+        file=file,
+        runtime=_runtime_context(),
+    )
+
+
+async def upload_source_video_part(
+    cls,
+    upload_session_id: int,
+    part_number: int,
+    file,
+) -> dict:
+    return await upload_service.upload_source_video_part(
         cls,
         upload_session_id=upload_session_id,
         part_number=part_number,

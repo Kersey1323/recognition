@@ -219,6 +219,18 @@ class ReconstructionVideoUploadPartReq(BaseModel):
         return str(value)
 
 
+class ReconstructionVideoUploadPartRes(BaseModel):
+    upload_session_id: str = Field(..., description="上传会话ID")
+    part_number: int = Field(..., ge=1, description="分片编号")
+    size: int = Field(..., ge=0, description="当前分片大小，单位字节")
+    etag: str = Field(default="", description="远端分片上传返回的ETag，本地模式为空字符串")
+    message: str = Field(..., description="消息")
+
+    @validator("upload_session_id", pre=True, allow_reuse=True)
+    def normalize_upload_session_id(cls, value):
+        return str(value)
+
+
 class ReconstructionVideoUploadMinioHealthRes(BaseModel):
     available: bool = Field(..., description="MinIO 是否可用")
     message: str = Field(..., description="检查结果")
