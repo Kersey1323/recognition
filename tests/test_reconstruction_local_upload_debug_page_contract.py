@@ -12,7 +12,7 @@ def test_local_upload_debug_page_exists_and_uses_file_slice():
     assert "storage_mode: getStorageMode()" in text
     assert "服务端会立即把当前分片代理上传到 MinIO multipart upload" in text
     assert "file.slice(" in text
-    assert "/recognition_api/railway/parts/v2/reconstruct/video/upload/init" in text
-    assert "/recognition_api/railway/parts/v2/reconstruct/video/upload/part" in text
-    assert "/recognition_api/railway/parts/v2/reconstruct/video/upload/progress" in text
-    assert "/recognition_api/railway/parts/v2/reconstruct/video/upload/complete" in text
+    assert "/railway/parts/v2/reconstruct/video/upload/init" in text
+    assert "/railway/parts/v2/reconstruct/video/upload/part" in text
+    assert "/railway/parts/v2/reconstruct/video/upload/progress" in text
+    assert "/railway/parts/v2/reconstruct/video/upload/complete" in text

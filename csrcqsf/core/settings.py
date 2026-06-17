@@ -270,6 +270,7 @@ def _apply_runtime_connection_overrides(settings: AISettings) -> None:
 ai_settings = AISettings()
 _apply_runtime_connection_overrides(ai_settings)
 
+basis_api_http_url = _first_non_empty_env("BASIS_API_HTTP_URL", default="")
 model_service_url = os.getenv("MODEL_SERVICE_URL", "http://localhost:5555")
 reconstruction_server_url = _build_service_url(
     explicit_url=_first_non_empty_env("RECONSTRUCTION_SERVER_URL"),

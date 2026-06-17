@@ -7,6 +7,7 @@ import re
 from types import ModuleType, SimpleNamespace
 from typing import TYPE_CHECKING, Any, TypeAlias
 from csrcqsf.modules.railway_parts.services import review_ticket_service, search_service
+from csrcqsf.modules.railway_parts.utils.assets import asset_url_from_internal_path
 
 if TYPE_CHECKING:
     from csrcqsf.modules.railway_parts.schemas.search import SearchItem as SearchItemType
@@ -345,7 +346,7 @@ def _resolve_correct_result_from_history(cls, row) -> dict:
         "correct_item_id": str(correct_item_id) if correct_item_id is not None else None,
         "correct_item_code": getattr(row, "correct_item_code", None),
         "correct_item_name": getattr(row, "correct_item_name", None),
-        "correct_image_url": getattr(row, "correct_image_url", None),
+        "correct_image_url": asset_url_from_internal_path(getattr(row, "correct_image_url", None)),
         "correct_rank": getattr(row, "correct_rank", None),
         "correct_source": getattr(row, "correct_source", None) or "none",
     }
@@ -508,7 +509,10 @@ def _resolve_selected_feedback_candidate(
     }
 
 def _build_search_history_item(cls, row, latest_ticket=None):
-    query_images = list(getattr(row, "query_images_json", None) or [])
+    query_images = [
+        asset_url_from_internal_path(image_path) or image_path
+        for image_path in list(getattr(row, "query_images_json", None) or [])
+    ]
     if row.query_image or query_images:
         search_type = "image"
     elif row.query_text:
@@ -533,7 +537,7 @@ def _build_search_history_item(cls, row, latest_ticket=None):
         search_type=search_type,
         time_created=date_to_str(row.time_created),
         query_text=row.query_text,
-        query_image=row.query_image,
+        query_image=asset_url_from_internal_path(row.query_image) or row.query_image,
         query_images=query_images,
         search_equipment=getattr(row, "search_equipment", None),
         status=cls._normalize_review_status(
@@ -567,8 +571,11 @@ def _build_search_review_ticket_item(cls, row):
         time_updated=date_to_str(row.time_updated),
         search_type=getattr(row, "search_type", None),
         query_text=getattr(row, "query_text", None),
-        query_image=getattr(row, "query_image", None),
-        query_images=list(getattr(row, "query_images_json", None) or []),
+        query_image=asset_url_from_internal_path(getattr(row, "query_image", None)) or getattr(row, "query_image", None),
+        query_images=[
+            asset_url_from_internal_path(image_path) or image_path
+            for image_path in list(getattr(row, "query_images_json", None) or [])
+        ],
         search_equipment=getattr(row, "search_equipment", None),
         search_item_name=getattr(row, "search_result_item_name", None),
         search_item_code=getattr(row, "search_result_item_code", None),
@@ -576,13 +583,16 @@ def _build_search_review_ticket_item(cls, row):
         correct_item_id=getattr(row, "correct_item_id", None),
         correct_item_name=getattr(row, "correct_item_name", None),
         correct_item_code=getattr(row, "correct_item_code", None),
-        correct_image_url=getattr(row, "correct_image_url", None),
+        correct_image_url=asset_url_from_internal_path(getattr(row, "correct_image_url", None)) or getattr(row, "correct_image_url", None),
         correct_rank=getattr(row, "correct_rank", None),
         correct_source=getattr(row, "correct_source", None) or "none",
     )
 
 def _build_search_review_ticket_detail(cls, ticket, history):
-    query_images = list(getattr(history, "query_images_json", None) or [])
+    query_images = [
+        asset_url_from_internal_path(image_path) or image_path
+        for image_path in list(getattr(history, "query_images_json", None) or [])
+    ]
     if getattr(history, "query_image", None) or query_images:
         search_type = "image"
     elif getattr(history, "query_text", None):
@@ -604,7 +614,7 @@ def _build_search_review_ticket_detail(cls, ticket, history):
         closed_at=date_to_str(ticket.closed_at) if ticket.closed_at else None,
         search_type=search_type,
         query_text=getattr(history, "query_text", None),
-        query_image=getattr(history, "query_image", None),
+        query_image=asset_url_from_internal_path(getattr(history, "query_image", None)) or getattr(history, "query_image", None),
         query_images=query_images,
         search_equipment=getattr(history, "search_equipment", None),
         result=getattr(history, "search_results", None),
@@ -614,7 +624,7 @@ def _build_search_review_ticket_detail(cls, ticket, history):
         correct_item_id=getattr(history, "correct_item_id", None),
         correct_item_name=getattr(history, "correct_item_name", None),
         correct_item_code=getattr(history, "correct_item_code", None),
-        correct_image_url=getattr(history, "correct_image_url", None),
+        correct_image_url=asset_url_from_internal_path(getattr(history, "correct_image_url", None)) or getattr(history, "correct_image_url", None),
         correct_rank=getattr(history, "correct_rank", None),
         correct_source=getattr(history, "correct_source", None) or "none",
     )

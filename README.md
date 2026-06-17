@@ -35,7 +35,7 @@
 说明：
 
 - 前端仍然只访问主业务服务
-- 主业务接口统一前缀为 `/recognition_api`
+- 主业务服务本身不带统一前缀；如果线上通过 Nginx 代理增加 `/recognition_api`，那属于网关层行为
 - 主业务已支持脱离 GPU 启动
 - 未配置 `RECONSTRUCTION_SERVER_URL` 时，三维重构能力会禁用
 
@@ -96,6 +96,7 @@ cp .env.example .env
 - MinIO：`MINIO_*`
 - Milvus：`MILVUS_*`
 - Redis：`REDIS_*`
+- 基础服务 HTTP 鉴权地址：`BASIS_API_HTTP_URL`
 - 模型推理服务：`MODEL_SERVICE_URL`
 - 三维重构服务：`RECONSTRUCTION_SERVER_URL`
 
@@ -116,7 +117,7 @@ python main.py
 默认访问地址：
 
 - Swagger UI：`http://127.0.0.1:65432/docs`
-- OpenAPI：`http://127.0.0.1:65432/recognition_api/openapi.json`
+- OpenAPI：`http://127.0.0.1:65432/openapi.json`
 
 ## 主服务与外部能力边界
 
@@ -175,7 +176,7 @@ PYTHONPATH=. .venv/bin/pytest tests/ -q
 
 ### 本地模式分片上传调试页
 
-如果要验证 `/recognition_api/railway/parts/v2/reconstruct/video/upload/part` 是否按真实分片方式上传，不要直接用 Swagger 选择整视频文件。
+如果要验证 `/railway/parts/v2/reconstruct/video/upload/part` 是否按真实分片方式上传，不要直接用 Swagger 选择整视频文件。
 
 可直接打开：
 
@@ -183,10 +184,10 @@ PYTHONPATH=. .venv/bin/pytest tests/ -q
 
 这个调试页会在浏览器里用 `file.slice(start, end)` 切出每个 `partBuffer`，再逐片调用：
 
-- `/recognition_api/railway/parts/v2/reconstruct/video/upload/init`
-- `/recognition_api/railway/parts/v2/reconstruct/video/upload/part`
-- `/recognition_api/railway/parts/v2/reconstruct/video/upload/progress`
-- `/recognition_api/railway/parts/v2/reconstruct/video/upload/complete`
+- `/railway/parts/v2/reconstruct/video/upload/init`
+- `/railway/parts/v2/reconstruct/video/upload/part`
+- `/railway/parts/v2/reconstruct/video/upload/progress`
+- `/railway/parts/v2/reconstruct/video/upload/complete`
 
 当前分片模式说明：
 
@@ -198,6 +199,55 @@ PYTHONPATH=. .venv/bin/pytest tests/ -q
   - 前端分片后把每片传给主业务服务
   - 主业务服务立即代理上传当前分片到 MinIO multipart upload
   - 前端不再直接访问 MinIO 预签名 URL
+
+### 文件下载代理调试页
+
+如果要验证 `/{bucket}/{object}` 是否已经能通过主业务鉴权并由 Nginx 内部回源 MinIO，可直接打开：
+
+- [assets_download_debug.html](/home/ubuntu/project-train/recognition/tools/assets_download_debug.html)
+
+配套 Nginx 示例配置：
+
+- [nginx-assets-proxy-example.conf](/home/ubuntu/project-train/recognition/docs/deployment/nginx-assets-proxy-example.conf)
+
+这个页面会：
+
+- 带 `U-Token` 发起 `fetch`
+- 请求主业务返回的 `bucket/object` 路径
+- 自动预览图片/视频，或生成下载链接
+
+本地如果没有真实 `U-Token`，可仅用于联调时启用：
+
+```bash
+export ASSET_PROXY_SKIP_AUTH=true
+python main.py
+```
+
+这会让下载代理跳过 `U-Token` 校验，只建议本机调试使用。
+
+如果本机没有安装 Nginx，可直接使用 Docker 启动一个本地代理容器：
+
+```bash
+bash scripts/deployment/run_assets_proxy_debug.sh
+```
+
+这个脚本会把容器内的 `host.docker.internal` 映射到宿主机，用来访问你本机启动的主业务 `65432` 端口。
+
+## 文件下载代理
+
+当前主业务保留接口中的原始 MinIO 业务路径，不再改写返回值：
+
+- `bfr-3d-videos/...`
+- `bfr-reconstruction-files/...`
+- `bfr-search-history-files/...`
+
+推荐部署方式：
+
+- 前端只访问主业务返回的 `bucket/object`
+- 下载时直接拼接代理域名，例如 `http://127.0.0.1:8080/bfr-3d-videos/raw-videos/...`
+- 主业务接口校验 `U-Token` 后，返回 `X-Accel-Redirect: /recognition_oss/<bucket>/<object>`
+- Nginx 配置 `location ^~ /recognition_oss { internal; proxy_pass http://<minio>; }`
+- Nginx 再把 `/bfr-3d-videos/`、`/bfr-reconstruction-files/`、`/bfr-search-history-files/` 代理到主业务服务
 
 ## 说明
 

@@ -29,6 +29,7 @@ from csrcqsf.modules.railway_parts.integrations.reconstruction_client import (
     ReconstructionServiceClientError,
 )
 from csrcqsf.modules.railway_parts.utils.local_upload_storage import LocalUploadStorage
+from csrcqsf.modules.railway_parts.utils.assets import asset_url_from_internal_path
 from csrcqsf.models.orm.reconstruction import ReconstructionRecord, ReconstructionStatus
 from csrcqsf.models.orm.item import Items
 from csrcqsf.models.orm.reconstruction_upload import ReconstructionVideoUploadSession
@@ -252,6 +253,10 @@ class ReconstructionManager:
             upload_session=upload_session,
             upload_urls=upload_urls,
         )
+
+    @staticmethod
+    def _public_asset_url(path: str | None) -> str | None:
+        return asset_url_from_internal_path(path)
 
     @classmethod
     def _build_local_upload_init_payload(cls, upload_session) -> dict:

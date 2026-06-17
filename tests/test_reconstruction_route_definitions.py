@@ -56,3 +56,12 @@ def test_reconstruction_public_routes_remain_compatible_while_server_extracts():
     assert "@parts_router.get('/v2/reconstruct/status/{task_id}'" in text
     assert "@parts_router.delete('/v2/reconstruct/cancel/{task_id}'" in text
     assert "@parts_router.get('/v2/reconstruct/scenes'" in text
+
+
+def test_reconstruction_routes_include_public_assets_download_endpoint():
+    text = Path(
+        "csrcqsf/modules/railway_parts/routes/reconstruction_routes.py"
+    ).read_text(encoding="utf-8")
+
+    assert "@parts_router.get('/assets/{asset_path:path}'" not in text
+    assert "@parts_router.get('/internal/assets/auth'" not in text

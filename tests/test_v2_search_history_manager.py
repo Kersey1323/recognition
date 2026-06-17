@@ -627,3 +627,43 @@ def test_build_search_history_item_uses_unified_correct_result_fields():
     assert item.correct_rank == 2
     assert item.correct_image_url == "bfr-ai-files/selected.jpg"
     assert item.correct_source == "user_selected"
+
+
+def test_build_search_history_item_keeps_bucket_object_asset_urls():
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    row = SimpleNamespace(
+        id=2,
+        time_created=datetime(2026, 6, 16, 12, 0, 0),
+        query_text=None,
+        query_image="bfr-search-history-files/query-images/20260616/demo.png",
+        query_images_json=["bfr-search-history-files/query-images/20260616/extra.png"],
+        search_equipment="web",
+        verify_status="pending",
+        verify_remark=None,
+        verified_at=None,
+        search_results=parts_module.SearchResults(items=[]),
+        ranking_feedback_type=None,
+        selected_item_id=None,
+        selected_item_code=None,
+        selected_item_name=None,
+        selected_rank=None,
+        selected_image_url=None,
+        correct_item_id=1950361513125318656,
+        inquery_id=None,
+        inquery_num=None,
+        search_result_item_name="制动2",
+        search_result_item_code="40000728845",
+        correct_item_name="制动2",
+        correct_item_code="40000728845",
+        correct_image_url="bfr-ai-files/selected.jpg",
+        correct_rank=2,
+        correct_source="user_selected",
+    )
+
+    item = RailwayPartsManager._build_search_history_item(row)
+
+    assert item.query_image == "bfr-search-history-files/query-images/20260616/demo.png"
+    assert item.query_images == [
+        "bfr-search-history-files/query-images/20260616/extra.png"
+    ]
+    assert item.correct_image_url == "bfr-ai-files/selected.jpg"

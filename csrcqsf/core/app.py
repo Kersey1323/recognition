@@ -21,7 +21,7 @@ from csrcqsf.modules.doc_parse.routes import parts_docs_router
 from csrcqsf.modules.image.routes import image_router
 from csrcqsf.modules.image.schemas import SimpleSegmentReq, SimpleSegmentRes
 from csrcqsf.modules.image.services import SegmentBiz
-from csrcqsf.modules.railway_parts.routes import parts_router
+from csrcqsf.modules.railway_parts.routes import asset_proxy_router, parts_router
 from csrcqsf.modules.sgo.routes import sgo_router
 from csrcqsf.infra.db.main_db import db_migrate
 from csrcqsf.infra.storage.minio import create_minio_buckets
@@ -155,6 +155,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # 路由注册
 # ============================================
 app.include_router(parts_router, prefix=API_PREFIX)
+app.include_router(asset_proxy_router, prefix=API_PREFIX)
 app.include_router(sgo_router, prefix=API_PREFIX)
 app.include_router(parts_docs_router, prefix=API_PREFIX)
 app.include_router(image_router, prefix=API_PREFIX)

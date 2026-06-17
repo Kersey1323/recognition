@@ -165,7 +165,7 @@ def _build_upload_session_payload(
         "upload_id": upload_session.upload_id,
         "bucket": upload_session.bucket,
         "object_name": upload_session.object_name,
-        "video_path": upload_session.video_path,
+        "video_path": cls._public_asset_url(upload_session.video_path),
         "part_size": upload_session.part_size,
         "total_parts": upload_session.total_parts,
     }
@@ -330,7 +330,7 @@ def _format_source_video_item(cls, item: ItemsType, message: str | None = None) 
         "length": item.long,
         "width": item.width,
         "weight": item.weight,
-        "video_path": item.source_video_path,
+        "video_path": cls._public_asset_url(item.source_video_path),
         "filename": item.source_video_filename,
         "size": item.source_video_size,
         "content_type": item.source_video_content_type,

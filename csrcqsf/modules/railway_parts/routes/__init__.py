@@ -1,7 +1,8 @@
 """Public railway parts route aggregation package."""
 
+from .asset_proxy_routes import asset_proxy_router
 from .router import parts_router
-from . import parts_routes, reconstruction_routes, review_ticket_routes, search_routes
+from . import asset_proxy_routes, parts_routes, reconstruction_routes, review_ticket_routes, search_routes
 
 RailwayPartsManager = parts_routes.RailwayPartsManager
 AutoPartProcessor = parts_routes.AutoPartProcessor
@@ -65,6 +66,8 @@ cancel_reconstruct_task = reconstruction_routes.cancel_reconstruct_task
 list_reconstruction_scenes = reconstruction_routes.list_reconstruction_scenes
 
 __all__ = [
+    "asset_proxy_router",
+    "asset_proxy_routes",
     "parts_router",
     "parts_routes",
     "search_routes",

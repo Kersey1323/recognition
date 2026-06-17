@@ -95,4 +95,4 @@ def test_get_task_status_maps_remote_payload_to_existing_public_shape():
     assert result["task_id"] == "task-1"
     assert result["item_id"] == 1001
     assert result["status"] == ReconstructionStatus.SUCCESS
-    assert result["ply_url"].endswith("point_cloud.ply")
+    assert result["ply_url"] == "bfr-reconstruction-files/results/task-1/point_cloud.ply"
