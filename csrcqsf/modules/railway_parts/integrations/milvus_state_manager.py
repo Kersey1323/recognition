@@ -375,6 +375,23 @@ class MilvusStateManagerV2:
             ),
         }
 
+    def delete_item_image_index(self, item_id: int, image_id: int) -> dict[str, int]:
+        siglip_deleted = self.collection_manager.delete_by_item_image_id(
+            self.siglip_collection,
+            item_id,
+            image_id,
+        )
+        dinov2_deleted = self.collection_manager.delete_by_item_image_id(
+            self.dinov2_collection,
+            item_id,
+            image_id,
+        )
+        return {
+            "siglip_deleted": siglip_deleted,
+            "dinov2_deleted": dinov2_deleted,
+            "total_deleted": siglip_deleted + dinov2_deleted,
+        }
+
     def get_indexed_images_by_item_id(self, item_id: int) -> dict[int, str]:
         siglip_images = self.collection_manager.get_collection_image_records(
             self.siglip_collection,

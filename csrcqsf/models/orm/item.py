@@ -464,7 +464,9 @@ class Items(Base):
             stmt = stmt.where(cls.item_name.like(f'%{query}%').__or__(
                 cls.item_code.like(f'%{query}%')))
         if has_images:
-            item_id_stmt = select(SgoItemImages.item_id.distinct())
+            item_id_stmt = select(SgoItemImages.item_id.distinct()).where(
+                SgoItemImages.is_deleted == 0
+            )
             stmt = stmt.where(cls.id.in_(item_id_stmt))
         if len(item_code_list) > 0:
             stmt = stmt.where(cls.item_code.in_(item_code_list))

@@ -17,6 +17,7 @@ from datetime import datetime
 
 from bfrcommon.db import default_id
 from csrcqsf.core.settings import ai_settings, main_db_database
+from csrcqsf.infra.db.migration_runner import run_pending_migrations
 from sqlalchemy import BIGINT, DateTime, MetaData, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -394,6 +395,27 @@ async def _ensure_reconstruction_upload_session_columns(conn) -> None:
     )
 
 
+async def _ensure_sgo_item_image_columns(conn) -> None:
+    await _ensure_column(
+        conn,
+        "sgo_item_image_info",
+        "is_deleted",
+        "`is_deleted` TINYINT NOT NULL DEFAULT 0",
+    )
+    await _ensure_column(
+        conn,
+        "sgo_item_image_info",
+        "deleted_at",
+        "`deleted_at` DATETIME NULL",
+    )
+    await _ensure_column(
+        conn,
+        "sgo_item_image_info",
+        "delete_reason",
+        "`delete_reason` VARCHAR(500) NULL",
+    )
+
+
 async def db_migrate():
     """
     主业务库迁移：自动建库、创建所有业务表，并为历史表补齐 MySQL 兼容字段。
@@ -407,7 +429,9 @@ async def db_migrate():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(PlainBase.metadata.create_all)
+        await run_pending_migrations(conn)
         await _ensure_item_info_columns(conn)
         await _ensure_search_history_columns(conn)
         await _ensure_reconstruction_columns(conn)
         await _ensure_reconstruction_upload_session_columns(conn)
+        await _ensure_sgo_item_image_columns(conn)

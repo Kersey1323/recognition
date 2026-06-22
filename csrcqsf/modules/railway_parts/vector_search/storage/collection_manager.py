@@ -283,6 +283,27 @@ class CollectionManager:
         )
         return int(result.get("delete_count", 0))
 
+    def delete_by_item_image_id(self, collection_name: str, item_id: int, image_id: int) -> int:
+        """
+        删除指定 item_id + image_id 在 collection 中的记录。
+
+        Args:
+            collection_name: Collection 名称
+            item_id: 配件 ID
+            image_id: 图片 ID
+
+        Returns:
+            删除记录数；如果 collection 不存在则返回 0
+        """
+        if not self.collection_exists(collection_name):
+            return 0
+
+        result = self.client.delete(
+            collection_name=collection_name,
+            filter=f"item_id == {int(item_id)} and image_id == {int(image_id)}",
+        )
+        return int(result.get("delete_count", 0))
+
     def drop_collection(self, collection_name: str):
         """
         删除 Collection（谨慎使用）

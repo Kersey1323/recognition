@@ -8,6 +8,8 @@ from csrcqsf.modules.railway_parts.schemas.parts import (
     CreateItemImagesReq,
     CreateItemImagesRes,
     CreateItemReq,
+    DeleteItemImageReq,
+    DeleteItemImageRes,
     DeleteItemReq,
     GetItemDetailReq,
     GetItemDetailRes,
@@ -148,6 +150,20 @@ async def create_item_image(
     req = CreateItemImagesReq(**payload)
     result = await RailwayPartsManager.create_item_image(int(req.item_id), image_url_list=req.images_url)
     return CreateItemImagesRes(**result)
+
+
+@parts_router.post('/delete_item_image', tags=["业务-图片管理"], summary='删除配件指定图片', responses={
+    200: {
+        'model': DeleteItemImageRes
+    }
+})
+async def delete_item_image(req: DeleteItemImageReq):
+    result = await RailwayPartsManager.delete_item_image(
+        item_id=int(req.item_id),
+        image_id=int(req.image_id),
+        delete_reason=req.delete_reason,
+    )
+    return DeleteItemImageRes(**result)
 
 
 @parts_router.post('/get_item_details',  tags=["业务-配件管理"], summary='获取配件的详细信息', responses={

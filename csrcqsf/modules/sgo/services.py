@@ -339,7 +339,11 @@ class SGOBiz:
         need_download_pics: dict[str, int | str],
     ) -> list[str]:
         async with SessionLocal() as session:
-            item_images = await SgoItemImages.list_item_images_by_raw_url(session, raw_url_list)
+            item_images = await SgoItemImages.list_item_images_by_raw_url(
+                session,
+                raw_url_list,
+                include_deleted=True,
+            )
             url_set = {img.raw_url for img in item_images}
         return [raw_url for raw_url in need_download_pics if raw_url not in url_set]
 

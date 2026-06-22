@@ -171,6 +171,24 @@ class MilvusStateManagerV2:
             ),
         }
 
+    def delete_item_image_index(self, item_id: int, image_id: int) -> dict[str, int]:
+        """删除指定 item_id + image_id 在 V2 collections 中的向量记录。"""
+        siglip_deleted = self.collection_manager.delete_by_item_image_id(
+            self.siglip_collection,
+            item_id,
+            image_id,
+        )
+        dinov2_deleted = self.collection_manager.delete_by_item_image_id(
+            self.dinov2_collection,
+            item_id,
+            image_id,
+        )
+        return {
+            "siglip_deleted": siglip_deleted,
+            "dinov2_deleted": dinov2_deleted,
+            "total_deleted": siglip_deleted + dinov2_deleted,
+        }
+
     def get_indexed_images_by_item_id(self, item_id: int) -> dict[int, str]:
         """
         获取指定 item_id 当前完成 V2 索引的图片集合。

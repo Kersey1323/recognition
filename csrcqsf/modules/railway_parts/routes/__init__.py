@@ -17,6 +17,7 @@ put_item_size_desc = parts_routes.put_item_size_desc
 list_items = parts_routes.list_items
 list_item_images = parts_routes.list_item_images
 create_item_image = parts_routes.create_item_image
+delete_item_image = parts_routes.delete_item_image
 get_item_image_detail = parts_routes.get_item_image_detail
 indexstatistics = parts_routes.indexstatistics
 auto_segment = parts_routes.auto_segment
@@ -85,6 +86,7 @@ __all__ = [
     "list_items",
     "list_item_images",
     "create_item_image",
+    "delete_item_image",
     "get_item_image_detail",
     "indexstatistics",
     "auto_segment",

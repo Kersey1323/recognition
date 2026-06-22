@@ -5,8 +5,9 @@
 """
 
 from __future__ import annotations
+from datetime import datetime
 from urllib.parse import quote_plus
-from sqlalchemy import String, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL
+from sqlalchemy import String, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL, DateTime
 from sqlalchemy.orm import relationship, Mapped, mapped_column, Session, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from bfrcommon.common import get_pinyin
@@ -129,6 +130,13 @@ class SgoItemImages(Base):
     raw_url: Mapped[str] = mapped_column(String(1000),nullable=True)
     image_source:Mapped[ImageSourceType] = mapped_column(String(200),nullable=False)
     is_indexed: Mapped[int] = mapped_column(INT,default=2) # 是否进行了索引
+    is_deleted: Mapped[int] = mapped_column(INT, nullable=False, default=0)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    delete_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    @classmethod
+    def active_filter(cls, stmt):
+        return stmt.where(cls.is_deleted == 0)
 
     @classmethod
     async def get_all_image(cls,session:AsyncSession):
@@ -138,7 +146,7 @@ class SgoItemImages(Base):
         用途：重建索引时获取所有图片
         返回：异步生成器，逐条返回图片记录
         """
-        stmt = select(cls)
+        stmt = cls.active_filter(select(cls))
         datas = await session.scalars(stmt)
         for d in datas:
             yield d
@@ -170,14 +178,14 @@ class SgoItemImages(Base):
 
     @classmethod
     async def get_images(cls, session: AsyncSession, item_id: int):
-        stmt = select(cls).where(cls.item_id == item_id)
+        stmt = cls.active_filter(select(cls).where(cls.item_id == item_id))
         datas = await session.scalars(stmt)
         for data in datas:
             yield data
 
     @classmethod
     async def get_first_image_by_item_id(cls, session: AsyncSession, item_id: int):
-        stmt = select(cls).where(cls.item_id == item_id).order_by(cls.id.asc()).limit(1)
+        stmt = cls.active_filter(select(cls).where(cls.item_id == item_id)).order_by(cls.id.asc()).limit(1)
         return await session.scalar(stmt)
 
     @classmethod
@@ -221,7 +229,7 @@ class SgoItemImages(Base):
 
     @classmethod
     async def get_image_by_id_list(cls, session: AsyncSession, image_id_list: list[int]):
-        stmt = select(cls).where(cls.id.in_(image_id_list))
+        stmt = cls.active_filter(select(cls).where(cls.id.in_(image_id_list)))
         return  await session.scalars(stmt)
 
 
@@ -234,19 +242,67 @@ class SgoItemImages(Base):
 
     @classmethod
     async def list_item_images_by_item_id(cls,session:AsyncSession,item_id:int):
-        stmt = select(cls).where(cls.item_id == item_id)
+        stmt = cls.active_filter(select(cls).where(cls.item_id == item_id))
         return await session.scalars(stmt)
     
 
     @classmethod
     async def list_item_images_by_item_id_list(cls,session:AsyncSession,item_id_list:list[int]):
-        stmt = select(cls).where(cls.item_id.in_(item_id_list))
+        stmt = cls.active_filter(select(cls).where(cls.item_id.in_(item_id_list)))
         return await session.scalars(stmt)
 
     @classmethod
-    async def list_item_images_by_raw_url(cls,session:AsyncSession,raw_url_list:list[str]):
+    async def list_item_images_by_raw_url(
+        cls,
+        session: AsyncSession,
+        raw_url_list: list[str],
+        include_deleted: bool = False,
+    ):
         stmt = select(cls).where(cls.raw_url.in_(raw_url_list))
+        if not include_deleted:
+            stmt = cls.active_filter(stmt)
         return await session.scalars(stmt)
+
+    @classmethod
+    def get_item_image_stmt(cls, item_id: int, image_id: int, include_deleted: bool = False):
+        stmt = select(cls).where(cls.item_id == item_id, cls.id == image_id)
+        if not include_deleted:
+            stmt = cls.active_filter(stmt)
+        return stmt
+
+    @classmethod
+    async def get_item_image(
+        cls,
+        session: AsyncSession,
+        item_id: int,
+        image_id: int,
+        include_deleted: bool = False,
+    ):
+        stmt = cls.get_item_image_stmt(item_id, image_id, include_deleted=include_deleted)
+        return await session.scalar(stmt)
+
+    @classmethod
+    def mark_deleted_stmt(cls, item_id: int, image_id: int, delete_reason: str | None = None):
+        return (
+            update(cls)
+            .where(cls.item_id == item_id, cls.id == image_id)
+            .values(
+                is_deleted=1,
+                deleted_at=datetime.now(),
+                delete_reason=delete_reason,
+            )
+        )
+
+    @classmethod
+    async def mark_deleted(
+        cls,
+        session: AsyncSession,
+        item_id: int,
+        image_id: int,
+        delete_reason: str | None = None,
+    ) -> None:
+        await session.execute(cls.mark_deleted_stmt(item_id, image_id, delete_reason))
+        await session.flush()
     
 
 # class IndexedImage(Base):

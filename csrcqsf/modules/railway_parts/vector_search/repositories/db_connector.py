@@ -69,6 +69,7 @@ class DatabaseConnector:
                 FROM parts.item_info i
                 LEFT JOIN parts.sgo_item_image_info img ON i.id = img.item_id
                 WHERE img.image_url IS NOT NULL
+                  AND img.is_deleted = 0
             """
 
             # 添加过滤条件

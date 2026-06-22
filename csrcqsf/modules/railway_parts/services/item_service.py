@@ -103,6 +103,85 @@ async def delete_pic(cls, image_id: int, runtime=None):
         await session.commit()
 
 
+async def delete_item_image(
+    cls,
+    item_id: int,
+    image_id: int,
+    delete_reason: str | None = None,
+    runtime=None,
+) -> dict:
+    runtime = runtime or _runtime()
+    async with runtime.SessionLocal() as session:
+        image = await runtime.SgoItemImages.get_item_image(
+            session,
+            item_id=item_id,
+            image_id=image_id,
+            include_deleted=True,
+        )
+        if image is None:
+            raise Exception(f"配件图片不存在: item_id={item_id}, image_id={image_id}")
+
+        if getattr(image, "is_deleted", 0) == 1:
+            return {
+                "item_id": str(item_id),
+                "image_id": str(image_id),
+                "image_url": image.image_url,
+                "db_deleted": True,
+                "minio_deleted": False,
+                "milvus_deleted": False,
+                "milvus_delete_count": 0,
+                "message": "图片已删除",
+            }
+
+        await runtime.SgoItemImages.mark_deleted(
+            session,
+            item_id=item_id,
+            image_id=image_id,
+            delete_reason=delete_reason,
+        )
+        await session.commit()
+
+    image_url = image.image_url
+    minio_deleted = False
+    minio_error = ""
+    if image_url:
+        try:
+            await _delete_minio_object(image_url, runtime=runtime)
+            minio_deleted = True
+        except Exception as exc:
+            minio_error = str(exc)
+
+    milvus_deleted = False
+    milvus_delete_count = 0
+    milvus_error = ""
+    try:
+        state_manager = runtime._get_milvus_state_manager_v2_cls()()
+        delete_result = state_manager.delete_item_image_index(item_id, image_id)
+        milvus_delete_count = int(delete_result.get("total_deleted", 0))
+        milvus_deleted = True
+    except Exception as exc:
+        milvus_error = str(exc)
+
+    message = "图片删除成功"
+    if minio_error and milvus_error:
+        message = "图片已删除，MinIO 对象和 Milvus 索引删除失败，请人工检查对象残留并对该配件重新同步索引"
+    elif minio_error:
+        message = "图片已删除，MinIO 对象删除失败，请人工检查对象残留"
+    elif milvus_error:
+        message = "图片已删除，Milvus 索引删除失败，请对该配件重新同步索引"
+
+    return {
+        "item_id": str(item_id),
+        "image_id": str(image_id),
+        "image_url": image_url,
+        "db_deleted": True,
+        "minio_deleted": minio_deleted,
+        "milvus_deleted": milvus_deleted,
+        "milvus_delete_count": milvus_delete_count,
+        "message": message,
+    }
+
+
 async def delete_item(cls, item_id_list: list[int], runtime=None):
     runtime = runtime or _runtime()
     async with runtime.SessionLocal() as session:

@@ -73,6 +73,27 @@ class DeleteItemReq(BaseModel):
     item_id_list: list[str]
 
 
+class DeleteItemImageReq(BaseModel):
+    item_id: str = Field(description="配件ID", example="1980083913525903360")
+    image_id: str = Field(description="图片ID", example="1981662795271376896")
+    delete_reason: str | None = Field(default=None, description="删除原因")
+
+    @validator("item_id", "image_id", pre=True, allow_reuse=True)
+    def normalize_id(cls, value):
+        return str(value)
+
+
+class DeleteItemImageRes(BaseModel):
+    item_id: str
+    image_id: str
+    image_url: str | None
+    db_deleted: bool
+    minio_deleted: bool
+    milvus_deleted: bool
+    milvus_delete_count: int = 0
+    message: str
+
+
 class UpdateItemReq(BaseModel):
     id: str
     height: float | None = None

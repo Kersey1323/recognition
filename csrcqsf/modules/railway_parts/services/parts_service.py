@@ -155,6 +155,22 @@ class RailwayPartsManager:
         return await item_service.delete_pic(cls, image_id=image_id, runtime=_runtime_context())
 
     @classmethod
+    async def delete_item_image(
+        cls,
+        item_id: int,
+        image_id: int,
+        delete_reason: str | None = None,
+    ):
+        _bind_item_runtime()
+        return await item_service.delete_item_image(
+            cls,
+            item_id=item_id,
+            image_id=image_id,
+            delete_reason=delete_reason,
+            runtime=_runtime_context(),
+        )
+
+    @classmethod
     async def delete_item(cls, item_id_list: list[int]):
         _bind_item_runtime()
         return await item_service.delete_item(

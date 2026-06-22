@@ -4,6 +4,7 @@ from csrcqsf.modules.railway_parts.schemas.parts import (
     CreateItemReq,
     CreateItemImagesReq,
     CreateItemImagesRes,
+    DeleteItemImageReq,
     UpdateItemReq,
 )
 from csrcqsf.modules.railway_parts.schemas.reconstruction import (
@@ -114,3 +115,11 @@ def test_reconstruction_result_upload_response_serializes_item_id_as_string():
 
     assert data["item_id"] == str(BIG_ITEM_ID)
     assert data["ply_url"].endswith("demo.ply")
+
+
+def test_delete_item_image_request_normalizes_ids():
+    req = DeleteItemImageReq(item_id=101, image_id=202, delete_reason="mistake")
+
+    assert req.item_id == "101"
+    assert req.image_id == "202"
+    assert req.delete_reason == "mistake"

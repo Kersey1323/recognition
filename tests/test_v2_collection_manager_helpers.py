@@ -110,6 +110,18 @@ def test_delete_by_item_id_uses_item_id_filter():
     ]
 
 
+def test_delete_by_item_image_id_uses_item_and_image_filter():
+    manager = CollectionManager.__new__(CollectionManager)
+    manager.client = _FakeClient()
+
+    deleted = manager.delete_by_item_image_id("siglip_collection", 101, 202)
+
+    assert deleted == 4
+    assert manager.client.deleted == [
+        ("siglip_collection", "item_id == 101 and image_id == 202")
+    ]
+
+
 def test_get_collection_image_records_maps_image_id_to_url():
     manager = CollectionManager.__new__(CollectionManager)
     client = _FakeClient()

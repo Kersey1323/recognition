@@ -162,7 +162,9 @@ async def rebuild_v2_index(
             if items[0] is None:
                 raise Exception(f"配件不存在: {item_id}")
         else:
-            item_id_stmt = runtime.select(runtime.SgoItemImages.item_id).distinct()
+            item_id_stmt = runtime.select(runtime.SgoItemImages.item_id).where(
+                runtime.SgoItemImages.is_deleted == 0
+            ).distinct()
             stmt = runtime.select(runtime.Items).where(runtime.Items.id.in_(item_id_stmt))
             if not rebuild_existing:
                 stmt = stmt.where(runtime.Items.has_v2_index == 0)
