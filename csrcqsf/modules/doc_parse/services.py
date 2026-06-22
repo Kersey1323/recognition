@@ -4,7 +4,6 @@ from io import StringIO
 import pandas as pd
 from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
-from docx import Document
 
 from csrcqsf.core.logger import CodeTimer
 from csrcqsf.core.settings import minio_bucket
@@ -66,6 +65,8 @@ class DocBiz:
             now_element_index = 0
             if response.data:
                 try:
+                    from docx import Document
+
                     docs = Document(io.BytesIO(response.data))
                     for index, table in enumerate(docs.tables):
                         table_data = []
@@ -131,6 +132,8 @@ class DocBiz:
         tables = await cls.list_tables(file_id, -1, 0, None)
         obj_name = f"{get_id()}.xlsx"
         excel_buffer = io.BytesIO()
+        import xlsxwriter  # noqa: F401
+
         with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
             for table in tables.data:
                 df = pd.read_json(StringIO(table.table_data))

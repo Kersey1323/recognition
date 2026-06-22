@@ -122,6 +122,7 @@ def _build_reconstruction_api_model_module() -> ModuleType:
         "ReconstructionVideoUploadInitReq",
         "ReconstructionVideoUploadInitRes",
         "ReconstructionVideoUploadMinioHealthRes",
+        "ReconstructionVideoUploadPartRes",
         "ReconstructionVideoUploadPartReq",
         "ReconstructionVideoUploadProgressReq",
         "ReconstructionVideoUploadProgressRes",
@@ -191,6 +192,7 @@ def _seed_fake_railway_parts_schema_modules() -> dict[str, ModuleType]:
         "ReconstructionVideoUploadInitReq",
         "ReconstructionVideoUploadInitRes",
         "ReconstructionVideoUploadMinioHealthRes",
+        "ReconstructionVideoUploadPartRes",
         "ReconstructionVideoUploadProgressReq",
         "ReconstructionVideoUploadProgressRes",
         "ReconstructionVideoUploadUrlsReq",
@@ -314,12 +316,11 @@ def test_dockerfile_cpu_uses_cpu_base_and_no_cuda_install():
 
     assert "FROM python:3.10-slim" in text
     assert "nvidia/cuda" not in text
-    assert "ARG PYTORCH_CPU_INDEX_URL" in text
-    assert "ARG PYTORCH_CPU_FALLBACK_INDEX_URL" in text
-    assert "mirrors.aliyun.com/pytorch-wheels/cpu" in text
-    assert "download.pytorch.org/whl/cpu" in text
-    assert "--no-install-package torch" in text
-    assert "--no-install-package torchvision" in text
+    assert "ARG PIP_INDEX_URL" in text
+    assert "--no-install-package torch" not in text
+    assert "--no-install-package torchvision" not in text
+    assert "torch==2.7.1+cpu" not in text
+    assert "torchvision==0.22.1+cpu" not in text
 
 
 def test_run_docker_cpu_script_has_no_gpu_flag():
@@ -336,12 +337,8 @@ def test_dockerfile_cpu_supports_configurable_mirrors():
 
     assert "ARG APT_MIRROR" in text
     assert "ARG PIP_INDEX_URL" in text
-    assert "ARG PYTORCH_CPU_INDEX_URL" in text
-    assert "ARG PYTORCH_CPU_FALLBACK_INDEX_URL" in text
     assert "${PIP_INDEX_URL}" in text
-    assert "${PYTORCH_CPU_INDEX_URL}" in text
-    assert "${PYTORCH_CPU_FALLBACK_INDEX_URL}" in text
-    assert text.rfind('torch==2.7.1+cpu') > text.rfind('COPY . /app')
+    assert "uv sync --frozen --active --no-dev" in text
 
 
 def test_run_docker_cpu_script_runs_prebuilt_image_with_host_mount():
@@ -481,6 +478,7 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
 
     fake_parts_routes_module = ModuleType("csrcqsf.modules.railway_parts.routes")
     fake_parts_routes_module.parts_router = APIRouter()
+    fake_parts_routes_module.asset_proxy_router = APIRouter()
     fake_doc_parse_routes_module = ModuleType("csrcqsf.modules.doc_parse.routes")
     fake_doc_parse_routes_module.parts_docs_router = APIRouter()
     fake_image_routes_module = ModuleType("csrcqsf.modules.image.routes")
@@ -603,6 +601,7 @@ def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured
 
     fake_parts_routes_module = ModuleType("csrcqsf.modules.railway_parts.routes")
     fake_parts_routes_module.parts_router = APIRouter()
+    fake_parts_routes_module.asset_proxy_router = APIRouter()
     fake_doc_parse_routes_module = ModuleType("csrcqsf.modules.doc_parse.routes")
     fake_doc_parse_routes_module.parts_docs_router = APIRouter()
     fake_image_routes_module = ModuleType("csrcqsf.modules.image.routes")

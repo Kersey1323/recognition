@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-IMAGE_NAME="${IMAGE_NAME:-recognition:deployment}"
+IMAGE_NAME="${IMAGE_NAME:-recognition:latest}"
 CONTAINER_NAME="${CONTAINER_NAME:-recognition-service}"
 ENV_FILE="${ENV_FILE:-.env.deployment}"
 
@@ -18,11 +18,10 @@ docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
 docker run -d \
   --name "${CONTAINER_NAME}" \
   --restart unless-stopped \
-  --gpus all \
   --network host \
   --ipc host \
   --env-file "${ENV_FILE}" \
-  -v "${HOST_MODEL_DIR}:/models:ro" \
+  -v "${HOST_MODEL_DIR}:/models" \
   -v "${HOST_LOG_DIR}:/app/logs" \
   -v "${HOST_TEMP_DIR}:/app/temp" \
   -v "${HOST_STATE_DIR}:/app/state" \

@@ -2,8 +2,6 @@ FROM python:3.10-slim
 
 ARG APT_MIRROR=mirrors.aliyun.com
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
-ARG PYTORCH_CPU_INDEX_URL=https://mirrors.aliyun.com/pytorch-wheels/cpu
-ARG PYTORCH_CPU_FALLBACK_INDEX_URL=https://download.pytorch.org/whl/cpu
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
@@ -37,25 +35,12 @@ COPY pyproject.toml uv.lock README.md /app/
 RUN uv venv "${VIRTUAL_ENV}"
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --active --no-dev --no-install-project \
-    --no-install-package torch \
-    --no-install-package torchvision
+    uv sync --frozen --active --no-dev --no-install-project
 
 COPY . /app
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --active --no-dev \
-    --no-install-package torch \
-    --no-install-package torchvision
-
-RUN uv pip install --no-cache-dir \
-    --index-url "${PYTORCH_CPU_INDEX_URL}" \
-    torch==2.7.1+cpu \
-    torchvision==0.22.1+cpu \
-    || uv pip install --no-cache-dir \
-    --index-url "${PYTORCH_CPU_FALLBACK_INDEX_URL}" \
-    torch==2.7.1+cpu \
-    torchvision==0.22.1+cpu
+    uv sync --frozen --active --no-dev
 
 RUN mkdir -p /app/temp /app/logs /app/state/vector_db /app/state/reconstruction
 

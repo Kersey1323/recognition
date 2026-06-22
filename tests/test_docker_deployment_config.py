@@ -91,3 +91,13 @@ def test_env_deployment_exposes_main_mysql_vars():
     assert values["MAIN_DB_HOST"] == "127.0.0.1"
     assert values["MAIN_DB_PORT"] == "3306"
     assert values["MAIN_DB_DATABASE"] == "coronavirusdb"
+
+
+def test_run_docker_deployment_script_uses_cpu_business_defaults():
+    text = Path("scripts/deployment/run_docker_deployment.sh").read_text(encoding="utf-8")
+
+    assert 'IMAGE_NAME="${IMAGE_NAME:-recognition:latest}"' in text
+    assert 'CONTAINER_NAME="${CONTAINER_NAME:-recognition-service}"' in text
+    assert 'ENV_FILE="${ENV_FILE:-.env.deployment}"' in text
+    assert "--gpus all" not in text
+    assert '-v "${HOST_MODEL_DIR}:/models"' in text

@@ -11,7 +11,6 @@ from anyio.to_thread import run_sync
 from bfrcommon.common import date_to_str
 from bfrcommon.snowflake import get_id
 from pydantic import BaseModel
-from segment_anything import SamAutomaticMaskGenerator
 
 from csrcqsf.core.logger import CodeTimer
 from csrcqsf.core.settings import minio_bucket, temp_dir
@@ -49,6 +48,8 @@ class AutoPartProcessor:
     @classmethod
     def get_mask_generator(cls):
         if cls._mask_generator is None and SegmentBiz.sam_model is not None:
+            from segment_anything import SamAutomaticMaskGenerator
+
             cls._mask_generator = SamAutomaticMaskGenerator(
                 SegmentBiz.sam_model,
                 points_per_side=32,
