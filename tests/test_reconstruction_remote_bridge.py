@@ -44,7 +44,35 @@ def test_submit_video_task_persists_local_record_and_calls_remote_client():
     payload = fake_client.submit_video_task.await_args.args[0]
     assert payload["task_id"] == result["task_id"]
     assert payload["video_path"] == "bfr-3d-videos/raw/demo.mp4"
+    assert payload["sam2_model"] == "/home/ubuntu/CV/models/sam2.1-hiera-large"
+    assert payload["max_frames"] == 150
+    assert payload["no_gpu"] is True
+    assert "text_prompt" not in payload
+    assert "sam3_model" not in payload
+    assert "skip_sam3" not in payload
     create_record_mock.assert_awaited_once()
+
+
+def test_submit_video_task_enables_colmap_gpu_when_requested():
+    from csrcqsf.modules.railway_parts.services.reconstruction_service import ReconstructionManager
+
+    item = SimpleNamespace(id=1001, item_name="闸片", source_video_path="bfr-3d-videos/raw/demo.mp4")
+    session = AsyncMock()
+    fake_client = SimpleNamespace(
+        submit_video_task=AsyncMock(
+            return_value={"task_id": "task-1", "status": "SUBMITTED", "message": "ok"}
+        )
+    )
+
+    with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=item)), \
+         patch.object(ReconstructionManager, "_get_reconstruction_client", return_value=fake_client), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.create_record", AsyncMock()), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.update_status", AsyncMock()):
+        asyncio.run(ReconstructionManager.submit_video_task(item_id=1001, colmap_gpu=True))
+
+    payload = fake_client.submit_video_task.await_args.args[0]
+    assert payload["no_gpu"] is False
 
 
 def test_get_task_status_maps_remote_payload_to_existing_public_shape():

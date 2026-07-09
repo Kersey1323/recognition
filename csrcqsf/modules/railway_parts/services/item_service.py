@@ -264,6 +264,13 @@ async def list_item(cls, req, runtime=None):
             data = await session.scalars(stmt)
             item_code_list = list(data.all())
 
+    exact_item_code = str(getattr(req, "item_code", "") or "").strip()
+    if exact_item_code:
+        if item_code_list:
+            item_code_list = [item_code for item_code in item_code_list if str(item_code) == exact_item_code]
+        else:
+            item_code_list = [exact_item_code]
+
     async with runtime.SessionLocal() as session:
         item_id_list = []
         if req.parent_item_id != 0:

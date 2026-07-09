@@ -14,7 +14,7 @@ import pytest
                 "SessionLocal",
                 "Items",
                 "logger",
-                "sam3_model_path",
+                "reconstruction_sam2_model_path",
                 "reconstruction_server_env_configured",
                 "_get_minio_helpers",
                 "map_celery_state_to_reconstruction_status",

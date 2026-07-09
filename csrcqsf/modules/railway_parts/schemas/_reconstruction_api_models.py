@@ -4,7 +4,27 @@
 from typing import Optional
 
 from bfrcommon.api_models import PageReq
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, root_validator, validator
+
+
+_RETIRED_RECONSTRUCTION_VIDEO_FIELDS = {
+    "is_sam3",
+    "text_prompt",
+    "skip_sam3",
+    "skip_extract",
+    "skip_filter",
+    "skip_colmap",
+    "sam3_model",
+    "sam2_model",
+    "video_path",
+    "name",
+    "output_name",
+    "prompt_box",
+    "prompt_box_web",
+    "prompt_box_web_host",
+    "prompt_box_web_port",
+    "prompt_box_web_timeout",
+}
 
 
 class ReconstructionTrainReq(BaseModel):
@@ -22,15 +42,23 @@ class ReconstructionVideoReq(BaseModel):
     blur_threshold: float = Field(default=0, description='模糊阈值，0=自适应')
     dedup_threshold: int = Field(default=25, description='去重汉明距离')
     min_frames: int = Field(default=30, description='最小帧数')
-    is_sam3: bool = Field(default=False, description='是否启用SAM3分割，模型路径由服务端SAM3_MODEL_PATH配置')
-    text_prompt: str = Field(default="object", description='SAM3文本提示词')
+    max_frames: int = Field(default=150, description='最大帧数，0=不限制')
     mask_dilate: int = Field(default=15, description='Mask膨胀像素')
+    fill_interior_holes: bool = Field(default=False, description='是否填充 Mask 内部孔洞')
     camera: str = Field(default="OPENCV", description='相机模型')
-    no_gpu: bool = Field(default=True, description='不使用GPU')
-    skip_extract: bool = Field(default=False, description='跳过提帧')
-    skip_filter: bool = Field(default=False, description='跳过帧筛选')
-    skip_colmap: bool = Field(default=False, description='跳过COLMAP')
-    skip_sam3: bool = Field(default=False, description='跳过SAM3')
+    colmap_gpu: bool = Field(default=False, description='是否启用 COLMAP GPU，默认使用 CPU')
+
+    @root_validator(pre=True)
+    def drop_retired_fields(cls, values):
+        if isinstance(values, dict):
+            cleaned = dict(values)
+            legacy_no_gpu = cleaned.pop("no_gpu", None)
+            if "colmap_gpu" not in cleaned and legacy_no_gpu is not None:
+                cleaned["colmap_gpu"] = not bool(legacy_no_gpu)
+            for field in _RETIRED_RECONSTRUCTION_VIDEO_FIELDS:
+                cleaned.pop(field, None)
+            return cleaned
+        return values
 
     class Config:
         extra = "forbid"

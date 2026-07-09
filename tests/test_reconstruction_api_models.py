@@ -75,7 +75,7 @@ def test_reconstruction_video_request_uses_item_id_only():
     req = ReconstructionVideoReq(
         item_id=str(BIG_ITEM_ID),
         iterations=10000,
-        is_sam3=True,
+        fps=2.5,
     )
 
     data = dump_model(req)
@@ -83,37 +83,73 @@ def test_reconstruction_video_request_uses_item_id_only():
     assert data["item_id"] == str(BIG_ITEM_ID)
     assert "video_path" not in data
     assert "name" not in data
-    assert req.is_sam3 is True
-    assert data["is_sam3"] is True
+    assert data["iterations"] == 10000
+    assert data["fps"] == 2.5
+
+
+def test_reconstruction_video_request_drops_retired_public_fields():
+    req = ReconstructionVideoReq(
+        item_id=str(BIG_ITEM_ID),
+        is_sam3=True,
+        text_prompt="red coffee box",
+        skip_sam3=True,
+        skip_extract=True,
+        skip_filter=True,
+        skip_colmap=True,
+        sam3_model="/home/ubuntu/CV/models/sam3",
+        sam2_model="/home/ubuntu/CV/models/sam2.1-hiera-large",
+        output_name="manual-run",
+    )
+
+    data = dump_model(req)
+
+    assert data["item_id"] == str(BIG_ITEM_ID)
+    assert "is_sam3" not in data
+    assert "text_prompt" not in data
+    assert "skip_sam3" not in data
+    assert "skip_extract" not in data
+    assert "skip_filter" not in data
+    assert "skip_colmap" not in data
     assert "sam3_model" not in data
+    assert "sam2_model" not in data
+    assert "output_name" not in data
 
 
-def test_reconstruction_video_request_rejects_public_sam3_model_path():
+def test_reconstruction_video_request_rejects_unknown_extra_field():
     from pydantic import ValidationError
 
     try:
         ReconstructionVideoReq(
             item_id=str(BIG_ITEM_ID),
-            sam3_model="/home/ubuntu/CV/models/sam3",
+            unknown_flag=True,
         )
     except ValidationError as exc:
-        assert "sam3_model" in str(exc)
+        assert "unknown_flag" in str(exc)
     else:
-        raise AssertionError("sam3_model should not be accepted by the public API model")
+        raise AssertionError("unknown extra fields should still be rejected by the public API model")
 
 
-def test_reconstruction_video_request_rejects_public_output_name():
-    from pydantic import ValidationError
+def test_reconstruction_video_request_defaults_align_with_v3_pipeline():
+    req = ReconstructionVideoReq(item_id=str(BIG_ITEM_ID))
 
-    try:
-        ReconstructionVideoReq(
-            item_id=str(BIG_ITEM_ID),
-            output_name="string",
-        )
-    except ValidationError as exc:
-        assert "output_name" in str(exc)
-    else:
-        raise AssertionError("output_name should not be accepted by the public API model")
+    data = dump_model(req)
+
+    assert data["fps"] == 3
+    assert data["max_frames"] == 150
+    assert data["colmap_gpu"] is False
+    assert data["fill_interior_holes"] is False
+
+
+def test_reconstruction_video_request_maps_legacy_no_gpu_to_colmap_gpu():
+    req = ReconstructionVideoReq(
+        item_id=str(BIG_ITEM_ID),
+        no_gpu=False,
+    )
+
+    data = dump_model(req)
+
+    assert "no_gpu" not in data
+    assert data["colmap_gpu"] is True
 
 
 def test_reconstruction_video_upload_response_serializes_item_id_as_string():

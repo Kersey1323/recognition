@@ -74,7 +74,7 @@ async def upload_reconstruct_v2_video(
     """
     上传三维重构原始视频到独立 MinIO bucket。
 
-    返回的 `video_path` 可以直接作为 `/v2/reconstruct/tasks/video` 的 `video_path` 参数。
+    上传完成后，服务端会把 `video_path` 绑定到对应配件；后续发起重构时只需传 `item_id`。
     """
     result = await ReconstructionManager.upload_source_video(
         item_id=int(item_id),
@@ -197,22 +197,24 @@ async def delete_reconstruct_v2_source_video(item_id: str):
     return ReconstructionSourceVideoMessageRes(**result)
 
 
-@parts_router.post('/v2/reconstruct/tasks/video', tags=["算法-3D重建V2"], summary='V2: 从视频完整重建')
+@parts_router.post('/v2/reconstruct/tasks/video', tags=["算法-3D重建V2"], summary='V2: 从视频完整重建（V3自动分割）')
 async def reconstruct_v2_video(req: ReconstructionVideoReq):
     """
     完整视频重建流程
 
-    流程：已绑定原始视频 → 提帧 → 去模糊去重 → COLMAP → SAM3分割 → 3DGS训练
+    流程：已绑定原始视频 → 提帧 → 去模糊去重 → COLMAP → YOLO+SAM2 自动分割 → 3DGS训练
 
     参数：
     - item_id: 配件ID
     - iterations: 训练迭代次数
-    - is_sam3: 是否启用SAM3分割，模型路径由服务端SAM3_MODEL_PATH配置
-    - skip_*: 跳过已完成的步骤（断点续跑）
+    - fps / image_size / blur_threshold / dedup_threshold / min_frames / max_frames: 帧提取与筛选参数
+    - mask_dilate / fill_interior_holes: 分割后处理参数
+    - camera / colmap_gpu: COLMAP 参数，默认使用 CPU
 
     说明：
     - 服务端会根据 `item_id` 自动读取已绑定的 `video_path` 和配件名称
     - 输出目录默认使用 `时间_item_name` 作为运行名
+    - 业务接口不再暴露 SAM3 / prompt / 手工框 / 断点调试参数
 
     返回：
     - task_id: 任务ID，用于查询进度
@@ -226,15 +228,11 @@ async def reconstruct_v2_video(req: ReconstructionVideoReq):
         blur_threshold=req.blur_threshold,
         dedup_threshold=req.dedup_threshold,
         min_frames=req.min_frames,
-        is_sam3=req.is_sam3,
-        text_prompt=req.text_prompt,
+        max_frames=req.max_frames,
         mask_dilate=req.mask_dilate,
+        fill_interior_holes=req.fill_interior_holes,
         camera=req.camera,
-        no_gpu=req.no_gpu,
-        skip_extract=req.skip_extract,
-        skip_filter=req.skip_filter,
-        skip_colmap=req.skip_colmap,
-        skip_sam3=req.skip_sam3,
+        colmap_gpu=req.colmap_gpu,
     )
 
     return ReconstructionTaskRes(**result)

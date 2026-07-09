@@ -22,7 +22,7 @@ ReconstructionRecord: Any = None
 ReconstructionStatus: Any = None
 Items: Any = None
 reconstruction_server_env_configured: Any = None
-sam3_model_path: Any = None
+reconstruction_sam2_model_path: Any = None
 minio_reconstruction_file_bucket: Any = None
 map_celery_state_to_reconstruction_status: Any = None
 get_reconstruction_task_failure_message: Any = None
@@ -54,7 +54,7 @@ def bind_runtime_dependencies(reconstruction_service_module: ModuleType | None =
             "ReconstructionStatus": reconstruction_service_module.ReconstructionStatus,
             "Items": reconstruction_service_module.Items,
             "reconstruction_server_env_configured": reconstruction_service_module.reconstruction_server_env_configured,
-            "sam3_model_path": reconstruction_service_module.sam3_model_path,
+            "reconstruction_sam2_model_path": reconstruction_service_module.reconstruction_sam2_model_path,
             "minio_reconstruction_file_bucket": reconstruction_service_module.minio_reconstruction_file_bucket,
             "map_celery_state_to_reconstruction_status": reconstruction_service_module.map_celery_state_to_reconstruction_status,
             "get_reconstruction_task_failure_message": reconstruction_service_module.get_reconstruction_task_failure_message,
@@ -405,22 +405,15 @@ def _resolve_record_ply_path(cls, record, runtime=None) -> str | None:
         runtime=runtime or _runtime_context(),
     )
 
-def _resolve_sam3_model_path(
+def _resolve_reconstruction_sam2_model_path(
     cls,
-    is_sam3: bool,
     configured_path: str | None = None,
 ) -> str:
-    if not is_sam3:
-        return ""
-
-    model_path = configured_path if configured_path is not None else sam3_model_path
-    if model_path is None or str(model_path).strip() == "":
-        raise ReconstructionBusinessError("启用SAM3时必须配置 SAM3_MODEL_PATH")
-
-    if not Path(model_path).exists():
-        raise ReconstructionBusinessError(f"SAM3_MODEL_PATH不存在: {model_path}")
-
-    return str(model_path)
+    model_path = configured_path if configured_path is not None else reconstruction_sam2_model_path
+    normalized = str(model_path or "").strip()
+    if normalized == "":
+        raise ReconstructionBusinessError("未配置重构服务 SAM2 模型路径，请设置 RECONSTRUCTION_SERVER_SAM2_MODEL_PATH")
+    return normalized
 
 async def _upload_reconstruction_result_file(
     cls,
@@ -559,15 +552,11 @@ async def submit_video_task(
     blur_threshold: float = 0,
     dedup_threshold: int = 25,
     min_frames: int = 30,
-    is_sam3: bool = False,
-    text_prompt: str = "object",
+    max_frames: int = 150,
     mask_dilate: int = 15,
+    fill_interior_holes: bool = False,
     camera: str = "OPENCV",
-    no_gpu: bool = True,
-    skip_extract: bool = False,
-    skip_filter: bool = False,
-    skip_colmap: bool = False,
-    skip_sam3: bool = False,
+    colmap_gpu: bool = False,
 ) -> dict:
     """
     提交视频重建任务
@@ -575,7 +564,7 @@ async def submit_video_task(
     Args:
         item_id: 配件ID
         iterations: 训练迭代次数
-        其他参数见 video_reconstruction task
+        其他参数见 reconstruction_server 的 V3 视频任务
         
     Returns:
         dict: 包含 task_id 的响应
@@ -591,7 +580,7 @@ async def submit_video_task(
 
     run_name = cls._build_video_run_name(name)
 
-    sam3_model = cls._resolve_sam3_model_path(is_sam3=is_sam3)
+    sam2_model = cls._resolve_reconstruction_sam2_model_path()
     task_id = str(uuid4())
     
     # 先创建数据库记录，避免 worker 很快完成时查不到 task_id。
@@ -628,15 +617,12 @@ async def submit_video_task(
                 "blur_threshold": blur_threshold,
                 "dedup_threshold": dedup_threshold,
                 "min_frames": min_frames,
-                "sam3_model": sam3_model,
-                "text_prompt": text_prompt,
+                "max_frames": max_frames,
+                "sam2_model": sam2_model,
                 "mask_dilate": mask_dilate,
+                "fill_interior_holes": fill_interior_holes,
                 "camera": camera,
-                "no_gpu": no_gpu,
-                "skip_extract": skip_extract,
-                "skip_filter": skip_filter,
-                "skip_colmap": skip_colmap,
-                "skip_sam3": skip_sam3,
+                "no_gpu": not colmap_gpu,
                 "output_name": run_name,
             }
         )

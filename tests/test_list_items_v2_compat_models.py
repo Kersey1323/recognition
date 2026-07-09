@@ -22,6 +22,12 @@ def test_list_item_req_defaults_has_source_video_to_no_filter():
     assert req.has_source_video == 2
 
 
+def test_list_item_req_accepts_item_code_filter():
+    req = ListItemReq(page=1, pageSize=20, item_code="12312321")
+
+    assert req.item_code == "12312321"
+
+
 def test_items_normalize_source_video_filter_mode_uses_boolean_style_flags():
     assert Items.normalize_source_video_filter_mode(0) == "missing"
     assert Items.normalize_source_video_filter_mode(1) == "exists"

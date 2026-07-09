@@ -103,3 +103,23 @@ def test_list_item_uses_v2_flags_for_filter_and_response():
     assert res.items[0].has_index == 1
     assert res.items[0].has_source_video == 1
     assert res.items[0].images_total_indexed_num == 4
+
+
+def test_list_item_passes_item_code_as_exact_filter():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    page_result = SimpleNamespace(total=0, data=[])
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "list_items", AsyncMock(return_value=page_result)) as list_mock, \
+         patch.object(parts_module.RailwayPartsManager, "list_item_images", AsyncMock(return_value=[])), \
+         patch.object(parts_module, "MilvusStateManagerV2") as state_cls:
+        state_cls.return_value.list_item_index.return_value = {}
+        asyncio.run(
+            parts_module.RailwayPartsManager.list_item(
+                ListItemReq(page=1, pageSize=20, item_code="12312321")
+            )
+        )
+
+    kwargs = list_mock.await_args.kwargs
+    assert kwargs["item_code_list"] == ["12312321"]
