@@ -194,7 +194,7 @@ async def persist_task_result_by_task_id(cls, task_id: str, task_result: dict, r
             runtime.logger.warning(f"重构结果持久化时未找到任务记录: task_id={task_id}")
             return False
 
-        completed_at = runtime.datetime.utcnow()
+        completed_at = runtime.datetime.now()
         elapsed_sec = task_result.get("elapsed_sec")
         task_error = runtime.get_reconstruction_task_failure_message(task_result)
         if task_error is not None:

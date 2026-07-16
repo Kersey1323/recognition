@@ -283,9 +283,9 @@ async def _apply_remote_status_to_record(cls, *, session, record, remote_status:
                 "elapsed_sec": elapsed_sec,
             },
         )
-        completed_at = getattr(record, "completed_at", None) or datetime.utcnow()
+        completed_at = getattr(record, "completed_at", None) or datetime.now()
     elif status in (ReconstructionStatus.FAILED, ReconstructionStatus.CANCELLED):
-        completed_at = getattr(record, "completed_at", None) or datetime.utcnow()
+        completed_at = getattr(record, "completed_at", None) or datetime.now()
 
     db_changed = result_changed or cls._needs_status_update(
         record,
@@ -529,7 +529,7 @@ async def submit_train_task(
                 progress=0,
                 current_stage="投递失败",
                 error_message=str(exc),
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(),
             )
             await session.commit()
         raise ReconstructionBusinessError(str(exc)) from exc
@@ -635,7 +635,7 @@ async def submit_video_task(
                 progress=0,
                 current_stage="投递失败",
                 error_message=str(exc),
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(),
             )
             await session.commit()
         raise ReconstructionBusinessError(str(exc)) from exc
@@ -803,7 +803,7 @@ async def cancel_task(cls, task_id: str) -> dict:
             status=ReconstructionStatus.CANCELLED,
             current_stage="已取消",
             error_message="任务已取消",
-            completed_at=datetime.utcnow(),
+            completed_at=datetime.now(),
         )
         await session.commit()
     

@@ -44,12 +44,16 @@ def test_persist_task_result_marks_record_success_with_completed_at_and_elapsed_
         progress=98,
     )
 
+    local_completed_at = datetime(2026, 7, 13, 10, 0, 25)
+    utc_completed_at = datetime(2026, 7, 13, 2, 0, 25)
+
     with patch.object(service_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(service_module.ReconstructionRecord, "get_by_task_id", AsyncMock(return_value=record)), \
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=True)), \
          patch.object(service_module.ReconstructionRecord, "update_status", AsyncMock()) as update_status, \
          patch.object(service_module, "datetime") as datetime_mock:
-        datetime_mock.utcnow.return_value = datetime(2026, 4, 28, 16, 27, 53)
+        datetime_mock.now.return_value = local_completed_at
+        datetime_mock.utcnow.return_value = utc_completed_at
         changed = asyncio.run(
             ReconstructionManager.persist_task_result_by_task_id(
                 task_id="task-id",
@@ -70,7 +74,7 @@ def test_persist_task_result_marks_record_success_with_completed_at_and_elapsed_
         progress=100,
         current_stage="完成",
         error_message=None,
-        completed_at=datetime(2026, 4, 28, 16, 27, 53),
+        completed_at=local_completed_at,
         elapsed_sec=493.4,
     )
     session.commit.assert_awaited_once()
@@ -93,7 +97,7 @@ def test_persist_task_result_marks_failed_payload_with_completed_at_and_elapsed_
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=True)) as persist_success_result, \
          patch.object(service_module.ReconstructionRecord, "update_status", AsyncMock()) as update_status, \
          patch.object(service_module, "datetime") as datetime_mock:
-        datetime_mock.utcnow.return_value = datetime(2026, 4, 28, 16, 27, 53)
+        datetime_mock.now.return_value = datetime(2026, 4, 28, 16, 27, 53)
         changed = asyncio.run(
             ReconstructionManager.persist_task_result_by_task_id(
                 task_id="task-id",

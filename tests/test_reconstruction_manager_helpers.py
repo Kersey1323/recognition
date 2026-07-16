@@ -237,7 +237,7 @@ def test_get_task_status_treats_celery_success_with_failed_payload_as_failed():
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=True)) as persist_success_result, \
          patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.update_status", AsyncMock()) as update_status, \
          patch("csrcqsf.modules.railway_parts.services.reconstruction_service.datetime") as datetime_mock:
-        datetime_mock.utcnow.return_value = datetime(2026, 4, 28, 16, 27, 53)
+        datetime_mock.now.return_value = datetime(2026, 4, 28, 16, 27, 53)
         result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
 
     assert result["task_id"] == "task-id"
@@ -300,7 +300,7 @@ def test_get_task_status_promotes_success_payload_to_completed_response_and_term
          patch.object(ReconstructionManager, "_persist_success_result", AsyncMock(return_value=False)), \
          patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.update_status", AsyncMock()) as update_status, \
          patch("csrcqsf.modules.railway_parts.services.reconstruction_service.datetime") as datetime_mock:
-        datetime_mock.utcnow.return_value = completed_at
+        datetime_mock.now.return_value = completed_at
         result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
 
     assert result["status"] == ReconstructionStatus.SUCCESS
