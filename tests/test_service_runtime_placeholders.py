@@ -14,7 +14,6 @@ import pytest
                 "SessionLocal",
                 "Items",
                 "logger",
-                "reconstruction_sam2_model_path",
                 "reconstruction_server_env_configured",
                 "_get_minio_helpers",
                 "map_celery_state_to_reconstruction_status",
@@ -56,3 +55,8 @@ def test_split_service_modules_expose_runtime_placeholders(module_name, symbols)
     module = importlib.import_module(module_name)
     missing = [symbol for symbol in symbols if not hasattr(module, symbol)]
     assert not missing
+
+
+def test_reconstruction_task_service_does_not_expose_remote_sam2_runtime_placeholder():
+    module = importlib.import_module("csrcqsf.modules.railway_parts.services.reconstruction_task_service")
+    assert not hasattr(module, "reconstruction_sam2_model_path")

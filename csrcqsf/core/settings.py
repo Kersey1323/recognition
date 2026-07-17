@@ -167,14 +167,6 @@ def resolve_model_path(path: str | None) -> str:
 
 sam3_model_path = resolve_model_path(os.getenv("SAM3_MODEL_PATH", "sam3"))
 
-reconstruction_sam2_model_path = _first_non_empty_env(
-    "RECONSTRUCTION_SERVER_SAM2_MODEL_PATH",
-    "RECONSTRUCTION_SAM2_MODEL_PATH",
-    "SAM2_MODEL_PATH",
-    default="/home/ubuntu/CV/models/sam2.1-hiera-large",
-)
-
-
 SAM_MODEL = resolve_model_path(
     os.getenv("SAM_MODEL_PATH", "sam_vit_h_4b8939/sam_vit_h_4b8939.pth")
 )

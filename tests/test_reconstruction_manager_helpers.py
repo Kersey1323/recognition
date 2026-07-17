@@ -44,21 +44,8 @@ def test_format_reconstruction_result_path_uses_bucket_and_object_name():
     assert result_path == "bfr-reconstruction-files/results/1935558010375340032/task-id/point_cloud.ply"
 
 
-def test_resolve_reconstruction_sam2_model_path_returns_configured_value_verbatim():
-    assert ReconstructionManager._resolve_reconstruction_sam2_model_path(
-        configured_path="remote-mounted/models/sam2.1-hiera-large",
-    ) == "remote-mounted/models/sam2.1-hiera-large"
-
-
-def test_resolve_reconstruction_sam2_model_path_rejects_empty_value():
-    try:
-        ReconstructionManager._resolve_reconstruction_sam2_model_path(
-            configured_path="",
-        )
-    except ReconstructionBusinessError as exc:
-        assert "SAM2" in str(exc)
-    else:
-        raise AssertionError("missing reconstruction SAM2 model path should raise ReconstructionBusinessError")
+def test_reconstruction_manager_does_not_expose_remote_sam2_model_path_resolver():
+    assert not hasattr(ReconstructionManager, "_resolve_reconstruction_sam2_model_path")
 
 
 def test_resolve_record_ply_path_prefers_local_ply_url():

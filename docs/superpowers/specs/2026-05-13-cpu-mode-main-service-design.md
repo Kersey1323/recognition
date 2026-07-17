@@ -53,9 +53,9 @@
 
 新增一套平行部署入口：
 
-- `Dockerfile.cpu`
-- `.env.cpu`
-- `scripts/deployment/run_docker_cpu.sh`
+- `docker/Dockerfile`
+- `.env.deployment`
+- `scripts/deployment/run_docker_deployment.sh`
 
 CPU 模式下：
 
@@ -142,14 +142,14 @@ CPU 模式下：
 
 新增文件职责：
 
-- `Dockerfile.cpu`
+- `docker/Dockerfile`
   - 使用普通 Linux/Python 基础镜像
   - 安装 CPU 版 `torch/torchvision`
   - 不安装大的 CUDA 相关依赖
   - 不要求镜像内预置本地模型
   - 复用主项目代码与依赖
 
-- `.env.cpu`
+- `.env.deployment`
   - 面向 CPU 模式的默认环境变量
   - 显式指定：
     - `SIGLIP_DEVICE=cpu`
@@ -160,10 +160,10 @@ CPU 模式下：
     - `ENABLE_VECTOR_MODELS=0`
     - `ENABLE_OCR_MODEL=1`（若 OCR 也不联调则可设为 `0`）
 
-- `scripts/deployment/run_docker_cpu.sh`
+- `scripts/deployment/run_docker_deployment.sh`
   - 不带 `--gpus all`
   - 挂载模型、日志、临时目录、状态目录
-  - 默认使用 `.env.cpu`
+  - 默认使用 `.env.deployment`
 
 ### 2. Capability Flag
 

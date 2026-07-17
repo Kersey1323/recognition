@@ -298,21 +298,15 @@ def _import_image_service():
         return importlib.import_module("csrcqsf.modules.image.routes")
 
 
-def test_env_cpu_disables_gpu_and_model_capabilities():
-    values = _parse_env_file(Path("docker/.env.cpu"))
-
-    assert values["ENABLE_CPU_SAFE_MODE"] == "1"
-    assert values["ENABLE_GPU_RECONSTRUCTION"] == "0"
-    assert values["ENABLE_SEGMENT_MODEL"] == "0"
-    assert values["ENABLE_VECTOR_MODELS"] == "0"
-    assert values["ENABLE_OCR_MODEL"] == "0"
-    assert values["SIGLIP_DEVICE"] == "cpu"
-    assert values["DINOV2_DEVICE"] == "cpu"
-    assert values["SAM3_DEVICE"] == "cpu"
+def test_dedicated_cpu_deployment_artifacts_are_removed():
+    assert not Path("docker/.env.cpu").exists()
+    assert not Path("docker/Dockerfile.cpu").exists()
+    assert not Path("docker/run_docker_cpu.sh").exists()
+    assert not Path("scripts/deployment/run_docker_cpu.sh").exists()
 
 
-def test_dockerfile_cpu_uses_cpu_base_and_no_cuda_install():
-    text = Path("docker/Dockerfile.cpu").read_text(encoding="utf-8")
+def test_main_dockerfile_uses_cpu_base_and_no_cuda_install():
+    text = Path("docker/Dockerfile").read_text(encoding="utf-8")
 
     assert "FROM python:3.10-slim" in text
     assert "nvidia/cuda" not in text
@@ -323,17 +317,17 @@ def test_dockerfile_cpu_uses_cpu_base_and_no_cuda_install():
     assert "torchvision==0.22.1+cpu" not in text
 
 
-def test_run_docker_cpu_script_has_no_gpu_flag():
-    text = Path("scripts/deployment/run_docker_cpu.sh").read_text(encoding="utf-8")
+def test_run_docker_deployment_script_has_no_gpu_flag():
+    text = Path("scripts/deployment/run_docker_deployment.sh").read_text(encoding="utf-8")
 
     assert "--gpus all" not in text
     assert "docker build" not in text
     assert "docker run -d" in text
-    assert ".env.cpu" in text
+    assert ".env.deployment" in text
 
 
-def test_dockerfile_cpu_supports_configurable_mirrors():
-    text = Path("docker/Dockerfile.cpu").read_text(encoding="utf-8")
+def test_main_dockerfile_supports_configurable_mirrors():
+    text = Path("docker/Dockerfile").read_text(encoding="utf-8")
 
     assert "ARG APT_MIRROR" in text
     assert "ARG PIP_INDEX_URL" in text
@@ -341,8 +335,8 @@ def test_dockerfile_cpu_supports_configurable_mirrors():
     assert "uv sync --frozen --active --no-dev" in text
 
 
-def test_run_docker_cpu_script_runs_prebuilt_image_with_host_mount():
-    text = Path("scripts/deployment/run_docker_cpu.sh").read_text(encoding="utf-8")
+def test_run_docker_deployment_script_runs_prebuilt_image_with_host_mount():
+    text = Path("scripts/deployment/run_docker_deployment.sh").read_text(encoding="utf-8")
 
     assert "HOST_MODEL_DIR" in text
     assert 'docker rm -f "${CONTAINER_NAME}"' in text
@@ -405,10 +399,11 @@ def test_app_no_longer_warns_about_local_reconstruction_redis_dependency():
     assert "重构服务未配置时将禁用三维重构能力" in text
 
 
-def test_cpu_env_template_mentions_reconstruction_server_url():
-    text = Path("docker/.env.cpu").read_text(encoding="utf-8")
+def test_deployment_env_template_mentions_remote_service_urls():
+    text = Path(".env.deployment").read_text(encoding="utf-8")
 
     assert "RECONSTRUCTION_SERVER_URL=" in text
+    assert "MODEL_SERVICE_URL=" in text
 
 
 def test_readme_mentions_dual_service_boundary():

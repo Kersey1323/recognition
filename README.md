@@ -140,7 +140,7 @@ python main.py
 
 ## Docker 部署说明
 
-当前主业务支持 CPU / 无卡模式打包，重点用于甲方联调。
+当前主业务 Docker 镜像默认即为无 GPU 版本，重点用于甲方联调，不再单独维护 CPU 专属 Dockerfile 或部署脚本。
 
 部署约束：
 

@@ -49,8 +49,8 @@ def test_auto_processor_service_defers_segment_anything_import():
     )
 
 
-def test_cpu_dockerfile_no_longer_installs_local_torch_runtime():
-    text = Path("docker/Dockerfile.cpu").read_text(encoding="utf-8")
+def test_main_dockerfile_no_longer_installs_local_torch_runtime():
+    text = Path("docker/Dockerfile").read_text(encoding="utf-8")
 
     forbidden_fragments = (
         "ARG PYTORCH_CPU_INDEX_URL",

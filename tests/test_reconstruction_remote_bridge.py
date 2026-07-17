@@ -44,7 +44,7 @@ def test_submit_video_task_persists_local_record_and_calls_remote_client():
     payload = fake_client.submit_video_task.await_args.args[0]
     assert payload["task_id"] == result["task_id"]
     assert payload["video_path"] == "bfr-3d-videos/raw/demo.mp4"
-    assert payload["sam2_model"] == "/home/ubuntu/CV/models/sam2.1-hiera-large"
+    assert "sam2_model" not in payload
     assert payload["max_frames"] == 150
     assert payload["no_gpu"] is True
     assert "text_prompt" not in payload

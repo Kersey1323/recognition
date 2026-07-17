@@ -22,7 +22,6 @@ ReconstructionRecord: Any = None
 ReconstructionStatus: Any = None
 Items: Any = None
 reconstruction_server_env_configured: Any = None
-reconstruction_sam2_model_path: Any = None
 minio_reconstruction_file_bucket: Any = None
 map_celery_state_to_reconstruction_status: Any = None
 get_reconstruction_task_failure_message: Any = None
@@ -54,7 +53,6 @@ def bind_runtime_dependencies(reconstruction_service_module: ModuleType | None =
             "ReconstructionStatus": reconstruction_service_module.ReconstructionStatus,
             "Items": reconstruction_service_module.Items,
             "reconstruction_server_env_configured": reconstruction_service_module.reconstruction_server_env_configured,
-            "reconstruction_sam2_model_path": reconstruction_service_module.reconstruction_sam2_model_path,
             "minio_reconstruction_file_bucket": reconstruction_service_module.minio_reconstruction_file_bucket,
             "map_celery_state_to_reconstruction_status": reconstruction_service_module.map_celery_state_to_reconstruction_status,
             "get_reconstruction_task_failure_message": reconstruction_service_module.get_reconstruction_task_failure_message,
@@ -405,16 +403,6 @@ def _resolve_record_ply_path(cls, record, runtime=None) -> str | None:
         runtime=runtime or _runtime_context(),
     )
 
-def _resolve_reconstruction_sam2_model_path(
-    cls,
-    configured_path: str | None = None,
-) -> str:
-    model_path = configured_path if configured_path is not None else reconstruction_sam2_model_path
-    normalized = str(model_path or "").strip()
-    if normalized == "":
-        raise ReconstructionBusinessError("未配置重构服务 SAM2 模型路径，请设置 RECONSTRUCTION_SERVER_SAM2_MODEL_PATH")
-    return normalized
-
 async def _upload_reconstruction_result_file(
     cls,
     item_id: int,
@@ -579,8 +567,6 @@ async def submit_video_task(
         raise ValueError(f"视频文件不存在: {video_path}")
 
     run_name = cls._build_video_run_name(name)
-
-    sam2_model = cls._resolve_reconstruction_sam2_model_path()
     task_id = str(uuid4())
     
     # 先创建数据库记录，避免 worker 很快完成时查不到 task_id。
@@ -618,7 +604,6 @@ async def submit_video_task(
                 "dedup_threshold": dedup_threshold,
                 "min_frames": min_frames,
                 "max_frames": max_frames,
-                "sam2_model": sam2_model,
                 "mask_dilate": mask_dilate,
                 "fill_interior_holes": fill_interior_holes,
                 "camera": camera,

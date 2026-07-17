@@ -40,7 +40,6 @@ from csrcqsf.core.settings import (
     minio_env_configured,
     minio_reconstruction_file_bucket,
     minio_reconstruction_video_bucket,
-    reconstruction_sam2_model_path,
     reconstruction_server_env_configured,
 )
 
@@ -709,7 +708,6 @@ _TASK_SERVICE_CLASSMETHODS = (
     "_build_result_object_name",
     "_format_reconstruction_result_path",
     "_resolve_record_ply_path",
-    "_resolve_reconstruction_sam2_model_path",
     "_update_terminal_status",
     "_apply_remote_status_to_record",
     "_get_item_name_map",

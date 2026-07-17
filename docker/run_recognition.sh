@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-IMAGE_NAME="${IMAGE_NAME:-recognition:latest}"
+IMAGE_NAME="${IMAGE_NAME:-recognition-service:v1}"
 CONTAINER_NAME="${CONTAINER_NAME:-recognition-service}"
 ENV_FILE="${ENV_FILE:-.env.deployment}"
 

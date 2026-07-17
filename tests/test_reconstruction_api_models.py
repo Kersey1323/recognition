@@ -96,8 +96,8 @@ def test_reconstruction_video_request_drops_retired_public_fields():
         skip_extract=True,
         skip_filter=True,
         skip_colmap=True,
-        sam3_model="/home/ubuntu/CV/models/sam3",
-        sam2_model="/home/ubuntu/CV/models/sam2.1-hiera-large",
+        sam3_model="/models/sam3",
+        sam2_model="/models/sam2.1-hiera-large",
         output_name="manual-run",
     )
 
