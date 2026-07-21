@@ -1,11 +1,14 @@
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-  DOCKER_IMAGE_NAME: "recognition:${CI_COMMIT_SHORT_SHA}"
-  PUSH_REGISTRY_IMAGE: "localhost:5000/recognition:${CI_COMMIT_SHORT_SHA}"
-  PUSH_REGISTRY_IMAGE_LATEST: "localhost:5000/recognition:latest"
-  K8S_REGISTRY_IMAGE: "cicd-test-registry:5000/recognition:${CI_COMMIT_SHORT_SHA}"
   GITOPS_BRANCH: "$CI_DEFAULT_BRANCH"
   RUNTIME_DOCKERFILE: "Dockerfile"
+  VENDOR_DOCKERFILE: "Dockerfile.vendor"
+  PLATFORM_CI_DIR: "/home/ubuntu/project-train/buffalo-ci"
+  GITOPS_REPO_URL: "http://192.168.100.3:8929/xi/gitops-demo.git"
+  GITOPS_HOST_SUFFIX: "buffalo.com"
+  PLATFORM_IMAGE_REGISTRY: "localhost:5000"
+  PLATFORM_K8S_REGISTRY: "cicd-test-registry:5000"
+  PLATFORM_DEPLOY_TIMEOUT_SECONDS: "300"
 
 .vendor_release_rules: &vendor_release_rules
   - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_MESSAGE =~ /^\[vendor\]/'
@@ -14,10 +17,21 @@ default:
   tags:
     - shell
   before_script:
-    - python3 -m venv .venv-ci
-    - . .venv-ci/bin/activate
-    - python -m pip install --upgrade pip uv
-    - uv sync --frozen --active --group dev
+    - export PLATFORM_CI_DIR="${PLATFORM_CI_DIR:-/home/ubuntu/project-train/buffalo-ci}"
+    - test -d "$PLATFORM_CI_DIR"
+    - export APP_NAME="${GITOPS_APP_NAME:-$CI_PROJECT_NAME}"
+    - export PROJECT_SLUG="${CI_PROJECT_PATH_SLUG:-$CI_PROJECT_NAME}"
+    - export ROOT_GROUP_RAW="${CI_PROJECT_ROOT_NAMESPACE:-${CI_PROJECT_NAMESPACE%%/*}}"
+    - export GROUP_INPUT="${GITOPS_GROUP:-$ROOT_GROUP_RAW}"
+    - export GROUP_SLUG="$(printf '%s' "$GROUP_INPUT" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+    - export DOCKER_IMAGE_NAME="${CI_PROJECT_NAME}:${CI_COMMIT_SHORT_SHA}"
+    - export PUSH_REGISTRY_IMAGE="${PLATFORM_IMAGE_REGISTRY}/${PROJECT_SLUG}:${CI_COMMIT_SHORT_SHA}"
+    - export PUSH_REGISTRY_IMAGE_LATEST="${PLATFORM_IMAGE_REGISTRY}/${PROJECT_SLUG}:latest"
+    - export K8S_REGISTRY_IMAGE="${PLATFORM_K8S_REGISTRY}/${PROJECT_SLUG}:${CI_COMMIT_SHORT_SHA}"
+    - export PLATFORM_RUNTIME_SCRIPT="$PLATFORM_CI_DIR/scripts/runtime/extract_metadata.sh"
+    - export PLATFORM_GITOPS_BOOTSTRAP_SCRIPT="$PLATFORM_CI_DIR/scripts/gitops/bootstrap_app.sh"
+    - export PLATFORM_GITOPS_UPDATE_SCRIPT="$PLATFORM_CI_DIR/scripts/gitops/update_app_descriptor.sh"
+    - export PLATFORM_ROLLOUT_WAIT_SCRIPT="$PLATFORM_CI_DIR/scripts/gitops/wait_for_rollout.sh"
 
 cache:
   paths:
@@ -27,40 +41,34 @@ stages:
   - verify
   - image
   - deploy
+  - verify-deploy
 
 lint:
   stage: verify
   script:
-    - . .venv-ci/bin/activate
-    - ruff check main.py csrcqsf/core/app.py csrcqsf/core/settings.py tests/test_docker_deployment_config.py tests/test_k8s_runtime_contract.py tests/test_gitops_metadata_scripts.py
+    - bash scripts/ci/lint.sh
 
 test:
   stage: verify
   script:
-    - . .venv-ci/bin/activate
-    - PYTHONPATH=. pytest -q tests/test_docker_deployment_config.py tests/test_k8s_runtime_contract.py tests/test_gitops_metadata_scripts.py
+    - bash scripts/ci/test.sh
 
 build:
   stage: verify
   script:
-    - . .venv-ci/bin/activate
-    - python -m build
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 week
+    - bash scripts/ci/build.sh
 
 docker-build:
   stage: image
-  before_script: []
   script:
-    - docker build -f Dockerfile.vendor -t "$DOCKER_IMAGE_NAME" .
+    - export DOCKERFILE_TO_USE="$VENDOR_DOCKERFILE"
+    - if [ ! -f "$DOCKERFILE_TO_USE" ]; then export DOCKERFILE_TO_USE="$RUNTIME_DOCKERFILE"; fi
+    - docker build -f "$DOCKERFILE_TO_USE" -t "$DOCKER_IMAGE_NAME" .
     - docker image inspect "$DOCKER_IMAGE_NAME" > /dev/null
   rules: *vendor_release_rules
 
 docker-push:
   stage: image
-  before_script: []
   needs:
     - docker-build
   script:
@@ -70,11 +78,26 @@ docker-push:
     - docker push "$PUSH_REGISTRY_IMAGE_LATEST"
   rules: *vendor_release_rules
 
-gitops-update:
+gitops-bootstrap:
   stage: deploy
-  before_script: []
   needs:
     - docker-push
   script:
-    - bash ./scripts/update_gitops_repo.sh "$K8S_REGISTRY_IMAGE"
+    - bash "$PLATFORM_GITOPS_BOOTSTRAP_SCRIPT"
+  rules: *vendor_release_rules
+
+gitops-update:
+  stage: deploy
+  needs:
+    - gitops-bootstrap
+  script:
+    - bash "$PLATFORM_GITOPS_UPDATE_SCRIPT" "$K8S_REGISTRY_IMAGE"
+  rules: *vendor_release_rules
+
+deploy-verify:
+  stage: verify-deploy
+  needs:
+    - gitops-update
+  script:
+    - bash "$PLATFORM_ROLLOUT_WAIT_SCRIPT"
   rules: *vendor_release_rules
