@@ -30,6 +30,20 @@ dependencies = [
     "xlsxwriter>=3.2.9",
 ]
 
+[dependency-groups]
+dev = [
+    "build>=1.3.0",
+    "pytest>=8.4.1",
+    "ruff>=0.12.4",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["csrcqsf*"]
+
 [[tool.uv.index]]
 name = "bfr"
 url = "http://120.79.158.19:8765/simple/"
