@@ -76,21 +76,37 @@ def test_settings_does_not_expose_removed_legacy_fields(monkeypatch):
     assert not hasattr(settings.ai_settings, "search_use_vechile")
 
 
-def test_env_deployment_uses_container_runtime_paths():
+def test_env_deployment_uses_host_network_runtime_paths():
     values = _parse_env_file(Path(".env.deployment"))
 
-    assert values["MODEL_DIR"] == "/models"
-    assert values["TEMP_DIR"] == "/app/temp"
-    assert values["DINOV2_PATCH_TOKENS_DIR"] == "/app/state/vector_db/patch_tokens"
-    assert values["INDEXING_CHECKPOINT_FILE"] == "/app/state/vector_db/checkpoint.json"
+    assert values["MODEL_DIR"] == "/home/ubuntu/CV/models"
+    assert values["TEMP_DIR"] == "temp"
+    assert values["DINOV2_PATCH_TOKENS_DIR"] == "state/vector_db/patch_tokens"
+    assert values["INDEXING_CHECKPOINT_FILE"] == "state/vector_db/checkpoint.json"
 
 
 def test_env_deployment_exposes_main_mysql_vars():
     values = _parse_env_file(Path(".env.deployment"))
 
-    assert values["MAIN_DB_HOST"] == "127.0.0.1"
-    assert values["MAIN_DB_PORT"] == "3306"
+    assert values["MAIN_DB_HOST"] == "192.168.100.2"
+    assert values["MAIN_DB_PORT"] == "3307"
     assert values["MAIN_DB_DATABASE"] == "coronavirusdb"
+
+
+def test_root_dockerfile_declares_runtime_contract():
+    text = Path("Dockerfile").read_text(encoding="utf-8")
+
+    assert "EXPOSE 65432" in text
+    assert 'VOLUME ["/app/logs", "/app/temp", "/app/state"]' in text
+    assert "http://127.0.0.1:65432/health" in text
+
+
+def test_vendor_dockerfile_matches_release_runtime_contract():
+    text = Path("Dockerfile.vendor").read_text(encoding="utf-8")
+
+    assert "EXPOSE 65432" in text
+    assert 'VOLUME ["/app/logs", "/app/temp", "/app/state"]' in text
+    assert "http://127.0.0.1:65432/health" in text
 
 
 def test_run_docker_deployment_script_uses_cpu_business_defaults():

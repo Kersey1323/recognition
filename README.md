@@ -148,6 +148,8 @@ python main.py
 - MySQL、Redis、Milvus、MinIO 使用外部现成服务
 - 模型推理与三维重构服务独立部署
 - `logs`、`temp`、`state` 必须挂载到宿主机持久化目录
+- 项目根目录 `Dockerfile` 定义运行时契约：端口、健康检查、持久化目录
+- `Dockerfile.vendor` 作为 GitLab 发布流水线固定使用的镜像入口
 
 详细步骤见：
 

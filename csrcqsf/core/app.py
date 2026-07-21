@@ -160,6 +160,10 @@ app.include_router(sgo_router, prefix=API_PREFIX)
 app.include_router(parts_docs_router, prefix=API_PREFIX)
 app.include_router(image_router, prefix=API_PREFIX)
 
+@app.get(f"{API_PREFIX}/health", tags=["platform"], summary="Kubernetes health probe")
+async def health() -> dict[str, str]:
+    return {"status": "ok", "service": "recognition"}
+
 @app.post(f"{API_PREFIX}/segment/simple", tags=["算法-图像分割"], summary='简单的图像物体提取 (SAM)', responses={
     200: {
         'model': SimpleSegmentRes

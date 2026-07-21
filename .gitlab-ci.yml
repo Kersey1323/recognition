@@ -1,0 +1,81 @@
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  DOCKER_IMAGE_NAME: "recognition:${CI_COMMIT_SHORT_SHA}"
+  PUSH_REGISTRY_IMAGE: "localhost:5000/recognition:${CI_COMMIT_SHORT_SHA}"
+  PUSH_REGISTRY_IMAGE_LATEST: "localhost:5000/recognition:latest"
+  K8S_REGISTRY_IMAGE: "cicd-test-registry:5000/recognition:${CI_COMMIT_SHORT_SHA}"
+  GITOPS_BRANCH: "$CI_DEFAULT_BRANCH"
+  RUNTIME_DOCKERFILE: "Dockerfile"
+
+.vendor_release_rules: &vendor_release_rules
+  - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_MESSAGE =~ /^\[vendor\]/'
+
+default:
+  tags:
+    - shell
+  before_script:
+    - python3 -m venv .venv-ci
+    - . .venv-ci/bin/activate
+    - python -m pip install --upgrade pip
+    - python -m pip install uv build pytest ruff
+    - uv sync --frozen --active
+
+cache:
+  paths:
+    - .cache/pip
+
+stages:
+  - verify
+  - image
+  - deploy
+
+lint:
+  stage: verify
+  script:
+    - . .venv-ci/bin/activate
+    - ruff check main.py csrcqsf/core/app.py csrcqsf/core/settings.py tests/test_docker_deployment_config.py tests/test_k8s_runtime_contract.py tests/test_gitops_metadata_scripts.py
+
+test:
+  stage: verify
+  script:
+    - . .venv-ci/bin/activate
+    - PYTHONPATH=. pytest -q tests/test_docker_deployment_config.py tests/test_k8s_runtime_contract.py tests/test_gitops_metadata_scripts.py
+
+build:
+  stage: verify
+  script:
+    - . .venv-ci/bin/activate
+    - python -m build
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+
+docker-build:
+  stage: image
+  before_script: []
+  script:
+    - docker build -f Dockerfile.vendor -t "$DOCKER_IMAGE_NAME" .
+    - docker image inspect "$DOCKER_IMAGE_NAME" > /dev/null
+  rules: *vendor_release_rules
+
+docker-push:
+  stage: image
+  before_script: []
+  needs:
+    - docker-build
+  script:
+    - docker tag "$DOCKER_IMAGE_NAME" "$PUSH_REGISTRY_IMAGE"
+    - docker tag "$DOCKER_IMAGE_NAME" "$PUSH_REGISTRY_IMAGE_LATEST"
+    - docker push "$PUSH_REGISTRY_IMAGE"
+    - docker push "$PUSH_REGISTRY_IMAGE_LATEST"
+  rules: *vendor_release_rules
+
+gitops-update:
+  stage: deploy
+  before_script: []
+  needs:
+    - docker-push
+  script:
+    - bash ./scripts/update_gitops_repo.sh "$K8S_REGISTRY_IMAGE"
+  rules: *vendor_release_rules

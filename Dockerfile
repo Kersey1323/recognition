@@ -1,0 +1,54 @@
+FROM python:3.10-slim
+
+ARG APT_MIRROR=mirrors.aliyun.com
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Shanghai
+ENV PYTHONUNBUFFERED=1
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:/root/.local/bin:${PATH}"
+
+WORKDIR /app
+
+RUN sed -i "s@deb.debian.org@${APT_MIRROR}@g; s@security.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list.d/debian.sources
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    git \
+    tzdata \
+    libgl1 \
+    libglib2.0-0 \
+    libgomp1 \
+    && ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
+    && echo "${TZ}" > /etc/timezone \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir -i "${PIP_INDEX_URL}" uv
+
+COPY pyproject.toml uv.lock README.md /app/
+
+RUN uv venv "${VIRTUAL_ENV}"
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --active --no-dev --no-install-project
+
+COPY . /app
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --active --no-dev
+
+RUN mkdir -p /app/temp /app/logs /app/state/vector_db /app/state/reconstruction
+
+EXPOSE 65432
+
+VOLUME ["/app/logs", "/app/temp", "/app/state"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:65432/health')"
+
+CMD ["python", "main.py"]
