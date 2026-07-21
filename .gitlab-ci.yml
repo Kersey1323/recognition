@@ -3,7 +3,8 @@ variables:
   GITOPS_BRANCH: "$CI_DEFAULT_BRANCH"
   RUNTIME_DOCKERFILE: "Dockerfile"
   VENDOR_DOCKERFILE: "Dockerfile.vendor"
-  PLATFORM_CI_DIR: "/home/ubuntu/project-train/buffalo-ci"
+  PLATFORM_CI_REPO_URL: "http://192.168.100.3:8929/xi/buffalo-ci.git"
+  PLATFORM_CI_REF: "master"
   GITOPS_REPO_URL: "http://192.168.100.3:8929/xi/gitops-demo.git"
   GITOPS_HOST_SUFFIX: "buffalo.com"
   PLATFORM_IMAGE_REGISTRY: "localhost:5000"
@@ -17,8 +18,6 @@ default:
   tags:
     - shell
   before_script:
-    - export PLATFORM_CI_DIR="${PLATFORM_CI_DIR:-/home/ubuntu/project-train/buffalo-ci}"
-    - test -d "$PLATFORM_CI_DIR"
     - export APP_NAME="${GITOPS_APP_NAME:-$CI_PROJECT_NAME}"
     - export PROJECT_SLUG="${CI_PROJECT_PATH_SLUG:-$CI_PROJECT_NAME}"
     - export ROOT_GROUP_RAW="${CI_PROJECT_ROOT_NAMESPACE:-${CI_PROJECT_NAMESPACE%%/*}}"
@@ -28,10 +27,6 @@ default:
     - export PUSH_REGISTRY_IMAGE="${PLATFORM_IMAGE_REGISTRY}/${PROJECT_SLUG}:${CI_COMMIT_SHORT_SHA}"
     - export PUSH_REGISTRY_IMAGE_LATEST="${PLATFORM_IMAGE_REGISTRY}/${PROJECT_SLUG}:latest"
     - export K8S_REGISTRY_IMAGE="${PLATFORM_K8S_REGISTRY}/${PROJECT_SLUG}:${CI_COMMIT_SHORT_SHA}"
-    - export PLATFORM_RUNTIME_SCRIPT="$PLATFORM_CI_DIR/scripts/runtime/extract_metadata.sh"
-    - export PLATFORM_GITOPS_BOOTSTRAP_SCRIPT="$PLATFORM_CI_DIR/scripts/gitops/bootstrap_app.sh"
-    - export PLATFORM_GITOPS_UPDATE_SCRIPT="$PLATFORM_CI_DIR/scripts/gitops/update_app_descriptor.sh"
-    - export PLATFORM_ROLLOUT_WAIT_SCRIPT="$PLATFORM_CI_DIR/scripts/gitops/wait_for_rollout.sh"
 
 cache:
   paths:
@@ -83,6 +78,47 @@ gitops-bootstrap:
   needs:
     - docker-push
   script:
+    - &prepare_platform_ci_cmd |
+      set -euo pipefail
+
+      export PLATFORM_CI_DIR="${PLATFORM_CI_DIR:-$CI_PROJECT_DIR/.platform-ci}"
+      export PLATFORM_CI_REPO_URL="${PLATFORM_CI_REPO_URL:-http://192.168.100.3:8929/xi/buffalo-ci.git}"
+      export PLATFORM_CI_REF="${PLATFORM_CI_REF:-master}"
+
+      build_auth_repo_url() {
+        python3 - "$1" "$2" "$3" <<'PY'
+      from urllib.parse import quote, urlsplit, urlunsplit
+      import sys
+
+      repo_url, username, password = sys.argv[1:4]
+      parts = urlsplit(repo_url)
+      if not parts.scheme or not parts.netloc:
+          print(repo_url)
+          raise SystemExit
+
+      netloc = f"{quote(username, safe='')}:{quote(password, safe='')}@{parts.hostname or ''}"
+      if parts.port:
+          netloc = f"{netloc}:{parts.port}"
+      print(urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment)))
+      PY
+      }
+
+      AUTH_REPO_URL="$PLATFORM_CI_REPO_URL"
+      if [[ -n "${PLATFORM_CI_GIT_USERNAME:-}" && -n "${PLATFORM_CI_GIT_PASSWORD:-}" ]]; then
+        AUTH_REPO_URL="$(build_auth_repo_url "$PLATFORM_CI_REPO_URL" "$PLATFORM_CI_GIT_USERNAME" "$PLATFORM_CI_GIT_PASSWORD")"
+      elif [[ -n "${GITOPS_PUSH_USERNAME:-}" && -n "${GITOPS_PUSH_PASSWORD:-}" ]]; then
+        AUTH_REPO_URL="$(build_auth_repo_url "$PLATFORM_CI_REPO_URL" "$GITOPS_PUSH_USERNAME" "$GITOPS_PUSH_PASSWORD")"
+      elif [[ -n "${CI_JOB_TOKEN:-}" ]]; then
+        AUTH_REPO_URL="$(build_auth_repo_url "$PLATFORM_CI_REPO_URL" "gitlab-ci-token" "$CI_JOB_TOKEN")"
+      fi
+
+      rm -rf "$PLATFORM_CI_DIR"
+      git clone --depth 1 --branch "$PLATFORM_CI_REF" "$AUTH_REPO_URL" "$PLATFORM_CI_DIR"
+
+      export PLATFORM_RUNTIME_SCRIPT="$PLATFORM_CI_DIR/scripts/runtime/extract_metadata.sh"
+      export PLATFORM_GITOPS_BOOTSTRAP_SCRIPT="$PLATFORM_CI_DIR/scripts/gitops/bootstrap_app.sh"
+      export PLATFORM_GITOPS_UPDATE_SCRIPT="$PLATFORM_CI_DIR/scripts/gitops/update_app_descriptor.sh"
+      export PLATFORM_ROLLOUT_WAIT_SCRIPT="$PLATFORM_CI_DIR/scripts/gitops/wait_for_rollout.sh"
     - bash "$PLATFORM_GITOPS_BOOTSTRAP_SCRIPT"
   rules: *vendor_release_rules
 
@@ -91,6 +127,7 @@ gitops-update:
   needs:
     - gitops-bootstrap
   script:
+    - *prepare_platform_ci_cmd
     - bash "$PLATFORM_GITOPS_UPDATE_SCRIPT" "$K8S_REGISTRY_IMAGE"
   rules: *vendor_release_rules
 
@@ -99,5 +136,6 @@ deploy-verify:
   needs:
     - gitops-update
   script:
+    - *prepare_platform_ci_cmd
     - bash "$PLATFORM_ROLLOUT_WAIT_SCRIPT"
   rules: *vendor_release_rules
