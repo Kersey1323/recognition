@@ -1,14 +1,11 @@
-from pathlib import Path
 import importlib
 import sys
 
 
-def test_settings_exposes_reconstruction_file_bucket_and_sam3_path():
-    from csrcqsf.core.settings import minio_reconstruction_file_bucket, sam3_model_path
+def test_settings_exposes_reconstruction_file_bucket():
+    from csrcqsf.core.settings import minio_reconstruction_file_bucket
 
     assert minio_reconstruction_file_bucket == "bfr-reconstruction-files"
-    assert Path(sam3_model_path).is_absolute()
-    assert str(sam3_model_path).endswith("/sam3")
 
 
 def test_parse_minio_path_recognizes_reconstruction_file_bucket():
@@ -22,11 +19,14 @@ def test_parse_minio_path_recognizes_reconstruction_file_bucket():
     assert object_name == "results/1935558010375340032/task-id/point_cloud.ply"
 
 
-def test_settings_exposes_sam_model_path_from_env(monkeypatch):
+def test_settings_no_longer_exposes_local_model_path_fields(monkeypatch):
     monkeypatch.setenv("MODEL_DIR", "/tmp/models-root")
     monkeypatch.setenv("SAM_MODEL_PATH", "legacy-sam/model.pth")
+    monkeypatch.setenv("SAM3_MODEL_PATH", "sam3")
 
     sys.modules.pop("csrcqsf.core.settings", None)
     settings = importlib.import_module("csrcqsf.core.settings")
 
-    assert settings.SAM_MODEL == "/tmp/models-root/legacy-sam/model.pth"
+    assert not hasattr(settings, "model_dir")
+    assert not hasattr(settings, "sam3_model_path")
+    assert not hasattr(settings, "SAM_MODEL")

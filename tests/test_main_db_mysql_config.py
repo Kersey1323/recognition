@@ -10,11 +10,6 @@ def _reload_settings(monkeypatch, **env):
         "MAIN_DB_USER",
         "MAIN_DB_PASSWORD",
         "MAIN_DB_DATABASE",
-        "PG_HOST",
-        "PG_PORT",
-        "PG_USER",
-        "PG_PASSWORD",
-        "PG_DATABASE",
     ):
         monkeypatch.delenv(key, raising=False)
     for key, value in env.items():
@@ -53,7 +48,7 @@ def test_main_db_mysql_dsn_uses_new_env_names(monkeypatch):
     )
 
 
-def test_main_db_mysql_dsn_falls_back_to_pg_env_compat(monkeypatch):
+def test_main_db_mysql_config_does_not_fall_back_to_pg_env(monkeypatch):
     settings = _reload_settings(
         monkeypatch,
         PG_HOST="192.168.100.9",
@@ -63,24 +58,19 @@ def test_main_db_mysql_dsn_falls_back_to_pg_env_compat(monkeypatch):
         PG_DATABASE="legacy_db",
     )
 
-    assert settings.ai_settings.mysql.url == "192.168.100.9"
-    assert settings.ai_settings.mysql.port == "3309"
-    assert settings.ai_settings.mysql.user_name == "legacy_user"
-    assert settings.ai_settings.mysql.password == "legacy_pass"
-    assert settings.ai_settings.get_mysql_dsn() == (
-        "mysql+pymysql://legacy_user:legacy_pass@192.168.100.9:3309/legacy_db"
+    assert settings.ai_settings.mysql.url != "192.168.100.9"
+
+
+def test_main_db_env_configured_requires_database(monkeypatch):
+    settings = _reload_settings(
+        monkeypatch,
+        MAIN_DB_HOST="10.0.0.8",
+        MAIN_DB_PORT="3307",
+        MAIN_DB_USER="docker_user",
+        MAIN_DB_PASSWORD="docker_password",
     )
-    assert settings.ai_settings.get_async_mysql_dsn() == (
-        "mysql+asyncmy://legacy_user:legacy_pass@192.168.100.9:3309/legacy_db"
-    )
-    assert settings.ai_settings.get_async_main_db_dsn() == (
-        "mysql+asyncmy://legacy_user:legacy_pass@192.168.100.9:3309/legacy_db"
-    )
-    assert settings.ai_settings.get_pg_dsn() == settings.ai_settings.get_mysql_dsn()
-    assert (
-        settings.ai_settings.get_async_pg_dsn()
-        == settings.ai_settings.get_async_mysql_dsn()
-    )
+
+    assert settings.main_db_env_configured() is False
 
 
 def test_main_db_infra_uses_mysql_engine_contract():

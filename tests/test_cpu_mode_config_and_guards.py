@@ -335,13 +335,14 @@ def test_main_dockerfile_supports_configurable_mirrors():
     assert "uv sync --frozen --active --no-dev" in text
 
 
-def test_run_docker_deployment_script_runs_prebuilt_image_with_host_mount():
+def test_run_docker_deployment_script_runs_prebuilt_image_with_runtime_mounts():
     text = Path("scripts/deployment/run_docker_deployment.sh").read_text(encoding="utf-8")
 
-    assert "HOST_MODEL_DIR" in text
     assert 'docker rm -f "${CONTAINER_NAME}"' in text
     assert '--env-file "${ENV_FILE}"' in text
-    assert '-v "${HOST_MODEL_DIR}:/models"' in text
+    assert '-v "${HOST_LOG_DIR}:/app/logs"' in text
+    assert '-v "${HOST_TEMP_DIR}:/app/temp"' in text
+    assert '-v "${HOST_STATE_DIR}:/app/state"' in text
 
 
 def test_parts_service_rejects_gpu_reconstruction_when_disabled(monkeypatch):
@@ -686,13 +687,8 @@ def test_scheduler_skips_sync_when_main_db_or_remote_service_not_explicitly_conf
         "MAIN_DB_PORT",
         "MAIN_DB_USER",
         "MAIN_DB_PASSWORD",
-        "PG_HOST",
-        "PG_PORT",
-        "PG_USER",
-        "PG_PASSWORD",
+        "MAIN_DB_DATABASE",
         "RECONSTRUCTION_SERVER_URL",
-        "RECONSTRUCTION_SERVER_HOST",
-        "RECONSTRUCTION_SERVER_PORT",
     ):
         monkeypatch.delenv(key, raising=False)
 

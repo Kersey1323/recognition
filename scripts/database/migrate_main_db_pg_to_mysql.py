@@ -17,11 +17,11 @@ from urllib.parse import quote_plus
 from sqlalchemy import MetaData, Table, create_engine, func, select, text
 
 
-SOURCE_PG_HOST = os.getenv("SOURCE_PG_HOST", os.getenv("PG_HOST", "127.0.0.1"))
-SOURCE_PG_PORT = os.getenv("SOURCE_PG_PORT", os.getenv("PG_PORT", "5432"))
-SOURCE_PG_USER = os.getenv("SOURCE_PG_USER", os.getenv("PG_USER", "root"))
-SOURCE_PG_PASSWORD = os.getenv("SOURCE_PG_PASSWORD", os.getenv("PG_PASSWORD", "change_me"))
-SOURCE_PG_DATABASE = os.getenv("SOURCE_PG_DATABASE", os.getenv("PG_DATABASE", "zcsf"))
+SOURCE_POSTGRES_HOST = os.getenv("SOURCE_POSTGRES_HOST", "127.0.0.1")
+SOURCE_POSTGRES_PORT = os.getenv("SOURCE_POSTGRES_PORT", "5432")
+SOURCE_POSTGRES_USER = os.getenv("SOURCE_POSTGRES_USER", "root")
+SOURCE_POSTGRES_PASSWORD = os.getenv("SOURCE_POSTGRES_PASSWORD", "change_me")
+SOURCE_POSTGRES_DATABASE = os.getenv("SOURCE_POSTGRES_DATABASE", "zcsf")
 
 TARGET_MYSQL_HOST = os.getenv("TARGET_MYSQL_HOST", os.getenv("MAIN_DB_HOST", "127.0.0.1"))
 TARGET_MYSQL_PORT = os.getenv("TARGET_MYSQL_PORT", os.getenv("MAIN_DB_PORT", "3306"))
@@ -35,9 +35,9 @@ TARGET_MYSQL_DATABASE = os.getenv(
     os.getenv("MAIN_DB_DATABASE", "coronavirusdb"),
 )
 
-PG_SOURCE_DSN = (
-    f"postgresql+psycopg2://{SOURCE_PG_USER}:{quote_plus(SOURCE_PG_PASSWORD)}"
-    f"@{SOURCE_PG_HOST}:{SOURCE_PG_PORT}/{SOURCE_PG_DATABASE}"
+POSTGRES_SOURCE_DSN = (
+    f"postgresql+psycopg2://{SOURCE_POSTGRES_USER}:{quote_plus(SOURCE_POSTGRES_PASSWORD)}"
+    f"@{SOURCE_POSTGRES_HOST}:{SOURCE_POSTGRES_PORT}/{SOURCE_POSTGRES_DATABASE}"
 )
 MYSQL_TARGET_DSN = (
     f"mysql+pymysql://{TARGET_MYSQL_USER}:{quote_plus(TARGET_MYSQL_PASSWORD)}"
@@ -126,7 +126,7 @@ def migrate_table(source_engine, target_engine, table_name: str) -> int:
 
 
 def main() -> None:
-    source_engine = create_engine(PG_SOURCE_DSN, pool_pre_ping=True)
+    source_engine = create_engine(POSTGRES_SOURCE_DSN, pool_pre_ping=True)
     target_engine = create_engine(MYSQL_TARGET_DSN, pool_pre_ping=True)
 
     migrated_counts: list[tuple[str, int]] = []

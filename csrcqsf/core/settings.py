@@ -69,11 +69,7 @@ def main_db_env_configured() -> bool:
         "MAIN_DB_PORT",
         "MAIN_DB_USER",
         "MAIN_DB_PASSWORD",
-    ) or _all_explicit_env(
-        "PG_HOST",
-        "PG_PORT",
-        "PG_USER",
-        "PG_PASSWORD",
+        "MAIN_DB_DATABASE",
     )
 
 
@@ -86,7 +82,7 @@ def minio_env_configured() -> bool:
 
 
 def milvus_env_configured() -> bool:
-    return env_is_explicit("MILVUS_URL") or _all_explicit_env(
+    return _all_explicit_env(
         "MILVUS_HOST",
         "MILVUS_PORT",
     )
@@ -103,16 +99,16 @@ def redis_env_configured() -> bool:
 
 
 def reconstruction_server_env_configured() -> bool:
-    return _first_non_empty_env("RECONSTRUCTION_SERVER_URL") != "" or _all_explicit_env(
-        "RECONSTRUCTION_SERVER_HOST",
-        "RECONSTRUCTION_SERVER_PORT",
-    )
+    return env_is_explicit("RECONSTRUCTION_SERVER_URL")
 
 
 def sgo_env_configured() -> bool:
     return _all_explicit_env(
         "SGO_MYSQL_HOST",
         "SGO_MYSQL_PORT",
+        "SGO_MYSQL_USER",
+        "SGO_MYSQL_PASSWORD",
+        "SGO_MYSQL_DATABASE",
     )
 
 
@@ -137,38 +133,13 @@ temp_dir = os.getenv(
     "TEMP_DIR",
     os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp"),
 )
-model_dir = os.getenv(
-    "MODEL_DIR"
-
-)
-main_db_database = _first_explicit_then_non_empty_env(
+main_db_database = _first_non_empty_env(
     "MAIN_DB_DATABASE",
-    "PG_DATABASE",
     default="coronavirusdb",
 )
 sgo_mysql_database = _first_explicit_then_non_empty_env(
     "SGO_MYSQL_DATABASE",
     default="mdpdb",
-)
-
-
-def _resolve_model_path(path: str | None) -> str:
-    if path is None or path.strip() == "":
-        return ""
-    raw_path = path.strip()
-    if os.path.isabs(raw_path):
-        return raw_path
-    return os.path.join(model_dir, raw_path)
-
-
-def resolve_model_path(path: str | None) -> str:
-    return _resolve_model_path(path)
-
-
-sam3_model_path = resolve_model_path(os.getenv("SAM3_MODEL_PATH", "sam3"))
-
-SAM_MODEL = resolve_model_path(
-    os.getenv("SAM_MODEL_PATH", "sam_vit_h_4b8939/sam_vit_h_4b8939.pth")
 )
 
 
@@ -216,35 +187,30 @@ class AISettings(Settings):
 
 
 def _apply_runtime_connection_overrides(settings: AISettings) -> None:
-    settings.mysql.url = _first_explicit_then_non_empty_env(
+    settings.mysql.url = _first_non_empty_env(
         "MAIN_DB_HOST",
-        "PG_HOST",
         default=settings.mysql.url,
     )
-    settings.mysql.port = _first_explicit_then_non_empty_env(
+    settings.mysql.port = _first_non_empty_env(
         "MAIN_DB_PORT",
-        "PG_PORT",
         default=settings.mysql.port,
     )
-    settings.mysql.user_name = _first_explicit_then_non_empty_env(
+    settings.mysql.user_name = _first_non_empty_env(
         "MAIN_DB_USER",
-        "PG_USER",
         default=settings.mysql.user_name,
     )
-    settings.mysql.password = _first_explicit_then_non_empty_env(
+    settings.mysql.password = _first_non_empty_env(
         "MAIN_DB_PASSWORD",
-        "PG_PASSWORD",
         default=settings.mysql.password,
     )
     settings.milvus_url = _build_service_url(
-        explicit_url=_first_non_empty_env("MILVUS_URL"),
+        explicit_url="",
         host=_first_non_empty_env("MILVUS_HOST"),
         port=_first_non_empty_env("MILVUS_PORT"),
         default_url=settings.milvus_url,
     )
     settings.sgo_mysql_url = _first_non_empty_env(
         "SGO_MYSQL_HOST",
-        "SGO_MYSQL_URL",
         default=settings.sgo_mysql_url,
     )
     settings.sgo_mysql_port = _first_non_empty_env(
@@ -253,7 +219,6 @@ def _apply_runtime_connection_overrides(settings: AISettings) -> None:
     )
     settings.sgo_mysql_username = _first_non_empty_env(
         "SGO_MYSQL_USER",
-        "SGO_MYSQL_USERNAME",
         default=settings.sgo_mysql_username,
     )
     settings.sgo_mysql_password = urllib.parse.quote_plus(_first_non_empty_env(
@@ -271,11 +236,9 @@ _apply_runtime_connection_overrides(ai_settings)
 
 basis_api_http_url = _first_non_empty_env("BASIS_API_HTTP_URL", default="")
 model_service_url = os.getenv("MODEL_SERVICE_URL", "http://localhost:5555")
-reconstruction_server_url = _build_service_url(
-    explicit_url=_first_non_empty_env("RECONSTRUCTION_SERVER_URL"),
-    host=_first_non_empty_env("RECONSTRUCTION_SERVER_HOST"),
-    port=_first_non_empty_env("RECONSTRUCTION_SERVER_PORT"),
-    default_url="http://127.0.0.1:8000",
+reconstruction_server_url = _first_non_empty_env(
+    "RECONSTRUCTION_SERVER_URL",
+    default="http://127.0.0.1:8000",
 )
 reconstruction_server_timeout_sec = float(
     _first_non_empty_env("RECONSTRUCTION_SERVER_TIMEOUT_SEC", default="10")

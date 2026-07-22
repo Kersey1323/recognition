@@ -1,54 +1,53 @@
 #!/usr/bin/env python3
-"""
-调试模型路径配置
-"""
+"""调试主业务外部服务和运行目录配置。"""
 
-import sys
 import os
+import sys
 from pathlib import Path
 
-# 添加项目根目录到路径
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 print("=" * 60)
-print("模型路径调试")
+print("主业务外部配置调试")
 print("=" * 60)
 
-# 测试环境变量
 print("\n【环境变量】")
-print(f"MODEL_DIR: {os.getenv('MODEL_DIR')}")
-print(f"SIGLIP_MODEL_PATH: {os.getenv('SIGLIP_MODEL_PATH')}")
-print(f"DINOV2_MODEL_PATH: {os.getenv('DINOV2_MODEL_PATH')}")
-print(f"SAM3_MODEL_PATH: {os.getenv('SAM3_MODEL_PATH')}")
+print(f"MODEL_SERVICE_URL: {os.getenv('MODEL_SERVICE_URL', '未设置')}")
+print(f"RECONSTRUCTION_SERVER_URL: {os.getenv('RECONSTRUCTION_SERVER_URL', '未设置')}")
+print(f"BASIS_API_HTTP_URL: {os.getenv('BASIS_API_HTTP_URL', '未设置')}")
+print(f"TEMP_DIR: {os.getenv('TEMP_DIR', '未设置')}")
+print(f"LOCAL_IMAGE_ROOT: {os.getenv('LOCAL_IMAGE_ROOT', '未设置')}")
 
-# 测试 settings.py
 print("\n【settings.py 配置】")
 try:
-    from csrcqsf.core.settings import model_dir, SAM_MODEL
-    print(f"model_dir: {model_dir}")
-    print(f"SAM_MODEL: {SAM_MODEL}")
-    print(f"SAM_MODEL exists: {Path(SAM_MODEL).exists()}")
-except Exception as e:
-    print(f"❌ 加载 settings.py 失败: {e}")
+    from csrcqsf.core import settings
 
-# 测试 env_config.py
-print("\n【env_config.py 配置】")
+    print(f"model_service_url: {settings.model_service_url}")
+    print(f"reconstruction_server_url: {settings.reconstruction_server_url}")
+    print(f"basis_api_http_url: {settings.basis_api_http_url or '未配置'}")
+    print(f"temp_dir: {settings.temp_dir}")
+except Exception as exc:
+    print(f"❌ 加载 settings.py 失败: {exc}")
+
+print("\n【vector_search/env_config.py 配置】")
 try:
-    from csrcqsf.modules.railway_parts.vector_search.config.env_config import (
-        get_config,
-    )
+    from csrcqsf.modules.railway_parts.vector_search.config.env_config import get_config
+
     config = get_config()
-    print(f"model_dir: {config.model_dir}")
-    print(f"siglip_model_path: {config.siglip_model_path}")
-    print(f"  exists: {Path(config.siglip_model_path).exists()}")
-    print(f"dinov2_model_path: {config.dinov2_model_path}")
-    print(f"  exists: {Path(config.dinov2_model_path).exists()}")
-    print(f"sam3_model_path: {config.sam3_model_path}")
-    print(f"  exists: {Path(config.sam3_model_path).exists()}")
-except Exception as e:
-    print(f"❌ 加载 env_config.py 失败: {e}")
+    print(f"minio_endpoint: {config.minio_endpoint}")
+    print(f"milvus: {config.milvus_host}:{config.milvus_port}")
+    print(f"siglip_collection_name: {config.siglip_collection_name}")
+    print(f"dinov2_collection_name: {config.dinov2_collection_name}")
+    print(f"dinov2_patch_tokens_dir: {config.dinov2_patch_tokens_dir}")
+    print(f"indexing_checkpoint_file: {config.indexing_checkpoint_file}")
+    print(f"indexing_log_dir: {config.indexing_log_dir}")
+    print(f"local_image_root: {config.local_image_root}")
+except Exception as exc:
+    print(f"❌ 加载 env_config.py 失败: {exc}")
     import traceback
+
     traceback.print_exc()
 
+print("\n说明：主业务已不再读取 MODEL_DIR、SAM3_MODEL_PATH、SAM_MODEL_PATH。")
 print("\n" + "=" * 60)

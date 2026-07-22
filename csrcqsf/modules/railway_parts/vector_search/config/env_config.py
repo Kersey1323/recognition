@@ -1,4 +1,4 @@
-"""Environment-based configuration for railway-parts vector search."""
+"""Environment-based configuration for railway-parts vector search runtime."""
 
 from __future__ import annotations
 
@@ -29,15 +29,6 @@ class VectorDBConfig:
     def __init__(self):
         """从环境变量加载配置。"""
 
-        # ============================================
-        # PostgreSQL配置
-        # ============================================
-        self.pg_host = os.getenv("PG_HOST", "192.168.100.2")
-        self.pg_port = int(os.getenv("PG_PORT", "5432"))
-        self.pg_database = os.getenv("PG_DATABASE", "zcsf")
-        self.pg_user = os.getenv("PG_USER", "root")
-        self.pg_password = os.getenv("PG_PASSWORD", "REMOVED_CREDENTIAL")
-        
         # ============================================
         # MinIO配置
         # ============================================
@@ -84,15 +75,8 @@ class VectorDBConfig:
         self.local_image_root = os.getenv("LOCAL_IMAGE_ROOT", "/data/railway_parts_images")
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为兼容旧 INI 结构的字典。"""
+        """转换为当前运行时使用的配置字典。"""
         return {
-            'postgresql': {
-                'host': self.pg_host,
-                'port': self.pg_port,
-                'database': self.pg_database,
-                'user': self.pg_user,
-                'password': self.pg_password,
-            },
             'minio': {
                 'endpoint': self.minio_endpoint,
                 'access_key': self.minio_access_key,
@@ -121,14 +105,6 @@ class VectorDBConfig:
                 'image_root': self.local_image_root,
             }
         }
-    
-    def get_pg_dsn(self) -> str:
-        """获取 PostgreSQL 连接字符串。"""
-        return f"postgresql://{self.pg_user}:{self.pg_password}@{self.pg_host}:{self.pg_port}/{self.pg_database}"
-
-    def get_async_pg_dsn(self) -> str:
-        """获取 PostgreSQL 异步连接字符串。"""
-        return f"postgresql+asyncpg://{self.pg_user}:{self.pg_password}@{self.pg_host}:{self.pg_port}/{self.pg_database}"
 
 
 # 全局配置实例
@@ -140,9 +116,8 @@ def get_config() -> VectorDBConfig:
     return vector_db_config
 
 
-# 兼容旧代码的函数
 def load_config_from_env() -> Dict[str, Any]:
-    """加载兼容旧 INI 结构的配置字典。"""
+    """加载当前运行时配置字典。"""
     return vector_db_config.to_dict()
 
 
@@ -152,7 +127,6 @@ if __name__ == "__main__":
     print("=" * 60)
     print("向量数据库配置")
     print("=" * 60)
-    print(f"\nPostgreSQL: {config.pg_host}:{config.pg_port}/{config.pg_database}")
     print(f"MinIO: {config.minio_endpoint}")
     print(f"Milvus: {config.milvus_host}:{config.milvus_port}")
     print(f"\nSigLIP Collection: {config.siglip_collection_name}")

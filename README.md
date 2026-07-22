@@ -164,7 +164,7 @@ python main.py
 PYTHONPATH=. .venv/bin/python scripts/testing/test_vector_db_config.py
 ```
 
-### 验证模型路径解析
+### 验证主业务外部配置
 
 ```bash
 PYTHONPATH=. .venv/bin/python scripts/testing/debug_model_paths.py
@@ -255,9 +255,6 @@ bash scripts/deployment/run_assets_proxy_debug.sh
 
 - README 只保留项目概览、目录说明和导航信息
 - 具体部署步骤、环境准备和故障排查统一维护在 [部署文档](部署文档.md)
-
-
-  "python.analysis.typeCheckingMode": "basic",
   "python.analysis.diagnosticSeverityOverrides": {
     "reportGeneralTypeIssues": "none"
   }

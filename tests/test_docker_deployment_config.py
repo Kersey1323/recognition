@@ -79,7 +79,9 @@ def test_settings_does_not_expose_removed_legacy_fields(monkeypatch):
 def test_env_deployment_uses_host_network_runtime_paths():
     values = _parse_env_file(Path(".env.deployment"))
 
-    assert values["MODEL_DIR"] == "/home/ubuntu/CV/models"
+    assert "MODEL_DIR" not in values
+    assert "SAM3_MODEL_PATH" not in values
+    assert "SAM_MODEL_PATH" not in values
     assert values["TEMP_DIR"] == "temp"
     assert values["DINOV2_PATCH_TOKENS_DIR"] == "state/vector_db/patch_tokens"
     assert values["INDEXING_CHECKPOINT_FILE"] == "state/vector_db/checkpoint.json"
@@ -116,4 +118,34 @@ def test_run_docker_deployment_script_uses_cpu_business_defaults():
     assert 'CONTAINER_NAME="${CONTAINER_NAME:-recognition-service}"' in text
     assert 'ENV_FILE="${ENV_FILE:-.env.deployment}"' in text
     assert "--gpus all" not in text
-    assert '-v "${HOST_MODEL_DIR}:/models"' in text
+    assert "HOST_MODEL_DIR" not in text
+    assert ':/models"' not in text
+
+
+def test_env_templates_do_not_expose_removed_legacy_vars():
+    for path in (Path(".env.example"), Path(".env.deployment")):
+        values = _parse_env_file(path)
+        assert "MODEL_DIR" not in values
+        assert "SAM3_MODEL_PATH" not in values
+        assert "SAM_MODEL_PATH" not in values
+        assert "PG_HOST" not in values
+        assert "PG_PORT" not in values
+        assert "PG_DATABASE" not in values
+        assert "PG_USER" not in values
+        assert "PG_PASSWORD" not in values
+        assert "MILVUS_URL" not in values
+        assert "SGO_MYSQL_URL" not in values
+        assert "SGO_MYSQL_USERNAME" not in values
+        assert "RECONSTRUCTION_SERVER_HOST" not in values
+        assert "RECONSTRUCTION_SERVER_PORT" not in values
+
+
+def test_vector_env_config_no_longer_reads_pg_or_model_dir_contract():
+    text = Path(
+        "csrcqsf/modules/railway_parts/vector_search/config/env_config.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'os.getenv("PG_HOST"' not in text
+    assert 'os.getenv("PG_PORT"' not in text
+    assert "get_pg_dsn" not in text
+    assert "get_async_pg_dsn" not in text
