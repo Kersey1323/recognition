@@ -36,17 +36,15 @@ print(f"  MAIN_DB_USER: {os.getenv('MAIN_DB_USER', '未设置')}")
 print(f"  MAIN_DB_PASSWORD: {_masked(os.getenv('MAIN_DB_PASSWORD', ''))}")
 print(f"  MAIN_DB_DATABASE: {os.getenv('MAIN_DB_DATABASE', '未设置')}")
 
-print("\n【Redis / Celery】")
-print(f"  REDIS_HOST: {os.getenv('REDIS_HOST', '未设置')}")
-print(f"  REDIS_PORT: {os.getenv('REDIS_PORT', '未设置')}")
-print(f"  CELERY_BROKER_URL: {os.getenv('CELERY_BROKER_URL', '未设置')}")
-print(f"  CELERY_RESULT_BACKEND: {os.getenv('CELERY_RESULT_BACKEND', '未设置')}")
-
 print("\n【Milvus / MinIO】")
 print(f"  MILVUS_HOST: {os.getenv('MILVUS_HOST', '未设置')}")
 print(f"  MILVUS_PORT: {os.getenv('MILVUS_PORT', '未设置')}")
 print(f"  MINIO_ENDPOINT: {os.getenv('MINIO_ENDPOINT', '未设置')}")
 print(f"  MINIO_BUCKET: {os.getenv('MINIO_BUCKET', '未设置')}")
+print(
+    "  MINIO_SEARCH_HISTORY_BUCKET: "
+    f"{os.getenv('MINIO_SEARCH_HISTORY_BUCKET', '未设置')}"
+)
 
 print("\n【外部服务】")
 print(f"  BASIS_API_HTTP_URL: {os.getenv('BASIS_API_HTTP_URL', '未设置')}")

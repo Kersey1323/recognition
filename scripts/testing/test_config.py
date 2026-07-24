@@ -1,198 +1,123 @@
 #!/usr/bin/env python3
-"""
-配置测试脚本
-用于验证环境变量和日志系统是否正常工作
-"""
+"""检查主业务当前环境变量和基础日志输出。"""
 
 import sys
-import os
 from pathlib import Path
 
-# 添加项目根目录到路径
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from csrcqsf.core.settings import ai_settings, APP_ENV, APP_PORT, APP_LOG_LEVEL
+from csrcqsf.core.settings import (
+    ai_settings,
+    basis_api_http_url,
+    main_db_database,
+    minio_bucket,
+    minio_endpoint,
+    minio_search_history_bucket,
+    reconstruction_server_timeout_sec,
+    reconstruction_server_url,
+    sgo_mysql_database,
+    temp_dir,
+)
 from globals_vars import logger
-from csrcqsf.core.logger import used_time
+
+
+def _masked(value: str) -> str:
+    return "*" * len(value) if value else "未设置"
 
 
 def test_environment_variables():
-    """测试环境变量配置"""
+    """输出当前主业务真正使用的配置口径。"""
     print("=" * 60)
-    print("环境变量配置测试")
+    print("主业务配置测试")
     print("=" * 60)
-    
-    print(f"\n【应用配置】")
-    print(f"  环境: {APP_ENV}")
-    print(f"  端口: {APP_PORT}")
-    print(f"  日志级别: {APP_LOG_LEVEL}")
-    
-    print(f"\n【数据库配置】")
-    print(f"  PostgreSQL: {ai_settings.pg_host}:{ai_settings.pg_port}/{ai_settings.pg_database}")
-    print(f"  用户: {ai_settings.pg_user}")
-    print(f"  密码: {'*' * len(ai_settings.pg_password)}")
-    
-    print(f"\n【Redis配置】")
-    print(f"  主机: {ai_settings.redis_host}:{ai_settings.redis_port}")
-    print(f"  数据库: {ai_settings.redis_db}")
-    print(f"  密码: {'已设置' if ai_settings.redis_password else '未设置'}")
-    
-    print(f"\n【Milvus配置】")
+
+    print("\n【应用配置】")
+    print(f"  TEMP_DIR: {temp_dir}")
+
+    print("\n【主业务数据库】")
+    print(f"  MySQL: {ai_settings.mysql.url}:{ai_settings.mysql.port}/{main_db_database}")
+    print(f"  用户: {ai_settings.mysql.user_name}")
+    print(f"  密码: {_masked(ai_settings.mysql.password)}")
+
+    print("\n【Milvus配置】")
     print(f"  URL: {ai_settings.milvus_url}")
-    
-    print(f"\n【MinIO配置】")
-    print(f"  端点: {ai_settings.minio_endpoint}")
-    print(f"  Bucket: {ai_settings.minio_bucket}")
-    print(f"  访问密钥: {'*' * 10}")
-    
-    print(f"\n【JWT配置】")
-    print(f"  算法: {ai_settings.jwt_algorithm}")
-    print(f"  访问Token过期: {ai_settings.jwt_access_token_expire_minutes} 分钟")
-    print(f"  刷新Token过期: {ai_settings.jwt_refresh_token_expire_days} 天")
-    print(f"  密钥: {'*' * 20}")
-    
-    print(f"\n【SGO配置】")
-    print(f"  MySQL: {ai_settings.sgo_mysql_url}:{ai_settings.sgo_mysql_port}/{ai_settings.sgo_mysql_database}")
-    
+
+    print("\n【MinIO配置】")
+    print(f"  端点: {minio_endpoint}")
+    print(f"  默认 Bucket: {minio_bucket}")
+    print(f"  检索历史 Bucket: {minio_search_history_bucket}")
+
+    print("\n【SGO配置】")
+    print(f"  MySQL: {ai_settings.sgo_mysql_url}:{ai_settings.sgo_mysql_port}/{sgo_mysql_database}")
+
+    print("\n【外部服务】")
+    print(f"  BASIS_API_GRPC_URL: {ai_settings.basis_api_grpc_url}")
+    print(f"  BASIS_API_HTTP_URL: {basis_api_http_url or '未设置'}")
+    print(f"  RECONSTRUCTION_SERVER_URL: {reconstruction_server_url}")
+    print(f"  RECONSTRUCTION_SERVER_TIMEOUT_SEC: {reconstruction_server_timeout_sec}")
+
     print("\n✅ 环境变量配置测试完成")
 
 
 def test_logging_system():
-    """测试日志系统"""
+    """验证主业务日志目录和基础日志输出。"""
     print("\n" + "=" * 60)
     print("日志系统测试")
     print("=" * 60)
-    
-    # 测试不同级别的日志
-    print("\n【测试日志级别】")
-    logger.debug("这是DEBUG级别日志")
-    logger.info("这是INFO级别日志")
-    logger.warning("这是WARNING级别日志")
-    logger.error("这是ERROR级别日志")
-    
-    # 测试结构化日志
-    print("\n【测试结构化日志】")
-    logger.info("测试结构化日志", extra={
-        "test_type": "structured_logging",
-        "test_number": 123,
-        "test_bool": True
-    })
-    
-    # 测试API请求日志
-    print("\n【测试API请求日志】")
-    log_api_request(
-        method="POST",
-        path="/api/test",
-        user_id=999,
-        ip="127.0.0.1"
-    )
-    
-    # 测试审计日志
-    print("\n【测试审计日志】")
-    log_audit(
-        user_id=999,
-        action="test_action",
-        resource_type="test_resource",
-        resource_id=123,
-        ip="127.0.0.1",
-        before={"status": "old"},
-        after={"status": "new"}
-    )
-    
-    # 测试任务日志
-    print("\n【测试任务日志】")
-    log_task_start(
-        task_id="test_task_001",
-        task_type="test_task",
-        param1="value1"
-    )
-    
-    log_task_complete(
-        task_id="test_task_001",
-        task_type="test_task",
-        duration=1.23,
-        status="success",
-        result="测试完成"
-    )
-    
-    # 检查日志文件
-    print("\n【检查日志文件】")
+
+    logger.info("主业务配置测试脚本日志输出检查")
+    logger.warning("主业务配置测试脚本告警输出检查")
+
     log_dir = PROJECT_ROOT / "logs"
+    print("\n【检查日志目录】")
     if log_dir.exists():
         log_files = list(log_dir.glob("*.log"))
         print(f"  日志目录: {log_dir}")
         print(f"  日志文件数量: {len(log_files)}")
-        for log_file in sorted(log_files)[:5]:  # 只显示前5个
-            size = log_file.stat().st_size
-            print(f"    - {log_file.name} ({size:,} bytes)")
     else:
         print(f"  ⚠️  日志目录不存在: {log_dir}")
-    
+
     print("\n✅ 日志系统测试完成")
 
 
-def test_security_warnings():
-    """安全检查"""
+def test_configuration_warnings():
+    """检查当前主业务最关键的缺省项。"""
     print("\n" + "=" * 60)
-    print("安全检查")
+    print("配置检查")
     print("=" * 60)
-    
+
     warnings = []
-    
-    # 检查JWT密钥
-    if "dev" in ai_settings.jwt_secret_key.lower() or "test" in ai_settings.jwt_secret_key.lower():
-        warnings.append("⚠️  JWT密钥使用了默认值，生产环境必须修改！")
-    
-    # 检查Redis密码
-    if not ai_settings.redis_password and APP_ENV == "production":
-        warnings.append("⚠️  生产环境Redis未设置密码！")
-    
-    # 检查环境
-    if APP_ENV == "production" and APP_LOG_LEVEL == "DEBUG":
-        warnings.append("⚠️  生产环境不应使用DEBUG日志级别！")
-    
-    # 检查.env文件
-    env_file = PROJECT_ROOT / ".env"
-    if not env_file.exists():
-        warnings.append("⚠️  .env文件不存在，使用默认配置！")
-    
+    if not basis_api_http_url:
+        warnings.append("未配置 BASIS_API_HTTP_URL，下载代理鉴权接口会不可用")
+    if reconstruction_server_url.strip() == "":
+        warnings.append("未配置 RECONSTRUCTION_SERVER_URL，三维重构接口会禁用")
+
     if warnings:
-        print("\n【安全警告】")
+        print("\n【配置提示】")
         for warning in warnings:
-            print(f"  {warning}")
+            print(f"  ⚠️  {warning}")
     else:
-        print("\n✅ 未发现安全问题")
+        print("\n✅ 关键外部服务配置已具备")
 
 
 def main():
-    """主函数"""
     print("\n" + "=" * 60)
-    print("铁路配件智能识别系统 - 配置测试")
+    print("铁路配件智能识别系统 - 主业务配置测试")
     print("=" * 60)
-    
+
     try:
-        # 测试环境变量
         test_environment_variables()
-        
-        # 测试日志系统
         test_logging_system()
-        
-        # 安全检查
-        test_security_warnings()
-        
+        test_configuration_warnings()
+
         print("\n" + "=" * 60)
-        print("✅ 所有测试完成！")
+        print("✅ 所有测试完成")
         print("=" * 60)
-        print("\n提示：")
-        print("  1. 检查 logs/ 目录下的日志文件")
-        print("  2. 生产环境部署前请修改所有默认密码和密钥")
-        print("  3. 参考 docs/ENVIRONMENT_SETUP.md 了解详细配置")
-        print()
-        
-    except Exception as e:
-        print(f"\n❌ 测试失败: {e}")
+    except Exception as exc:
+        print(f"\n❌ 测试失败: {exc}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

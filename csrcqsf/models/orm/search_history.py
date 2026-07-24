@@ -266,6 +266,7 @@ class SearchHistory(Base):
 
 class SearchReviewTicket(Base):
     __tablename__ = 'search_review_ticket'
+    INACTIVE_REVIEW_STATUSES = ("closed", "deleted")
 
     history_id: Mapped[int] = mapped_column(BIGINT, index=True, nullable=False)
     review_status: Mapped[str] = mapped_column(String(50), nullable=False, default="open")
@@ -279,7 +280,10 @@ class SearchReviewTicket(Base):
     @classmethod
     async def get_active_by_history_id(cls, session: AsyncSession, history_id: int):
         stmt = select(cls).where(
-            and_(cls.history_id == history_id, cls.review_status != "closed")
+            and_(
+                cls.history_id == history_id,
+                cls.review_status.notin_(cls.INACTIVE_REVIEW_STATUSES),
+            )
         ).order_by(cls.id.desc())
         return await session.scalar(stmt)
 
@@ -327,7 +331,9 @@ class SearchReviewTicket(Base):
             SearchHistory.correct_rank.label("correct_rank"),
             SearchHistory.correct_source.label("correct_source"),
         ).join(SearchHistory, SearchHistory.id == cls.history_id)
-        if review_status != "all":
+        if review_status == "all":
+            stmt = stmt.where(cls.review_status != "deleted")
+        else:
             stmt = stmt.where(cls.review_status == review_status)
         if issue_type != "all":
             stmt = stmt.where(cls.issue_type == issue_type)
@@ -430,7 +436,9 @@ class SearchReviewTicket(Base):
 
     @classmethod
     async def count_open_tickets(cls, session: AsyncSession):
-        stmt = select(func.count(cls.id)).where(cls.review_status != "closed")
+        stmt = select(func.count(cls.id)).where(
+            cls.review_status.notin_(cls.INACTIVE_REVIEW_STATUSES)
+        )
         count = await session.scalar(stmt)
         return int(count or 0)
 
@@ -466,5 +474,5 @@ class SearchReviewTicket(Base):
             func.sum(case((cls.issue_type == "precision_issue", 1), else_=0)),
             func.sum(case((cls.issue_type == "system_bug", 1), else_=0)),
             func.sum(case((cls.issue_type == "user_misjudged", 1), else_=0)),
-        )
+        ).where(cls.review_status != "deleted")
         return await session.execute(stmt)

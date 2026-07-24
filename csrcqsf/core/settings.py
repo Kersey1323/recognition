@@ -32,10 +32,6 @@ def env_is_explicit(name: str) -> bool:
     return name in _EXPLICIT_ENV_KEYS and value is not None and value.strip() != ""
 
 
-def _any_explicit_env(*names: str) -> bool:
-    return any(env_is_explicit(name) for name in names)
-
-
 def _all_explicit_env(*names: str) -> bool:
     return all(env_is_explicit(name) for name in names)
 
@@ -85,16 +81,6 @@ def milvus_env_configured() -> bool:
     return _all_explicit_env(
         "MILVUS_HOST",
         "MILVUS_PORT",
-    )
-
-
-def redis_env_configured() -> bool:
-    return _any_explicit_env(
-        "CELERY_BROKER_URL",
-        "CELERY_RESULT_BACKEND",
-    ) or _all_explicit_env(
-        "REDIS_HOST",
-        "REDIS_PORT",
     )
 
 

@@ -41,6 +41,7 @@ get_v2_search_modes = search_routes.get_v2_search_modes
 list_v2_search_review_tickets = review_ticket_routes.list_v2_search_review_tickets
 get_v2_search_review_ticket_detail = review_ticket_routes.get_v2_search_review_ticket_detail
 update_v2_search_review_ticket = review_ticket_routes.update_v2_search_review_ticket
+delete_v2_search_review_ticket = review_ticket_routes.delete_v2_search_review_ticket
 summary_v2_search_review_ticket = review_ticket_routes.summary_v2_search_review_ticket
 
 reconstruct_v2_train = reconstruction_routes.reconstruct_v2_train
@@ -108,6 +109,7 @@ __all__ = [
     "list_v2_search_review_tickets",
     "get_v2_search_review_ticket_detail",
     "update_v2_search_review_ticket",
+    "delete_v2_search_review_ticket",
     "summary_v2_search_review_ticket",
     "reconstruct_v2_train",
     "upload_reconstruct_v2_video",

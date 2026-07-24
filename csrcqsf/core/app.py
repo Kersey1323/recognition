@@ -32,7 +32,6 @@ from csrcqsf.core.settings import (
     milvus_env_configured,
     minio_env_configured,
     reconstruction_server_env_configured,
-    redis_env_configured,
     sgo_env_configured,
 )
 
@@ -75,9 +74,6 @@ async def lifespan(app: FastAPI):
 
     if not milvus_env_configured():
         logger.warning("未显式配置 Milvus 环境变量，Milvus 相关能力保持跳过/惰性初始化")
-
-    if not redis_env_configured():
-        logger.warning("未显式配置 Redis 环境变量，非重构主业务能力继续可用")
 
     if not main_db_env_configured():
         logger.warning("主业务数据库未配置时，将无法记录和查询三维重构任务状态")

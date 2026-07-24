@@ -415,7 +415,7 @@ async def submit_v2_search_feedback(
                 )
                 ticket_created = True
             ticket_id = active_ticket.id
-        elif active_ticket is not None and getattr(active_ticket, "review_status", None) != "closed":
+        elif active_ticket is not None and getattr(active_ticket, "review_status", None) not in {"closed", "deleted"}:
             await runtime.SearchHistoryRepository.update_ticket(
                 session,
                 int(active_ticket.id),

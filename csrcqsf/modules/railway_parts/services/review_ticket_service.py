@@ -133,6 +133,8 @@ async def update_v2_search_review_ticket(
         )
         if ticket is None:
             raise Exception(f"ticket_id={ticket_id} 的记录不存在")
+        if ticket.review_status == "deleted":
+            raise Exception(f"ticket_id={ticket_id} 已移出校验清单，不能再次更新")
 
         history = await runtime.SearchHistoryRepository.get_history_by_id(
             session,
@@ -244,6 +246,60 @@ async def update_v2_search_review_ticket(
         correct_rank=correct_rank,
         correct_source=correct_source,
         message="核验单更新成功",
+    )
+
+
+async def delete_v2_search_review_ticket(
+    cls,
+    *,
+    ticket_id_list: list[int],
+    delete_remark: str | None = None,
+    runtime=None,
+):
+    runtime = runtime or _runtime()
+    delete_note = (delete_remark or "").strip()
+
+    async with runtime.SessionLocal() as session:
+        deleted_count = 0
+        for ticket_id in ticket_id_list:
+            ticket = await runtime.SearchHistoryRepository.get_ticket_by_id(
+                session,
+                ticket_id,
+                review_ticket_model=runtime.SearchReviewTicket,
+            )
+            if ticket is None:
+                raise Exception(f"ticket_id={ticket_id} 的记录不存在")
+            if ticket.review_status == "deleted":
+                continue
+
+            resolution_remark = getattr(ticket, "resolution_remark", None)
+            if delete_note:
+                delete_message = f"移出校验清单：{delete_note}"
+                if resolution_remark:
+                    if delete_message not in resolution_remark:
+                        resolution_remark = f"{resolution_remark}\n{delete_message}"
+                else:
+                    resolution_remark = delete_message
+
+            # 前端移出的是核验清单待办，不是原始检索历史，因此这里只改核验单状态。
+            await runtime.SearchHistoryRepository.update_ticket(
+                session,
+                ticket_id,
+                review_ticket_model=runtime.SearchReviewTicket,
+                review_status="deleted",
+                issue_type=getattr(ticket, "issue_type", None),
+                review_remark=getattr(ticket, "review_remark", None),
+                resolution_remark=resolution_remark,
+                review_started_at=getattr(ticket, "review_started_at", None),
+                resolved_at=getattr(ticket, "resolved_at", None),
+                closed_at=getattr(ticket, "closed_at", None),
+            )
+            deleted_count += 1
+        await session.commit()
+
+    return runtime.SearchReviewTicketDeleteRes(
+        deleted_count=deleted_count,
+        message="校验清单移除成功",
     )
 
 

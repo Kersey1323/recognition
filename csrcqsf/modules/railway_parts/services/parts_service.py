@@ -40,6 +40,7 @@ from csrcqsf.modules.railway_parts.schemas.parts import (
     ListItemReq,
 )
 from csrcqsf.modules.railway_parts.schemas.review_ticket import (
+    SearchReviewTicketDeleteRes,
     SearchReviewTicketDetailRes,
     SearchReviewTicketItem,
     SearchReviewTicketListReq,
@@ -478,6 +479,20 @@ class RailwayPartsManager:
             review_remark=review_remark,
             resolution_remark=resolution_remark,
             correct_item_code=correct_item_code,
+        )
+
+    @classmethod
+    async def delete_v2_search_review_ticket(
+        cls,
+        *,
+        ticket_id_list: list[int],
+        delete_remark: str | None = None,
+    ):
+        _bind_parts_search_runtime()
+        return await parts_search_service.delete_v2_search_review_ticket(
+            cls,
+            ticket_id_list=ticket_id_list,
+            delete_remark=delete_remark,
         )
 
     @classmethod

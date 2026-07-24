@@ -26,6 +26,7 @@ SearchReviewTicket: Any = None
 SearchHistoryRepository: Any = None
 ItemSuggestItem: Any = None
 ItemSuggestRes: Any = None
+SearchReviewTicketDeleteRes: Any = None
 SearchReviewTicketDetailRes: Any = None
 SearchReviewTicketItem: Any = None
 SearchReviewTicketListRes: Any = None
@@ -70,6 +71,7 @@ def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) ->
             "SearchHistoryRepository": parts_service_module.SearchHistoryRepository,
             "ItemSuggestItem": parts_service_module.ItemSuggestItem,
             "ItemSuggestRes": parts_service_module.ItemSuggestRes,
+            "SearchReviewTicketDeleteRes": parts_service_module.SearchReviewTicketDeleteRes,
             "SearchReviewTicketDetailRes": parts_service_module.SearchReviewTicketDetailRes,
             "SearchReviewTicketItem": parts_service_module.SearchReviewTicketItem,
             "SearchReviewTicketListRes": parts_service_module.SearchReviewTicketListRes,
@@ -525,7 +527,7 @@ def _build_search_history_item(cls, row, latest_ticket=None):
     latest_review_status = None
     latest_issue_type = None
     if latest_ticket is not None:
-        has_open_review_ticket = getattr(latest_ticket, "review_status", None) != "closed"
+        has_open_review_ticket = getattr(latest_ticket, "review_status", None) not in {"closed", "deleted"}
         latest_ticket_id = getattr(latest_ticket, "id", None)
         latest_review_status = getattr(latest_ticket, "review_status", None)
         latest_issue_type = getattr(latest_ticket, "issue_type", None)
@@ -722,6 +724,19 @@ async def update_v2_search_review_ticket(
         review_remark=review_remark,
         resolution_remark=resolution_remark,
         correct_item_code=correct_item_code,
+        runtime=_runtime_context(),
+    )
+
+async def delete_v2_search_review_ticket(
+    cls,
+    *,
+    ticket_id_list: list[int],
+    delete_remark: str | None = None,
+):
+    return await review_ticket_service.delete_v2_search_review_ticket(
+        cls,
+        ticket_id_list=ticket_id_list,
+        delete_remark=delete_remark,
         runtime=_runtime_context(),
     )
 

@@ -575,8 +575,6 @@ def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured
         "MINIO_SECRET_KEY",
         "MILVUS_HOST",
         "MILVUS_PORT",
-        "REDIS_HOST",
-        "REDIS_PORT",
     ):
         monkeypatch.delenv(key, raising=False)
 

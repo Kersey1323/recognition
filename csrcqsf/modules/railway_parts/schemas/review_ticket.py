@@ -1,6 +1,8 @@
 """Railway-parts review ticket schemas."""
 
 from csrcqsf.modules.railway_parts.schemas._parts_api_models import (
+    SearchReviewTicketDeleteReq,
+    SearchReviewTicketDeleteRes,
     SearchReviewTicketDetailReq,
     SearchReviewTicketDetailRes,
     SearchReviewTicketItem,
@@ -12,6 +14,8 @@ from csrcqsf.modules.railway_parts.schemas._parts_api_models import (
 )
 
 __all__ = [
+    "SearchReviewTicketDeleteReq",
+    "SearchReviewTicketDeleteRes",
     "SearchReviewTicketDetailReq",
     "SearchReviewTicketDetailRes",
     "SearchReviewTicketItem",

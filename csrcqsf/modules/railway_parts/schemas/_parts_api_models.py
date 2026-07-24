@@ -516,7 +516,7 @@ class SearchReviewTicketListReq(PageReq):
     per_page: int = Field(description="每页数量", example=10, ge=0, alias='pageSize')
     review_status: str = Field(
         default="all",
-        description="核验单状态筛选：all 全部，open 新建，reviewing 核验中，resolved 已解决，closed 已关闭",
+        description="核验单状态筛选：all 默认全部（不含 deleted），open 新建，reviewing 核验中，resolved 已解决，closed 已关闭，deleted 已移出清单",
         example="open",
     )
     issue_type: str = Field(
@@ -701,6 +701,32 @@ class SearchReviewTicketUpdateRes(BaseModel):
         if value is None:
             return None
         return str(value)
+
+
+class SearchReviewTicketDeleteReq(BaseModel):
+    ticket_id_list: list[str] = Field(
+        description="待移出校验清单的核验单ID列表",
+        example=["2048696242753638400", "2048696242753638401"],
+        min_items=1,
+    )
+    delete_remark: str | None = Field(
+        default=None,
+        description="移出清单备注",
+        example="前端手动移出校验清单",
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "ticket_id_list": ["2048696242753638400", "2048696242753638401"],
+                "delete_remark": "前端手动移出校验清单",
+            }
+        }
+
+
+class SearchReviewTicketDeleteRes(BaseModel):
+    deleted_count: int
+    message: str
 
 
 class SearchReviewTicketSummaryRes(BaseModel):

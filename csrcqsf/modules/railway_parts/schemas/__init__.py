@@ -51,6 +51,8 @@ from .reconstruction import (
     ReconstructionVideoUploadUrlsRes,
 )
 from .review_ticket import (
+    SearchReviewTicketDeleteReq,
+    SearchReviewTicketDeleteRes,
     SearchReviewTicketDetailReq,
     SearchReviewTicketDetailRes,
     SearchReviewTicketItem,
@@ -135,6 +137,8 @@ __all__ = [
     "SearchHistoryVerifyRes",
     "SearchItem",
     "SearchRes",
+    "SearchReviewTicketDeleteReq",
+    "SearchReviewTicketDeleteRes",
     "SearchReviewTicketDetailReq",
     "SearchReviewTicketDetailRes",
     "SearchReviewTicketItem",
