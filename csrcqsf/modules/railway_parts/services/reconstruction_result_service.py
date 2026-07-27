@@ -300,45 +300,65 @@ async def upload_reconstruction_result(cls, item_id: int, file, runtime=None) ->
     }
 
 
-async def delete_reconstruction_result(cls, item_id: int, runtime=None) -> dict:
+async def delete_reconstruction_result(cls, task_id: str, runtime=None) -> dict:
     runtime = runtime or _runtime()
-    item = await cls._require_item_exists(item_id)
-    result_path = item.obj_url
-    if not result_path:
-        raise runtime.ReconstructionBusinessError(f"配件未绑定三维重构结果: item_id={item_id}")
-
-    _, looks_like_minio_path, _, _, _ = runtime._get_minio_helpers()
-    is_minio_result = looks_like_minio_path(
-        result_path,
-        default_bucket=runtime.minio_reconstruction_file_bucket,
-    )
-    deleted = False
-    if is_minio_result:
-        deleted = await cls._delete_minio_object(
-            result_path,
-            default_bucket=runtime.minio_reconstruction_file_bucket,
-        )
-    else:
-        runtime.logger.info(
-            f"当前重构结果不是MinIO路径，仅清理数据库引用: item_id={item_id}, path={result_path}"
-        )
-
     async with runtime.SessionLocal() as session:
-        await runtime.Items.update_obj_url(session=session, item_id=item_id, obj_url=None)
-        await runtime.ReconstructionRecord.clear_current_result_by_url(
-            session=session,
-            item_id=item_id,
-            result_url=result_path,
+        record = await runtime.ReconstructionRecord.get_by_task_id(session, task_id)
+        if not record:
+            raise runtime.ReconstructionBusinessError(f"重构任务不存在: task_id={task_id}")
+
+        result_paths = list(
+            dict.fromkeys(
+                path
+                for path in (record.ply_url, record.obj_url, record.glb_url)
+                if path
+            )
         )
+        if not result_paths:
+            raise runtime.ReconstructionBusinessError(f"重构任务未绑定三维重构结果: task_id={task_id}")
+
+        _, looks_like_minio_path, _, _, _ = runtime._get_minio_helpers()
+        minio_result_count = 0
+        deleted_count = 0
+        for result_path in result_paths:
+            if looks_like_minio_path(
+                result_path,
+                default_bucket=runtime.minio_reconstruction_file_bucket,
+            ):
+                minio_result_count += 1
+                if await cls._delete_minio_object(
+                    result_path,
+                    default_bucket=runtime.minio_reconstruction_file_bucket,
+                ):
+                    deleted_count += 1
+            else:
+                runtime.logger.info(
+                    f"任务重构结果不是MinIO路径，仅清理数据库引用: task_id={task_id}, path={result_path}"
+                )
+
+        item = await runtime.Items.get_item_by_id(session, record.item_id)
+        # 删除历史任务时保留配件当前模型；只有当前绑定指向该任务结果才同步清空。
+        if item and item.obj_url in result_paths:
+            await runtime.Items.update_obj_url(
+                session=session,
+                item_id=record.item_id,
+                obj_url=None,
+            )
+
+        record.ply_url = None
+        record.obj_url = None
+        record.glb_url = None
+        await session.flush()
         await session.commit()
 
-    if is_minio_result:
-        message = "三维重构结果删除成功" if deleted else "三维重构结果对象不存在，元数据已清理"
+    if minio_result_count:
+        message = "三维重构结果删除成功" if deleted_count else "三维重构结果对象不存在，元数据已清理"
     else:
         message = "旧本地重构结果引用已清理"
 
     return {
-        "item_id": item_id,
-        "result_path": result_path,
+        "task_id": task_id,
+        "item_id": record.item_id,
+        "result_path": result_paths[0],
         "message": message,
     }

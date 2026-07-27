@@ -63,6 +63,7 @@ delete_reconstruct_v2_result = reconstruction_routes.delete_reconstruct_v2_resul
 upload_reconstruct_v2_result = reconstruction_routes.upload_reconstruct_v2_result
 list_item_reconstruct_tasks = reconstruction_routes.list_item_reconstruct_tasks
 list_all_reconstruct_tasks = reconstruction_routes.list_all_reconstruct_tasks
+get_reconstruct_v2_task_item_details = reconstruction_routes.get_reconstruct_v2_task_item_details
 reconstruct_v2_statistics = reconstruction_routes.reconstruct_v2_statistics
 cancel_reconstruct_task = reconstruction_routes.cancel_reconstruct_task
 list_reconstruction_scenes = reconstruction_routes.list_reconstruction_scenes
@@ -130,6 +131,7 @@ __all__ = [
     "upload_reconstruct_v2_result",
     "list_item_reconstruct_tasks",
     "list_all_reconstruct_tasks",
+    "get_reconstruct_v2_task_item_details",
     "reconstruct_v2_statistics",
     "cancel_reconstruct_task",
     "list_reconstruction_scenes",

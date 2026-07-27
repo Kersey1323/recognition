@@ -138,18 +138,77 @@ def test_upload_source_video_rejects_duplicate_binding_with_business_error():
 
 
 def test_delete_reconstruction_result_rejects_missing_result_with_business_error():
-    item = SimpleNamespace(
-        id=2023080809420000001,
+    session = AsyncMock()
+    record = SimpleNamespace(
+        task_id="task-id",
+        item_id=2023080809420000001,
+        ply_url=None,
         obj_url=None,
+        glb_url=None,
     )
 
-    with patch.object(ReconstructionManager, "_require_item_exists", AsyncMock(return_value=item)):
+    with patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)):
         try:
-            asyncio.run(ReconstructionManager.delete_reconstruction_result(item.id))
+            asyncio.run(ReconstructionManager.delete_reconstruction_result("task-id"))
         except ReconstructionBusinessError as exc:
             assert "三维重构结果" in str(exc)
         else:
             raise AssertionError("missing reconstruction result should raise ReconstructionBusinessError")
+
+
+def test_delete_reconstruction_result_deletes_the_requested_task_model():
+    session = AsyncMock()
+    result_path = "bfr-reconstruction-files/results/1001/task-id/point_cloud.ply"
+    record = SimpleNamespace(
+        task_id="task-id",
+        item_id=1001,
+        ply_url=result_path,
+        obj_url=None,
+        glb_url=None,
+    )
+    item = SimpleNamespace(id=1001, obj_url=result_path)
+
+    with patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.Items.get_item_by_id", AsyncMock(return_value=item)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.Items.update_obj_url", AsyncMock()) as update_obj_url, \
+         patch.object(ReconstructionManager, "_delete_minio_object", AsyncMock(return_value=True)) as delete_object:
+        result = asyncio.run(ReconstructionManager.delete_reconstruction_result("task-id"))
+
+    delete_object.assert_awaited_once_with(
+        result_path,
+        default_bucket="bfr-reconstruction-files",
+    )
+    update_obj_url.assert_awaited_once_with(session=session, item_id=1001, obj_url=None)
+    assert record.ply_url is None
+    assert result["task_id"] == "task-id"
+    assert result["item_id"] == 1001
+
+
+def test_delete_historical_task_model_keeps_current_item_binding():
+    session = AsyncMock()
+    historical_path = "bfr-reconstruction-files/results/1001/old-task/point_cloud.ply"
+    record = SimpleNamespace(
+        task_id="old-task",
+        item_id=1001,
+        ply_url=historical_path,
+        obj_url=None,
+        glb_url=None,
+    )
+    item = SimpleNamespace(
+        id=1001,
+        obj_url="bfr-reconstruction-files/results/1001/new-task/point_cloud.ply",
+    )
+
+    with patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.Items.get_item_by_id", AsyncMock(return_value=item)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.Items.update_obj_url", AsyncMock()) as update_obj_url, \
+         patch.object(ReconstructionManager, "_delete_minio_object", AsyncMock(return_value=True)):
+        asyncio.run(ReconstructionManager.delete_reconstruction_result("old-task"))
+
+    update_obj_url.assert_not_awaited()
 
 
 def test_reconstruction_business_error_is_wrapped_as_fail_response_with_http_200():
@@ -181,6 +240,140 @@ def test_reconstruction_business_error_is_wrapped_as_fail_response_with_http_200
 def test_page_to_limit_offset_converts_page_and_page_size():
     assert ReconstructionManager._page_to_limit_offset(page=1, page_size=10) == (10, 0)
     assert ReconstructionManager._page_to_limit_offset(page=3, page_size=10) == (10, 20)
+
+
+def test_serialize_task_record_marks_deleted_success_result():
+    record = SimpleNamespace(
+        task_id="task-id",
+        item_id=2023080809420000001,
+        task_type="video",
+        status=ReconstructionStatus.SUCCESS,
+        progress=100,
+        current_stage="完成",
+        scene_name="demo",
+        error_message=None,
+        ply_url=None,
+        glb_url=None,
+        total_frames=None,
+        filtered_frames=None,
+        colmap_points=None,
+        completed_at=datetime(2026, 7, 27, 10, 0, 0),
+        time_created=datetime(2026, 7, 27, 9, 0, 0),
+        time_updated=datetime(2026, 7, 27, 10, 0, 0),
+    )
+
+    result = ReconstructionManager._serialize_task_record(record)
+
+    assert result["is_ply_del"] is True
+
+
+def test_serialize_task_record_keeps_non_success_task_as_not_deleted():
+    record = SimpleNamespace(
+        task_id="task-id",
+        item_id=2023080809420000001,
+        task_type="video",
+        status=ReconstructionStatus.FAILED,
+        progress=80,
+        current_stage="失败",
+        scene_name="demo",
+        error_message="训练失败",
+        ply_url=None,
+        glb_url=None,
+        total_frames=None,
+        filtered_frames=None,
+        colmap_points=None,
+        completed_at=datetime(2026, 7, 27, 10, 0, 0),
+        time_created=datetime(2026, 7, 27, 9, 0, 0),
+        time_updated=datetime(2026, 7, 27, 10, 0, 0),
+    )
+
+    result = ReconstructionManager._serialize_task_record(record)
+
+    assert result["is_ply_del"] is False
+
+
+def test_get_task_item_detail_returns_the_requested_task_and_item_metadata():
+    session = AsyncMock()
+    record = SimpleNamespace(
+        task_id="task-id",
+        item_id=2023080809420000001,
+        task_type="video",
+        status=ReconstructionStatus.SUCCESS,
+        progress=100,
+        current_stage="完成",
+        scene_name="demo",
+        error_message=None,
+        ply_url=None,
+        glb_url=None,
+        total_frames=80,
+        filtered_frames=60,
+        colmap_points=1200,
+        completed_at=datetime(2026, 7, 27, 10, 0, 0),
+        time_created=datetime(2026, 7, 27, 9, 0, 0),
+        time_updated=datetime(2026, 7, 27, 10, 0, 0),
+    )
+    item = SimpleNamespace(
+        id=2023080809420000001,
+        item_name="配件A",
+        item_code="40001082506",
+        height=10,
+        long=20,
+        width=30,
+        weight=40,
+        source_video_path="bfr-3d-videos/raw-videos/demo.mp4",
+        size_str="10x20x30",
+        parent_item_id=0,
+        time_created=datetime(2026, 7, 1, 9, 0, 0),
+        time_updated=datetime(2026, 7, 27, 8, 0, 0),
+    )
+
+    with patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.Items.get_item_by_id", AsyncMock(return_value=item)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.reconstruction_server_env_configured", return_value=True), \
+         patch.object(ReconstructionManager, "_get_reconstruction_client") as client_mock:
+        result = asyncio.run(ReconstructionManager.get_task_item_detail("task-id"))
+
+    client_mock.assert_not_called()
+    assert result["task_id"] == "task-id"
+    assert result["item_id"] == item.id
+    assert result["item_name"] == "配件A"
+    assert result["item_code"] == "40001082506"
+    assert result["is_ply_del"] is True
+
+
+def test_get_task_status_does_not_restore_a_deleted_task_result_from_remote():
+    session = AsyncMock()
+    record = SimpleNamespace(
+        task_id="task-id",
+        item_id=1001,
+        status=ReconstructionStatus.SUCCESS,
+        progress=100,
+        current_stage="完成",
+        error_message=None,
+        ply_url=None,
+        obj_url=None,
+        glb_url=None,
+        total_frames=None,
+        filtered_frames=None,
+        colmap_points=None,
+        completed_at=datetime(2026, 7, 27, 10, 0, 0),
+        elapsed_sec=600,
+        time_created=datetime(2026, 7, 27, 9, 50, 0),
+        time_updated=datetime(2026, 7, 27, 10, 0, 0),
+    )
+
+    with patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.reconstruction_server_env_configured", return_value=True), \
+         patch.object(ReconstructionManager, "_get_reconstruction_client") as client_mock, \
+         patch.object(ReconstructionManager, "_persist_success_result", AsyncMock()) as persist_result:
+        result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
+
+    client_mock.assert_not_called()
+    persist_result.assert_not_awaited()
+    assert result["ply_url"] is None
+    assert result["is_ply_del"] is True
 
 
 def test_build_video_run_name_uses_timestamp_and_item_name():

@@ -268,8 +268,9 @@ class ReconstructionVideoUploadMinioHealthRes(BaseModel):
 
 
 class ReconstructionResultMessageRes(BaseModel):
+    task_id: str = Field(..., description='重构任务ID')
     item_id: str = Field(..., description='配件ID，字符串返回以避免前端精度丢失')
-    result_path: Optional[str] = Field(None, description='被删除或清理的当前重构结果路径')
+    result_path: Optional[str] = Field(None, description='被删除或清理的任务重构结果路径')
     message: str = Field(..., description='消息')
 
     @validator("item_id", pre=True, allow_reuse=True)
@@ -300,6 +301,7 @@ class ReconstructionStatusRes(BaseModel):
     error_message: Optional[str] = Field(None, description='错误信息')
     ply_url: Optional[str] = Field(None, description='PLY文件URL')
     glb_url: Optional[str] = Field(None, description='GLB文件URL')
+    is_ply_del: bool = Field(False, description='该任务生成的三维模型是否已删除')
     total_frames: Optional[int] = Field(None, description='总帧数')
     filtered_frames: Optional[int] = Field(None, description='筛选后帧数')
     colmap_points: Optional[int] = Field(None, description='COLMAP点数')
@@ -343,6 +345,7 @@ class ReconstructionTaskListItem(BaseModel):
     error_message: Optional[str] = Field(None, description='错误信息')
     ply_url: Optional[str] = Field(None, description='PLY文件URL')
     glb_url: Optional[str] = Field(None, description='GLB文件URL')
+    is_ply_del: bool = Field(False, description='该任务生成的三维模型是否已删除')
     total_frames: Optional[int] = Field(None, description='总帧数')
     filtered_frames: Optional[int] = Field(None, description='筛选后帧数')
     colmap_points: Optional[int] = Field(None, description='COLMAP点数')
@@ -351,6 +354,31 @@ class ReconstructionTaskListItem(BaseModel):
 
     @validator("item_id", pre=True, allow_reuse=True)
     def normalize_item_id(cls, value):
+        return str(value)
+
+
+class ReconstructionTaskItemDetailReq(BaseModel):
+    task_id: str = Field(..., description='重构任务ID')
+
+
+class ReconstructionTaskItemDetailRes(ReconstructionTaskListItem):
+    item_code: Optional[str] = Field(None, description='配件编码')
+    height: Optional[float] = Field(None, description='高度')
+    length: Optional[float] = Field(None, description='长度')
+    width: Optional[float] = Field(None, description='宽度')
+    weight: Optional[float] = Field(None, description='重量')
+    video_path: Optional[str] = Field(None, description='原始视频路径')
+    size_str: Optional[str] = Field(None, description='尺寸描述')
+    parent_item_id: Optional[str] = Field(None, description='父配件ID')
+    parent_item_name: Optional[str] = Field(None, description='父配件名称')
+    parent_item_code: Optional[str] = Field(None, description='父配件编码')
+    created_at: Optional[str] = Field(None, description='配件创建时间')
+    updated_at: Optional[str] = Field(None, description='配件更新时间')
+
+    @validator("parent_item_id", pre=True, allow_reuse=True)
+    def normalize_parent_item_id(cls, value):
+        if value is None:
+            return None
         return str(value)
 
 

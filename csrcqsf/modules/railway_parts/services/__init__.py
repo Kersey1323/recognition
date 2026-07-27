@@ -9,6 +9,7 @@ __all__ = [
     "parts_search_service",
     "reconstruction_service",
     "reconstruction_result_service",
+    "reconstruction_task_detail_service",
     "reconstruction_task_service",
     "reconstruction_video_service",
     "review_ticket_service",

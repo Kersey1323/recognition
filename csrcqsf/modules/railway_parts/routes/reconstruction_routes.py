@@ -15,6 +15,8 @@ from csrcqsf.modules.railway_parts.schemas.reconstruction import (
     ReconstructionStatisticsReq,
     ReconstructionStatisticsRes,
     ReconstructionStatusRes,
+    ReconstructionTaskItemDetailReq,
+    ReconstructionTaskItemDetailRes,
     ReconstructionTaskRes,
     ReconstructionTrainReq,
     ReconstructionVideoReq,
@@ -253,18 +255,18 @@ async def get_reconstruct_v2_status(task_id: str):
     return ReconstructionStatusRes(**result)
 
 
-@parts_router.delete('/v2/reconstruct/result/{item_id}', tags=["算法-3D重建V2"], summary='V2: 删除配件当前三维重构结果')
-async def delete_reconstruct_v2_result(item_id: str):
+@parts_router.delete('/v2/reconstruct/result/{task_id}', tags=["算法-3D重建V2"], summary='V2: 删除指定重构任务的三维模型')
+async def delete_reconstruct_v2_result(task_id: str):
     """
-    删除指定配件当前绑定的三维重构结果。
+    删除指定重构任务生成的三维模型。
 
     行为：
-    - 删除当前 `item_info.obj_url` 指向的 MinIO 重构结果对象
-    - 清空 `item_info.obj_url`
-    - 只清空匹配当前 URL 的重构记录结果字段
-    - 保留任务历史和本地 `output_path`
+    - 按 `task_id` 删除该任务的 MinIO 模型对象
+    - 清空该任务的 `ply_url/obj_url/glb_url`，保留任务历史和 `output_path`
+    - 只有 `item_info.obj_url` 指向该任务模型时才清空配件当前绑定
+    - 删除历史任务模型不会影响配件当前绑定的其他模型
     """
-    result = await ReconstructionManager.delete_reconstruction_result(int(item_id))
+    result = await ReconstructionManager.delete_reconstruction_result(task_id)
     return ReconstructionResultMessageRes(**result)
 
 
@@ -320,6 +322,13 @@ async def list_all_reconstruct_tasks(req: ReconstructionAllTasksReq):
         page_size=req.per_page,
     )
     return ReconstructionAllTasksRes(**result)
+
+
+@parts_router.post('/v2/reconstruct/tasks/get_item_details', tags=["算法-3D重建V2"], summary='V2: 获取重建任务详情')
+async def get_reconstruct_v2_task_item_details(req: ReconstructionTaskItemDetailReq):
+    """按任务ID返回对应重建结果和配件信息，避免同一配件的多次重建结果互相覆盖。"""
+    result = await ReconstructionManager.get_task_item_detail(req.task_id)
+    return ReconstructionTaskItemDetailRes(**result)
 
 
 @parts_router.post('/v2/reconstruct/statistics', tags=["算法-3D重建V2"], summary='V2: 三维重构统计')

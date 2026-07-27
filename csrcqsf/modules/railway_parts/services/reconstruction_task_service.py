@@ -8,7 +8,7 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
-from csrcqsf.modules.railway_parts.services import reconstruction_result_service
+from csrcqsf.modules.railway_parts.services import reconstruction_result_service, reconstruction_task_detail_service
 
 # These names are injected by bind_runtime_dependencies() at import-install time.
 # Keep module-level placeholders so IDEs and static analyzers can resolve them.
@@ -329,7 +329,6 @@ async def _apply_remote_status_to_record(cls, *, session, record, remote_status:
         elapsed_sec=elapsed_sec,
     )
     return True
-
 async def _get_item_name_map(cls, session, item_ids: list[int]) -> dict[int, str]:
     item_name_map: dict[int, str] = {}
     if not item_ids:
@@ -339,31 +338,34 @@ async def _get_item_name_map(cls, session, item_ids: list[int]) -> dict[int, str
         item_name_map[item.id] = item.item_name
     return item_name_map
 
+
 def _serialize_task_record(
     cls,
     record: ReconstructionRecordType,
     item_name_map: dict[int, str] | None = None,
 ) -> dict:
     response_snapshot = cls._build_terminal_snapshot_from_record(record)
+    effective_status = (response_snapshot or {}).get("status", record.status)
     return {
         "task_id": record.task_id,
         "item_id": record.item_id,
         "item_name": (item_name_map or {}).get(record.item_id),
         "task_type": getattr(record, "task_type", None),
-        "status": (response_snapshot or {}).get("status", record.status),
+        "status": effective_status,
         "progress": (response_snapshot or {}).get("progress", record.progress),
         "current_stage": (response_snapshot or {}).get("current_stage", record.current_stage),
         "scene_name": getattr(record, "scene_name", None),
         "error_message": (response_snapshot or {}).get("error_message", record.error_message),
         "ply_url": cls._public_asset_url(record.ply_url),
         "glb_url": cls._public_asset_url(record.glb_url),
+        "is_ply_del": reconstruction_task_detail_service.is_task_result_deleted(
+            record, effective_status, ReconstructionStatus.SUCCESS),
         "total_frames": record.total_frames,
         "filtered_frames": record.filtered_frames,
         "colmap_points": record.colmap_points,
         "time_created": record.time_created.isoformat() if record.time_created else None,
         "time_updated": cls._response_time_updated(record),
     }
-
 async def statistics(cls) -> dict:
     async with SessionLocal() as session:
         summary = await ReconstructionRecord.summarize_tasks(session)
@@ -649,7 +651,8 @@ async def get_task_status(cls, task_id: str) -> dict:
         if not record:
             raise ReconstructionBusinessError(f"重构任务不存在: task_id={task_id}")
 
-        if reconstruction_server_env_configured():
+        result_deleted = reconstruction_task_detail_service.is_task_result_deleted(record, record.status, ReconstructionStatus.SUCCESS)
+        if reconstruction_server_env_configured() and not result_deleted:
             remote_status = None
             try:
                 remote_status = await cls._get_reconstruction_client().get_task_status(task_id)
@@ -666,7 +669,6 @@ async def get_task_status(cls, task_id: str) -> dict:
                     await session.commit()
 
         response_snapshot = cls._build_terminal_snapshot_from_record(record)
-        
         # 返回完整信息
         return {
             "task_id": task_id,
@@ -677,13 +679,13 @@ async def get_task_status(cls, task_id: str) -> dict:
             "error_message": (response_snapshot or {}).get("error_message", record.error_message),
             "ply_url": cls._public_asset_url(record.ply_url),
             "glb_url": cls._public_asset_url(record.glb_url),
+            "is_ply_del": result_deleted,
             "total_frames": record.total_frames,
             "filtered_frames": record.filtered_frames,
             "colmap_points": record.colmap_points,
             "time_created": record.time_created.isoformat() if record.time_created else None,
             "time_updated": cls._response_time_updated(record),
         }
-
 async def upload_reconstruction_result(cls, item_id: int, file, runtime=None) -> dict:
     return await reconstruction_result_service.upload_reconstruction_result(
         cls,
@@ -692,10 +694,10 @@ async def upload_reconstruction_result(cls, item_id: int, file, runtime=None) ->
         runtime=runtime or _runtime_context(),
     )
 
-async def delete_reconstruction_result(cls, item_id: int, runtime=None) -> dict:
+async def delete_reconstruction_result(cls, task_id: str, runtime=None) -> dict:
     return await reconstruction_result_service.delete_reconstruction_result(
         cls,
-        item_id=item_id,
+        task_id=task_id,
         runtime=runtime or _runtime_context(),
     )
 

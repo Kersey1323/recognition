@@ -8,6 +8,7 @@ def test_reconstruction_routes_use_post_list_endpoints():
 
     assert "@parts_router.post('/v2/reconstruct/video/list'" in text
     assert "@parts_router.post('/v2/reconstruct/tasks/list'" in text
+    assert "@parts_router.post('/v2/reconstruct/tasks/get_item_details'" in text
     assert "@parts_router.get('/v2/reconstruct/video'," not in text
     assert "@parts_router.get('/v2/reconstruct/tasks'," not in text
 
@@ -18,7 +19,7 @@ def test_reconstruction_routes_include_manual_result_upload():
     ).read_text(encoding="utf-8")
 
     assert "@parts_router.post('/v2/reconstruct/result/{item_id}'" in text
-    assert "@parts_router.delete('/v2/reconstruct/result/{item_id}'" in text
+    assert "@parts_router.delete('/v2/reconstruct/result/{task_id}'" in text
 
 
 def test_reconstruction_routes_include_statistics_endpoint():

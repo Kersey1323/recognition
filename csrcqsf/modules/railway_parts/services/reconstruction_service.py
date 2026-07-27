@@ -35,6 +35,7 @@ from csrcqsf.models.orm.item import Items
 from csrcqsf.models.orm.reconstruction_upload import ReconstructionVideoUploadSession
 from csrcqsf.modules.railway_parts.services import reconstruction_video_service
 from csrcqsf.modules.railway_parts.services import reconstruction_task_service
+from csrcqsf.modules.railway_parts.services import reconstruction_task_detail_service
 from csrcqsf.modules.railway_parts.utils.local_file_part_reader import LocalFilePartReader
 from csrcqsf.core.settings import (
     minio_env_configured,
@@ -161,6 +162,14 @@ class ReconstructionManager:
             raise ReconstructionBusinessError(f"配件不存在: item_id={item_id}")
 
         return item
+
+    @classmethod
+    async def get_task_item_detail(cls, task_id: str) -> dict:
+        return await reconstruction_task_detail_service.get_task_item_detail(
+            cls,
+            task_id=task_id,
+            runtime=sys.modules[__name__],
+        )
 
     @classmethod
     def _resolve_video_task_inputs(cls, item: Items) -> tuple[str, str]:

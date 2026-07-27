@@ -10,6 +10,8 @@ from csrcqsf.modules.railway_parts.schemas.reconstruction import (
     ReconstructionStatisticsRes,
     ReconstructionStatusRes,
     ReconstructionTrainReq,
+    ReconstructionTaskItemDetailReq,
+    ReconstructionTaskItemDetailRes,
     ReconstructionTaskListItem,
     ReconstructionTaskRes,
     ReconstructionVideoReq,
@@ -217,6 +219,7 @@ def test_reconstruction_list_response_serializes_nested_item_name():
                 "error_message": None,
                 "ply_url": "bfr-reconstruction-files/results/1935558010375340032/task-id/point_cloud.ply",
                 "glb_url": None,
+                "is_ply_del": True,
                 "total_frames": None,
                 "filtered_frames": None,
                 "colmap_points": None,
@@ -230,6 +233,7 @@ def test_reconstruction_list_response_serializes_nested_item_name():
 
     assert data["records"][0]["item_id"] == str(BIG_ITEM_ID)
     assert data["records"][0]["item_name"] == "配件A"
+    assert data["records"][0]["is_ply_del"] is True
 
 
 def test_reconstruction_statistics_response_serializes_summary_fields():
@@ -276,6 +280,7 @@ def test_reconstruction_task_list_item_serializes_item_id_as_string():
         colmap_points=None,
         time_created="2026-04-21T17:17:11.087360",
         time_updated="2026-04-21T09:19:35.576566",
+        is_ply_del=False,
     )
 
     data = dump_model(res)
@@ -284,7 +289,31 @@ def test_reconstruction_task_list_item_serializes_item_id_as_string():
     assert isinstance(data["item_id"], str)
     assert data["item_name"] == "配件A"
     assert data["ply_url"].endswith("point_cloud.ply")
+    assert data["is_ply_del"] is False
     assert "obj_url" not in data
+
+
+def test_reconstruction_task_item_detail_models_use_task_id_and_deleted_flag():
+    req = ReconstructionTaskItemDetailReq(task_id="task-id")
+    res = ReconstructionTaskItemDetailRes(
+        task_id=req.task_id,
+        item_id=BIG_ITEM_ID,
+        item_name="配件A",
+        item_code="40001082506",
+        task_type="video",
+        status="success",
+        progress=100,
+        current_stage="完成",
+        ply_url=None,
+        glb_url=None,
+        is_ply_del=True,
+    )
+
+    data = dump_model(res)
+
+    assert req.task_id == "task-id"
+    assert data["item_id"] == str(BIG_ITEM_ID)
+    assert data["is_ply_del"] is True
 
 
 def test_reconstruction_all_tasks_response_serializes_nested_item_id_as_string():
@@ -559,6 +588,7 @@ def test_reconstruction_result_message_response_serializes_item_id_as_string():
     from csrcqsf.modules.railway_parts.schemas.reconstruction import ReconstructionResultMessageRes
 
     res = ReconstructionResultMessageRes(
+        task_id="task-id",
         item_id=BIG_ITEM_ID,
         result_path="bfr-reconstruction-files/results/1935558010375340032/task-id/point_cloud.ply",
         message="三维重构结果删除成功",
@@ -566,6 +596,7 @@ def test_reconstruction_result_message_response_serializes_item_id_as_string():
 
     data = dump_model(res)
 
+    assert data["task_id"] == "task-id"
     assert data["item_id"] == str(BIG_ITEM_ID)
     assert isinstance(data["item_id"], str)
     assert data["result_path"] == "bfr-reconstruction-files/results/1935558010375340032/task-id/point_cloud.ply"
