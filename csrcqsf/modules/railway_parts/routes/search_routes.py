@@ -1,6 +1,6 @@
 """Routes for vector index, search, and search history."""
 
-from fastapi import BackgroundTasks, File, Form, UploadFile
+from fastapi import File, Form, HTTPException, UploadFile
 from anyio.to_thread import run_sync
 
 from csrcqsf.modules.railway_parts.schemas.search import (
@@ -20,6 +20,10 @@ from csrcqsf.modules.railway_parts.schemas.search import (
 )
 from csrcqsf.modules.railway_parts.schemas.reconstruction import (
     ReconstructionIndexRebuildRes,
+    ReconstructionIndexRebuildStatusRes,
+)
+from csrcqsf.modules.railway_parts.services.index_rebuild_task_manager import (
+    index_rebuild_task_manager,
 )
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
 from csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager import (
@@ -79,7 +83,6 @@ async def rebuild_v2_index(
     item_id: str = None,
     limit: int = None,
     rebuild_existing: bool = False,
-    background_tasks: BackgroundTasks = None
 ):
     """
     重建V2向量索引 (SigLIP + DINOv2)
@@ -87,50 +90,44 @@ async def rebuild_v2_index(
     参数：
     - item_id: 指定配件ID（可选，为空则重建所有）
     - limit: 限制处理数量（可选，用于测试，如 limit=10 只处理10条数据）
-    - background_tasks: 后台任务（自动传入）
-
     注意：
-    - 如果 limit > 100 或未指定 limit，将在后台执行
-    - 小批量任务（limit <= 100）会同步执行并返回结果
+    - 所有索引任务都在当前服务进程内异步执行
+    - 提交后使用返回的 task_id 查询进度和预计剩余时间
     """
     ensure_vector_models_enabled()
     int_item_id = int(item_id) if item_id not in (None, "") else None
 
-    # 单配件重建默认同步返回最终统计；仅全量/大批量任务走后台
-    should_background = int_item_id is None and (limit is None or limit > 100) and background_tasks is not None
+    # 单配件、小批量和全量索引使用同一任务生命周期，避免前端维护两套交互。
+    try:
+        task = index_rebuild_task_manager.start(
+            runner=RailwayPartsManager.rebuild_v2_index,
+            item_id=int_item_id,
+            limit=limit,
+            rebuild_existing=rebuild_existing,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ReconstructionIndexRebuildRes(
+        message='索引重建任务已在后台启动',
+        task_id=task["task_id"],
+        status=task["status"],
+        item_id=int_item_id,
+        limit=limit or 'all',
+        rebuild_existing=rebuild_existing,
+    )
 
-    if should_background:
-        # 大批量任务放到后台执行
-        background_tasks.add_task(
-            RailwayPartsManager.rebuild_v2_index,
-            item_id=int_item_id,
-            limit=limit,
-            rebuild_existing=rebuild_existing,
-        )
-        return ReconstructionIndexRebuildRes(
-            message='Index rebuild task started in background',
-            item_id=item_id,
-            limit=limit or 'all',
-            rebuild_existing=rebuild_existing,
-        )
-    else:
-        # 小批量任务直接执行
-        result = await RailwayPartsManager.rebuild_v2_index(
-            item_id=int_item_id,
-            limit=limit,
-            rebuild_existing=rebuild_existing,
-        )
-        return ReconstructionIndexRebuildRes(
-            message=f'索引重建完成: 成功={result["success_count"]}, 失败={result["fail_count"]}',
-            item_id=item_id,
-            limit=limit or 'all',
-            rebuild_existing=rebuild_existing,
-            success_count=result["success_count"],
-            fail_count=result["fail_count"],
-            total=result["total"],
-            processed_item_count=result["processed_item_count"],
-            skipped_existing_count=result["skipped_existing_count"],
-        )
+
+@parts_router.get(
+    '/v2/index/rebuild/status/{task_id}',
+    tags=["算法-向量检索V2"],
+    summary='查询V2索引重建进度',
+)
+async def get_v2_index_rebuild_status(task_id: str):
+    """查询当前服务进程内的索引任务进度和预计剩余时间。"""
+    task = index_rebuild_task_manager.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"索引重建任务不存在: task_id={task_id}")
+    return ReconstructionIndexRebuildStatusRes(**task)
 
 
 @parts_router.delete('/v2/index/{item_id}', tags=["算法-向量检索V2"], summary='删除指定配件的V2索引', responses={

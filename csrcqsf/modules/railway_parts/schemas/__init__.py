@@ -30,6 +30,7 @@ from .parts import (
 )
 from .reconstruction import (
     ReconstructionIndexRebuildRes,
+    ReconstructionIndexRebuildStatusRes,
     ReconstructionResultMessageRes,
     ReconstructionResultUploadRes,
     ReconstructionSourceVideoListReq,
@@ -107,6 +108,7 @@ __all__ = [
     "ListItemReq",
     "ListSegmentedImagesRes",
     "ReconstructionIndexRebuildRes",
+    "ReconstructionIndexRebuildStatusRes",
     "ReconstructionResultMessageRes",
     "ReconstructionResultUploadRes",
     "ReconstructionSourceVideoListReq",

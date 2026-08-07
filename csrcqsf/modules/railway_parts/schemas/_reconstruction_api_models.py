@@ -36,14 +36,14 @@ class ReconstructionTrainReq(BaseModel):
 
 class ReconstructionVideoReq(BaseModel):
     item_id: str = Field(..., description='配件ID，建议按字符串传递以避免前端精度丢失')
-    iterations: int = Field(default=30000, description='训练迭代次数')
+    iterations: int = Field(default=10000, description='训练迭代次数')
     fps: float = Field(default=3, description='提帧率')
     image_size: int = Field(default=1600, description='图片最大边长')
     blur_threshold: float = Field(default=0, description='模糊阈值，0=自适应')
     dedup_threshold: int = Field(default=25, description='去重汉明距离')
     min_frames: int = Field(default=30, description='最小帧数')
     max_frames: int = Field(default=150, description='最大帧数，0=不限制')
-    mask_dilate: int = Field(default=15, description='Mask膨胀像素')
+    mask_dilate: int = Field(default=7, description='Mask膨胀像素')
     fill_interior_holes: bool = Field(default=False, description='是否填充 Mask 内部孔洞')
     camera: str = Field(default="OPENCV", description='相机模型')
     colmap_gpu: bool = Field(default=False, description='是否启用 COLMAP GPU，默认使用 CPU')
@@ -395,6 +395,8 @@ class ReconstructionAllTasksRes(BaseModel):
 
 class ReconstructionIndexRebuildRes(BaseModel):
     message: str = Field(..., description='消息')
+    task_id: Optional[str] = Field(None, description='后台索引任务ID')
+    status: Optional[str] = Field(None, description='后台任务状态')
     item_id: Optional[str] = Field(None, description='配件ID，字符串返回以避免前端精度丢失')
     limit: Optional[str | int] = Field(None, description='处理数量限制')
     rebuild_existing: bool = Field(False, description='是否重建已存在的索引')
@@ -409,3 +411,19 @@ class ReconstructionIndexRebuildRes(BaseModel):
         if value is None:
             return None
         return str(value)
+
+
+class ReconstructionIndexRebuildStatusRes(BaseModel):
+    task_id: str = Field(..., description='后台索引任务ID')
+    status: str = Field(..., description='任务状态：pending/running/success/failed/cancelled')
+    progress: int = Field(..., ge=0, le=100, description='按配件数量计算的完成百分比')
+    total_items: int = Field(..., description='本次选中的配件总数')
+    processed_items: int = Field(..., description='已处理的配件数')
+    success_count: int = Field(..., description='成功建立索引的图片数量')
+    fail_count: int = Field(..., description='失败的图片数量')
+    current_item_id: Optional[str] = Field(None, description='当前正在处理的配件ID')
+    estimated_remaining_seconds: Optional[int] = Field(None, description='预计剩余秒数')
+    estimated_remaining: Optional[str] = Field(None, description='预计剩余时间展示文本')
+    error_message: Optional[str] = Field(None, description='任务失败原因')
+    time_created: Optional[str] = Field(None, description='任务创建时间')
+    time_updated: Optional[str] = Field(None, description='状态更新时间')

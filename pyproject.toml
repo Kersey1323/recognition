@@ -28,6 +28,7 @@ dependencies = [
     "urllib3>=2.6.0",
     "uvicorn==0.34.0",
     "xlsxwriter>=3.2.9",
+    "tqdm>=4.70.0",
 ]
 
 [dependency-groups]

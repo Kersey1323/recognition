@@ -27,6 +27,7 @@ suggest_items = parts_routes.suggest_items
 drop_v2_collections = search_routes.drop_v2_collections
 init_v2_collections = search_routes.init_v2_collections
 rebuild_v2_index = search_routes.rebuild_v2_index
+get_v2_index_rebuild_status = search_routes.get_v2_index_rebuild_status
 delete_v2_index = search_routes.delete_v2_index
 search_v2_by_text = search_routes.search_v2_by_text
 search_v2_by_image = search_routes.search_v2_by_image
@@ -97,6 +98,7 @@ __all__ = [
     "drop_v2_collections",
     "init_v2_collections",
     "rebuild_v2_index",
+    "get_v2_index_rebuild_status",
     "delete_v2_index",
     "search_v2_by_text",
     "search_v2_by_image",

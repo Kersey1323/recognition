@@ -693,6 +693,7 @@ class RailwayPartsManager:
         item_id: int = None,
         limit: int = None,
         rebuild_existing: bool = False,
+        progress_callback=None,
     ):
         _bind_parts_index_runtime()
         return await parts_index_service.rebuild_v2_index(
@@ -700,6 +701,7 @@ class RailwayPartsManager:
             item_id=item_id,
             limit=limit,
             rebuild_existing=rebuild_existing,
+            progress_callback=progress_callback,
             runtime=_runtime_context(),
         )
 

@@ -234,6 +234,41 @@ def test_rebuild_v2_index_bulk_mode_filters_existing_indexes_by_default():
     sync_mock.assert_awaited_once_with(101, state_manager=fake_state_manager)
 
 
+def test_rebuild_v2_index_reports_tqdm_progress_and_eta():
+    parts_module = _import_railway_parts_manager()
+
+    session = AsyncMock()
+    fake_items = [
+        SimpleNamespace(id=101, item_name="橡胶套", item_code="A", has_v2_index=0),
+        SimpleNamespace(id=102, item_name="固定座", item_code="B", has_v2_index=0),
+    ]
+    fake_image = SimpleNamespace(id=9001, image_url="bfr-ai-files/demo.jpg")
+    fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
+    progress_events = []
+
+    with patch.dict(sys.modules, {"cv2": _fake_cv2_module()}), \
+         patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(session, "scalars", AsyncMock(return_value=fake_items)), \
+         patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock(return_value=[fake_image])), \
+         patch.object(parts_module.RailwayPartsManager, "get_image_from_oss", AsyncMock(return_value=fake_image_array)), \
+         patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()), \
+         patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
+         patch.object(parts_module, "MilvusStateManagerV2", return_value=MagicMock()):
+        manager_cls.return_value.index_image = AsyncMock(return_value=(True, True))
+        manager_cls.return_value.last_preprocess_outcome = None
+        asyncio.run(
+            parts_module.RailwayPartsManager.rebuild_v2_index(
+                limit=2,
+                progress_callback=progress_events.append,
+            )
+        )
+
+    assert progress_events[0]["total_items"] == 2
+    assert progress_events[-1]["processed_items"] == 2
+    assert progress_events[-1]["progress"] == 100
+    assert progress_events[-1]["estimated_remaining_seconds"] == 0
+
+
 def test_rebuild_v2_index_single_item_skips_existing_when_not_forcing_rebuild():
     parts_module = _import_railway_parts_manager()
 

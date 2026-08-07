@@ -556,17 +556,17 @@ async def create_item_image_files(cls, item_id: int, files: list, runtime=None) 
 
 async def get_image_from_oss(cls, image_url: str, runtime=None):
     runtime = runtime or _runtime()
-    _, minio_instance, _ = runtime._get_minio_helpers()
+    _, minio_instance, parse_minio_path = runtime._get_minio_helpers()
 
     def _load():
-        file_name_arr = image_url.split("/")
-        if len(file_name_arr) < 2:
-            raise Exception("文件名格式不正确")
-
-        aim_file_name = file_name_arr[1]
+        # CREATEBYSELF 图片位于 manual-upload 多级目录，读取时必须保留完整对象路径。
+        bucket, object_name = parse_minio_path(
+            image_url,
+            default_bucket=runtime.minio_bucket,
+        )
         response = None
         try:
-            response = minio_instance.client.get_object(runtime.minio_bucket, aim_file_name)
+            response = minio_instance.client.get_object(bucket, object_name)
             if response.status != 200:
                 raise Exception("oss请求出错")
 

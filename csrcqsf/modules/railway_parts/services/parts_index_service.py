@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, Callable, TypeAlias
 
 if TYPE_CHECKING:
     from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import (
@@ -150,6 +150,7 @@ async def rebuild_v2_index(
     item_id: int = None,
     limit: int = None,
     rebuild_existing: bool = False,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
     runtime=None,
 ):
     runtime = runtime or _runtime()
@@ -181,7 +182,52 @@ async def rebuild_v2_index(
 
         from tqdm import tqdm
 
-        for item in tqdm(items):
+        total_items = len(items)
+        progress_bar = tqdm(items)
+
+        def report_progress(
+            processed_items: int,
+            current_item_id: int | None,
+            estimated_remaining_seconds: int | None,
+        ) -> None:
+            if progress_callback is None:
+                return
+            progress = int(processed_items * 100 / total_items) if total_items else 100
+            # 索引进度按配件统计；图片成功/失败数展示当前实际处理结果。
+            progress_callback(
+                {
+                    "progress": progress,
+                    "total_items": total_items,
+                    "processed_items": processed_items,
+                    "success_count": success_count,
+                    "fail_count": fail_count,
+                    "current_item_id": current_item_id,
+                    "estimated_remaining_seconds": estimated_remaining_seconds,
+                }
+            )
+
+        report_progress(0, None, None)
+        for position, item in enumerate(progress_bar, start=1):
+            processed_for_progress = position - 1
+            elapsed = float(progress_bar.format_dict.get("elapsed") or 0)
+            rate = progress_bar.format_dict.get("rate")
+            estimated_remaining_seconds = None
+            if rate is not None and rate > 0:
+                estimated_remaining_seconds = max(
+                    0,
+                    round((total_items - processed_for_progress) / rate),
+                )
+            elif processed_for_progress > 0:
+                average_seconds = elapsed / processed_for_progress
+                estimated_remaining_seconds = max(
+                    0,
+                    round(average_seconds * (total_items - processed_for_progress)),
+                )
+            report_progress(
+                processed_for_progress,
+                item.id if item is not None else None,
+                estimated_remaining_seconds,
+            )
             if item is None:
                 continue
             if not rebuild_existing and getattr(item, "has_v2_index", 0) == 1:
@@ -321,6 +367,7 @@ async def rebuild_v2_index(
             if item_success_count > 0 or deleted_existing:
                 await cls.sync_item_v2_index_state(item.id, state_manager=state_manager)
 
+        report_progress(total_items, None, 0)
         runtime.logger.info(f"V2 索引重建完成: 成功={success_count}, 失败={fail_count}")
         return {
             "success_count": success_count,
