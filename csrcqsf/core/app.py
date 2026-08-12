@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from globals_vars import logger
 from csrcqsf.core.runtime import ensure_segment_model_enabled, segment_model_enabled
+from csrcqsf.core.startup_logging import run_startup_step
 from csrcqsf.modules.doc_parse.routes import parts_docs_router
 from csrcqsf.modules.image.routes import image_router
 from csrcqsf.modules.image.schemas import SimpleSegmentReq, SimpleSegmentRes
@@ -28,10 +29,14 @@ from csrcqsf.infra.storage.minio import create_minio_buckets
 from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.core.scheduler import register_main_async_loop
 from csrcqsf.core.settings import (
+    ai_settings,
     main_db_env_configured,
+    main_db_database,
     milvus_env_configured,
+    minio_endpoint,
     minio_env_configured,
     reconstruction_server_env_configured,
+    sgo_mysql_database,
     sgo_env_configured,
 )
 
@@ -63,12 +68,25 @@ async def lifespan(app: FastAPI):
     register_main_async_loop(asyncio.get_running_loop())
 
     if main_db_env_configured():
-        await db_migrate()  # 数据库迁移
+        await run_startup_step(
+            "主业务数据库迁移",
+            db_migrate,
+            logger=logger,
+            details=(
+                f"host={ai_settings.mysql.url}, port={ai_settings.mysql.port}, "
+                f"database={main_db_database}"
+            ),
+        )
     else:
         logger.warning("未显式配置主业务库环境变量，跳过数据库迁移初始化")
 
     if minio_env_configured():
-        await create_minio_buckets()  # 初始化对象存储 bucket
+        await run_startup_step(
+            "MinIO Bucket 初始化",
+            create_minio_buckets,
+            logger=logger,
+            details=f"endpoint={minio_endpoint}",
+        )
     else:
         logger.warning("未显式配置 MinIO 环境变量，跳过 MinIO bucket 初始化")
 
@@ -85,11 +103,24 @@ async def lifespan(app: FastAPI):
         logger.warning("重构服务未配置时将禁用三维重构能力，请显式设置 RECONSTRUCTION_SERVER_URL")
 
     if segment_model_enabled():
-        await SegmentBiz.init()
+        await run_startup_step(
+            "图像分割能力初始化",
+            SegmentBiz.init,
+            logger=logger,
+        )
     if sgo_env_configured():
-        SGOBiz.init()
+        await run_startup_step(
+            "SGO 定时同步初始化",
+            SGOBiz.init,
+            logger=logger,
+            details=(
+                f"host={ai_settings.sgo_mysql_url}, port={ai_settings.sgo_mysql_port}, "
+                f"database={sgo_mysql_database}"
+            ),
+        )
     RunVar("_default_thread_limiter").set(CapacityLimiter(200))  # 线程池限制
     logger.info("模型推理已迁移至独立服务（MODEL_SERVICE_URL），本地不再加载模型")
+    logger.info("应用启动初始化全部完成")
     yield
 
 
