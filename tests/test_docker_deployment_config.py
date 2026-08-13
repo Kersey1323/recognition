@@ -147,6 +147,14 @@ def test_env_templates_do_not_expose_removed_legacy_vars():
         assert "CELERY_TASK_SOFT_TIME_LIMIT" not in values
 
 
+def test_asset_proxy_auth_switch_has_safe_template_default():
+    example_values = _parse_env_file(Path(".env.example"))
+    deployment_values = _parse_env_file(Path(".env.deployment"))
+
+    assert example_values["ASSET_PROXY_SKIP_AUTH"] == "false"
+    assert deployment_values["ASSET_PROXY_SKIP_AUTH"] == "true"
+
+
 def test_vector_env_config_no_longer_reads_pg_or_model_dir_contract():
     text = Path(
         "csrcqsf/modules/railway_parts/vector_search/config/env_config.py"

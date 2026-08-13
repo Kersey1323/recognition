@@ -2,7 +2,7 @@
 .gitignore
 .pytest_cache/
 .ruff_cache/
-.venv/
+.venv*/
 .vscode/
 __pycache__/
 *.pyc
@@ -37,3 +37,7 @@ test/test_images/
 docker/recognition-cpu.tar
 docker/*.tar
 *.tar
+*.tar.gz
+*.tgz
+*.zip
+*.rar

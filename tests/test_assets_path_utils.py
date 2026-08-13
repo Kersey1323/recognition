@@ -1,5 +1,6 @@
 from csrcqsf.modules.railway_parts.utils.assets import (
     asset_url_from_internal_path,
+    build_internal_accel_redirect,
     parse_public_asset_url,
 )
 
@@ -53,3 +54,10 @@ def test_parse_public_asset_url_recovers_bucket_and_object_name():
         "bfr-reconstruction-files",
         "results/1001/demo.ply",
     )
+
+
+def test_internal_accel_redirect_encodes_non_ascii_object_name():
+    assert build_internal_accel_redirect(
+        "bfr-ai-files",
+        "manual-upload/金鱼 01.png",
+    ) == "/recognition_oss/bfr-ai-files/manual-upload/%E9%87%91%E9%B1%BC%2001.png"

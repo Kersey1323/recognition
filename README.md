@@ -219,14 +219,14 @@ PYTHONPATH=. .venv/bin/pytest tests/ -q
 - 请求主业务返回的 `bucket/object` 路径
 - 自动预览图片/视频，或生成下载链接
 
-本地如果没有真实 `U-Token`，可仅用于联调时启用：
+如果鉴权服务尚未接通，可仅在隔离的联调环境中配置：
 
-```bash
-export ASSET_PROXY_SKIP_AUTH=true
-python main.py
+```env
+ASSET_PROXY_SKIP_AUTH=true
 ```
 
-这会让下载代理跳过 `U-Token` 校验，只建议本机调试使用。
+这会让下载代理跳过 `U-Token` 校验。鉴权服务接通后必须改回
+`ASSET_PROXY_SKIP_AUTH=false`，并配置 `BASIS_API_HTTP_URL`。该开关只读取服务端环境变量，客户端不能通过请求头绕过鉴权。
 
 如果本机没有安装 Nginx，可直接使用 Docker 启动一个本地代理容器：
 

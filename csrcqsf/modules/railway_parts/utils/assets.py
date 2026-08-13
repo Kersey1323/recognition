@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 from csrcqsf.core.settings import (
     minio_bucket,
@@ -72,4 +72,6 @@ def is_supported_public_asset_url(path: str | None) -> bool:
 
 def build_internal_accel_redirect(bucket: str, object_name: str) -> str:
     normalized_object_name = str(object_name or "").lstrip("/")
-    return f"{INTERNAL_ACCEL_REDIRECT_PREFIX}/{bucket}/{normalized_object_name}"
+    # 响应头只能安全承载 ASCII；保留对象目录层级并编码中文文件名等字符。
+    encoded_object_name = quote(normalized_object_name, safe="/!$&'()*+,;=:@-._~")
+    return f"{INTERNAL_ACCEL_REDIRECT_PREFIX}/{bucket}/{encoded_object_name}"

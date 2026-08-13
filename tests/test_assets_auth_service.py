@@ -1,6 +1,7 @@
 from csrcqsf.modules.railway_parts.services.assets_service import (
     AssetAuthError,
     authorize_asset_request,
+    should_skip_asset_proxy_auth,
 )
 
 
@@ -77,3 +78,11 @@ def test_authorize_asset_request_allows_skip_auth_in_local_debug_mode():
     )
     assert result["user_id"] == "local-debug"
     assert result["bucket"] == "bfr-reconstruction-files"
+
+
+def test_asset_proxy_skip_auth_is_controlled_by_server_environment(monkeypatch):
+    monkeypatch.setenv("ASSET_PROXY_SKIP_AUTH", "true")
+    assert should_skip_asset_proxy_auth() is True
+
+    monkeypatch.setenv("ASSET_PROXY_SKIP_AUTH", "false")
+    assert should_skip_asset_proxy_auth() is False

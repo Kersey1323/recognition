@@ -21,14 +21,13 @@ async def download_bucket_asset(
     asset_path: str,
     response: Response,
     u_token: str | None = Header(None, alias="U-Token"),
-    x_asset_proxy_skip_auth: str | None = Header(None, alias="X-Asset-Proxy-Skip-Auth"),
 ):
     try:
         headers = build_asset_download_headers(
             method="GET",
             path=f"/{bucket}/{asset_path}",
             u_token=u_token,
-            skip_auth=should_skip_asset_proxy_auth(x_asset_proxy_skip_auth),
+            skip_auth=should_skip_asset_proxy_auth(),
         )
     except AssetAuthError as exc:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
@@ -43,14 +42,12 @@ def _register_bucket_download_route(bucket: str) -> None:
         asset_path: str,
         response: Response,
         u_token: str | None = Header(None, alias="U-Token"),
-        x_asset_proxy_skip_auth: str | None = Header(None, alias="X-Asset-Proxy-Skip-Auth"),
     ):
         return await download_bucket_asset(
             bucket=bucket,
             asset_path=asset_path,
             response=response,
             u_token=u_token,
-            x_asset_proxy_skip_auth=x_asset_proxy_skip_auth,
         )
 
     endpoint.__name__ = f"download_asset_{bucket.replace('-', '_')}"

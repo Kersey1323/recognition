@@ -91,8 +91,7 @@ def build_asset_download_headers(
     }
 
 
-def should_skip_asset_proxy_auth(header_value: str | None = None) -> bool:
-    if str(header_value or "").strip().lower() in {"1", "true", "yes", "on"}:
-        return True
+def should_skip_asset_proxy_auth() -> bool:
+    # 文件免鉴权只能由服务部署配置开启，客户端请求不能改变访问控制策略。
     env_value = os.getenv("ASSET_PROXY_SKIP_AUTH", "")
     return env_value.strip().lower() in {"1", "true", "yes", "on"}
