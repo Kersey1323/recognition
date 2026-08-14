@@ -1,3 +1,4 @@
+http://192.168.100.36:8001/recognition_web/railway/parts-manage
 # 铁路配件智能识别系统
 https://github.com/Tencent-Hunyuan/Hunyuan3D-2
 基于 FastAPI 的铁路配件主业务服务，当前覆盖以下能力：

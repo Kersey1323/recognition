@@ -1,10 +1,8 @@
 from urllib.parse import quote_plus
-import urllib.parse
 import os
 
 from bfrcommon.settings import Settings
 from dotenv import load_dotenv
-import urllib
 
 _EXPLICIT_ENV_KEYS = frozenset(os.environ.keys())
 
@@ -89,12 +87,13 @@ def reconstruction_server_env_configured() -> bool:
 
 
 def sgo_env_configured() -> bool:
+    prefix = "SGO_KINGBASE" if sgo_database_type == "kingbase" else "SGO_MYSQL"
     return _all_explicit_env(
-        "SGO_MYSQL_HOST",
-        "SGO_MYSQL_PORT",
-        "SGO_MYSQL_USER",
-        "SGO_MYSQL_PASSWORD",
-        "SGO_MYSQL_DATABASE",
+        f"{prefix}_HOST",
+        f"{prefix}_PORT",
+        f"{prefix}_USER",
+        f"{prefix}_PASSWORD",
+        f"{prefix}_DATABASE",
     )
 
 
@@ -127,6 +126,22 @@ sgo_mysql_database = _first_explicit_then_non_empty_env(
     "SGO_MYSQL_DATABASE",
     default="mdpdb",
 )
+sgo_kingbase_database = _first_explicit_then_non_empty_env(
+    "SGO_KINGBASE_DATABASE",
+    default="mdpdb",
+)
+sgo_database_type = _first_explicit_then_non_empty_env(
+    "SGO_DATABASE_TYPE",
+    default="mysql",
+).lower()
+if sgo_database_type not in {"mysql", "kingbase"}:
+    raise ValueError(
+        "SGO_DATABASE_TYPE 仅支持 mysql 或 kingbase，"
+        f"当前值: {sgo_database_type}"
+    )
+sgo_database_name = (
+    sgo_kingbase_database if sgo_database_type == "kingbase" else sgo_mysql_database
+)
 
 
 class AISettings(Settings):
@@ -135,6 +150,10 @@ class AISettings(Settings):
     sgo_mysql_port: str = ""
     sgo_mysql_password: str = ""
     sgo_mysql_username: str = ""
+    sgo_kingbase_url: str = ""
+    sgo_kingbase_port: str = ""
+    sgo_kingbase_password: str = ""
+    sgo_kingbase_username: str = ""
     basis_api_grpc_url: str = "10.144.145.6:8701"
 
     @property
@@ -166,10 +185,29 @@ class AISettings(Settings):
         return self.get_async_mysql_dsn()
 
     def get_sgo_dsn(self):
+        if sgo_database_type == "kingbase":
+            return (
+                "kingbase+asyncpg://"
+                f"{self.sgo_kingbase_username}:{quote_plus(self.sgo_kingbase_password)}"
+                f"@{self.sgo_kingbase_url}:{self.sgo_kingbase_port}/"
+                f"{sgo_kingbase_database}"
+            )
         return (
-            f"mysql+asyncmy://{self.sgo_mysql_username}:{self.sgo_mysql_password}"
+            f"mysql+asyncmy://{self.sgo_mysql_username}:{quote_plus(self.sgo_mysql_password)}"
             f"@{self.sgo_mysql_url}:{self.sgo_mysql_port}/{sgo_mysql_database}"
         )
+
+    @property
+    def sgo_host(self) -> str:
+        if sgo_database_type == "kingbase":
+            return self.sgo_kingbase_url
+        return self.sgo_mysql_url
+
+    @property
+    def sgo_port(self) -> str:
+        if sgo_database_type == "kingbase":
+            return self.sgo_kingbase_port
+        return self.sgo_mysql_port
 
 
 def _apply_runtime_connection_overrides(settings: AISettings) -> None:
@@ -207,10 +245,26 @@ def _apply_runtime_connection_overrides(settings: AISettings) -> None:
         "SGO_MYSQL_USER",
         default=settings.sgo_mysql_username,
     )
-    settings.sgo_mysql_password = urllib.parse.quote_plus(_first_non_empty_env(
+    settings.sgo_mysql_password = _first_non_empty_env(
         "SGO_MYSQL_PASSWORD",
         default=settings.sgo_mysql_password,
-    ))
+    )
+    settings.sgo_kingbase_url = _first_non_empty_env(
+        "SGO_KINGBASE_HOST",
+        default=settings.sgo_kingbase_url,
+    )
+    settings.sgo_kingbase_port = _first_non_empty_env(
+        "SGO_KINGBASE_PORT",
+        default=settings.sgo_kingbase_port,
+    )
+    settings.sgo_kingbase_username = _first_non_empty_env(
+        "SGO_KINGBASE_USER",
+        default=settings.sgo_kingbase_username,
+    )
+    settings.sgo_kingbase_password = _first_non_empty_env(
+        "SGO_KINGBASE_PASSWORD",
+        default=settings.sgo_kingbase_password,
+    )
     settings.basis_api_grpc_url = _first_non_empty_env(
         "BASIS_API_GRPC_URL",
         default=settings.basis_api_grpc_url,

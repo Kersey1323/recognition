@@ -36,7 +36,8 @@ from csrcqsf.core.settings import (
     minio_endpoint,
     minio_env_configured,
     reconstruction_server_env_configured,
-    sgo_mysql_database,
+    sgo_database_name,
+    sgo_database_type,
     sgo_env_configured,
 )
 
@@ -114,8 +115,8 @@ async def lifespan(app: FastAPI):
             SGOBiz.init,
             logger=logger,
             details=(
-                f"host={ai_settings.sgo_mysql_url}, port={ai_settings.sgo_mysql_port}, "
-                f"database={sgo_mysql_database}"
+                f"type={sgo_database_type}, host={ai_settings.sgo_host}, "
+                f"port={ai_settings.sgo_port}, database={sgo_database_name}"
             ),
         )
     RunVar("_default_thread_limiter").set(CapacityLimiter(200))  # 线程池限制

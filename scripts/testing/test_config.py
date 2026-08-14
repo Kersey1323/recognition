@@ -7,7 +7,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from csrcqsf.core.settings import (
+from csrcqsf.core.settings import (  # noqa: E402
     ai_settings,
     basis_api_http_url,
     main_db_database,
@@ -16,10 +16,11 @@ from csrcqsf.core.settings import (
     minio_search_history_bucket,
     reconstruction_server_timeout_sec,
     reconstruction_server_url,
-    sgo_mysql_database,
+    sgo_database_name,
+    sgo_database_type,
     temp_dir,
 )
-from globals_vars import logger
+from globals_vars import logger  # noqa: E402
 
 
 def _masked(value: str) -> str:
@@ -49,7 +50,8 @@ def test_environment_variables():
     print(f"  检索历史 Bucket: {minio_search_history_bucket}")
 
     print("\n【SGO配置】")
-    print(f"  MySQL: {ai_settings.sgo_mysql_url}:{ai_settings.sgo_mysql_port}/{sgo_mysql_database}")
+    print(f"  数据库类型: {sgo_database_type}")
+    print(f"  地址: {ai_settings.sgo_host}:{ai_settings.sgo_port}/{sgo_database_name}")
 
     print("\n【外部服务】")
     print(f"  BASIS_API_GRPC_URL: {ai_settings.basis_api_grpc_url}")

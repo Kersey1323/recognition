@@ -40,6 +40,7 @@ def test_settings_apply_runtime_env_overrides(monkeypatch):
         MILVUS_HOST="10.0.0.10",
         MILVUS_PORT="29530",
         MINIO_ENDPOINT="10.0.0.11:9000",
+        SGO_DATABASE_TYPE="mysql",
         SGO_MYSQL_HOST="10.0.0.12",
         SGO_MYSQL_PORT="3307",
         SGO_MYSQL_USER="sgo_user",
@@ -94,6 +95,15 @@ def test_env_deployment_exposes_main_mysql_vars():
     assert values["MAIN_DB_HOST"] == "192.168.100.2"
     assert values["MAIN_DB_PORT"] == "3307"
     assert values["MAIN_DB_DATABASE"] == "coronavirusdb"
+
+
+def test_env_templates_expose_switchable_sgo_database_backends():
+    for path in (Path(".env.example"), Path(".env.deployment")):
+        values = _parse_env_file(path)
+        assert values["SGO_DATABASE_TYPE"] == "mysql"
+        assert values["SGO_MYSQL_DATABASE"] == "mdpdb"
+        assert values["SGO_KINGBASE_PORT"] == "54321"
+        assert values["SGO_KINGBASE_DATABASE"] == "mdpdb"
 
 
 def test_root_dockerfile_declares_runtime_contract():
