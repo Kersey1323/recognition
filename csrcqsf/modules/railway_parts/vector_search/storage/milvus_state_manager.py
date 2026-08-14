@@ -106,23 +106,69 @@ class MilvusStateManagerV2:
         """
         data: dict[int, CompatPartsIndex] = {}
         try:
-            candidate_item_ids = item_id_list or []
+            candidate_item_ids = list(dict.fromkeys(int(item_id) for item_id in (item_id_list or [])))
             if not candidate_item_ids:
                 state_snapshot = self.get_item_index_state_snapshot()
                 candidate_item_ids = sorted(state_snapshot.keys())[:limit]
+            candidate_item_ids = candidate_item_ids[:limit]
 
-            for item_id in candidate_item_ids[:limit]:
-                indexed_images = self.get_indexed_images_by_item_id(int(item_id))
+            # 列表页按整页配件批量读取两个 collection，避免逐配件产生 Milvus N+1 请求。
+            siglip_rows = self.collection_manager.get_collection_records_by_item_ids(
+                self.siglip_collection,
+                candidate_item_ids,
+                output_fields=[
+                    "item_id",
+                    "image_id",
+                    "image_url",
+                    "item_name",
+                    "item_code",
+                    "description",
+                ],
+            )
+            dinov2_rows = self.collection_manager.get_collection_records_by_item_ids(
+                self.dinov2_collection,
+                candidate_item_ids,
+                output_fields=["item_id", "image_id", "image_url"],
+            )
+
+            siglip_images: dict[int, dict[int, str]] = {}
+            dinov2_images: dict[int, dict[int, str]] = {}
+            metadata_by_item: dict[int, dict] = {}
+
+            for row in siglip_rows:
+                item_id = row.get("item_id")
+                image_id = row.get("image_id")
+                if item_id is None or image_id is None:
+                    continue
+                normalized_item_id = int(item_id)
+                siglip_images.setdefault(normalized_item_id, {})[int(image_id)] = str(
+                    row.get("image_url") or ""
+                )
+                metadata_by_item.setdefault(normalized_item_id, row)
+
+            for row in dinov2_rows:
+                item_id = row.get("item_id")
+                image_id = row.get("image_id")
+                if item_id is None or image_id is None:
+                    continue
+                dinov2_images.setdefault(int(item_id), {})[int(image_id)] = str(
+                    row.get("image_url") or ""
+                )
+
+            for item_id in candidate_item_ids:
+                item_id = int(item_id)
+                siglip_item_images = siglip_images.get(item_id, {})
+                dinov2_item_images = dinov2_images.get(item_id, {})
+                indexed_image_ids = set(siglip_item_images) & set(dinov2_item_images)
+                indexed_images = {
+                    image_id: siglip_item_images.get(image_id)
+                    or dinov2_item_images.get(image_id, "")
+                    for image_id in indexed_image_ids
+                }
                 if not indexed_images:
                     continue
 
-                metadata_rows = self.collection_manager.client.query(
-                    collection_name=self.siglip_collection,
-                    filter=f"item_id == {int(item_id)}",
-                    output_fields=["item_id", "item_name", "item_code", "description"],
-                    limit=1,
-                )
-                metadata = metadata_rows[0] if metadata_rows else {}
+                metadata = metadata_by_item.get(item_id, {})
 
                 features: list[CompatFeaturesIndex] = []
                 description = metadata.get("description")

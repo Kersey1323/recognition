@@ -151,3 +151,48 @@ def test_get_collection_image_records_maps_image_id_to_url():
         9002: "bfr-ai-files/b.jpg",
     }
     assert client.query_iterator_result.closed is True
+
+
+def test_get_collection_records_by_item_ids_uses_one_batch_query():
+    manager = CollectionManager.__new__(CollectionManager)
+    client = _FakeClient()
+    client.query_iterator_result = _FakeQueryIterator(
+        [
+            [
+                {"item_id": 101, "image_id": 9001, "image_url": "a.jpg"},
+                {"item_id": 102, "image_id": 9101, "image_url": "b.jpg"},
+            ],
+            [
+                {"item_id": 101, "image_id": 9002, "image_url": "c.jpg"},
+            ],
+        ]
+    )
+    calls = []
+
+    def _query_iterator(collection_name, filter, output_fields, batch_size):
+        calls.append((collection_name, filter, output_fields, batch_size))
+        return client.query_iterator_result
+
+    client.query_iterator = _query_iterator
+    manager.client = client
+
+    rows = manager.get_collection_records_by_item_ids(
+        "siglip_collection",
+        [102, 101, 102],
+        output_fields=["item_id", "image_id", "image_url"],
+    )
+
+    assert rows == [
+        {"item_id": 101, "image_id": 9001, "image_url": "a.jpg"},
+        {"item_id": 102, "image_id": 9101, "image_url": "b.jpg"},
+        {"item_id": 101, "image_id": 9002, "image_url": "c.jpg"},
+    ]
+    assert calls == [
+        (
+            "siglip_collection",
+            "item_id IN [101,102]",
+            ["item_id", "image_id", "image_url"],
+            1000,
+        )
+    ]
+    assert client.query_iterator_result.closed is True

@@ -263,6 +263,44 @@ class CollectionManager:
 
         return images
 
+    def get_collection_records_by_item_ids(
+        self,
+        collection_name: str,
+        item_ids: list[int],
+        *,
+        output_fields: list[str],
+        batch_size: int = 1000,
+    ) -> list[dict]:
+        """一次查询多个配件的 collection 记录，供列表页批量聚合索引状态。"""
+        normalized_item_ids = sorted({int(item_id) for item_id in item_ids})
+        if not normalized_item_ids or not self.collection_exists(collection_name):
+            return []
+
+        rows: list[dict] = []
+        item_id_filter = ",".join(str(item_id) for item_id in normalized_item_ids)
+        iterator = self.client.query_iterator(
+            collection_name=collection_name,
+            filter=f"item_id IN [{item_id_filter}]",
+            output_fields=output_fields,
+            batch_size=batch_size,
+        )
+
+        try:
+            if hasattr(iterator, "next"):
+                while True:
+                    batch = iterator.next()
+                    if len(batch) == 0:
+                        break
+                    rows.extend(batch)
+            else:
+                for batch in iterator:
+                    rows.extend(batch)
+        finally:
+            if hasattr(iterator, "close"):
+                iterator.close()
+
+        return rows
+
     def delete_by_item_id(self, collection_name: str, item_id: int) -> int:
         """
         删除指定 item_id 在 collection 中的全部记录。

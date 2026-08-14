@@ -150,25 +150,37 @@ def test_state_manager_snapshot_counts_unique_source_images_instead_of_variant_r
 
 def test_state_manager_can_build_compat_item_index_view():
     fake_collection_manager = MagicMock()
-    fake_collection_manager.get_collection_image_records.side_effect = [
-        {
-            9001: "bfr-ai-files/a.jpg",
-            9002: "bfr-ai-files/b.jpg",
-        },
-        {
-            9002: "bfr-ai-files/b.jpg",
-            9003: "bfr-ai-files/c.jpg",
-        },
-    ]
-    fake_collection_manager.client.query.side_effect = [
+    fake_collection_manager.get_collection_records_by_item_ids.side_effect = [
         [
             {
                 "item_id": 101,
+                "image_id": 9001,
+                "image_url": "bfr-ai-files/a.jpg",
                 "item_name": "橡胶套",
                 "item_code": "40000543491",
                 "description": "橡胶套",
-            }
-        ]
+            },
+            {
+                "item_id": 101,
+                "image_id": 9002,
+                "image_url": "bfr-ai-files/b.jpg",
+                "item_name": "橡胶套",
+                "item_code": "40000543491",
+                "description": "橡胶套",
+            },
+        ],
+        [
+            {
+                "item_id": 101,
+                "image_id": 9002,
+                "image_url": "bfr-ai-files/b.jpg",
+            },
+            {
+                "item_id": 101,
+                "image_id": 9003,
+                "image_url": "bfr-ai-files/c.jpg",
+            },
+        ],
     ]
 
     with patch(
@@ -187,6 +199,9 @@ def test_state_manager_can_build_compat_item_index_view():
     assert [img.image_id for img in data[101].images] == [9002]
     assert [img.filename for img in data[101].images] == ["bfr-ai-files/b.jpg"]
     assert [feature.feature for feature in data[101].features] == ["橡胶套"]
+    assert fake_collection_manager.get_collection_records_by_item_ids.call_count == 2
+    fake_collection_manager.get_collection_image_records.assert_not_called()
+    fake_collection_manager.client.query.assert_not_called()
 
 
 def test_state_manager_can_list_indexed_item_ids_with_paging():

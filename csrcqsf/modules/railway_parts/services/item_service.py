@@ -291,7 +291,10 @@ async def list_item(cls, req, runtime=None):
         )
 
         state_manager = runtime._get_milvus_state_manager_v2_cls()()
-        index_dict = state_manager.list_item_index([item.id for item in items.data])
+        index_dict = await runtime.run_sync(
+            state_manager.list_item_index,
+            [item.id for item in items.data],
+        )
         images = await cls.list_item_images([item.id for item in items.data])
         images_dict: dict[int, list] = {}
         for image in images:
