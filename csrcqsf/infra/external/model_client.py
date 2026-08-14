@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 
 from csrcqsf.core.settings import model_service_url
+from csrcqsf.infra.external.error_response import read_remote_error
 from globals_vars import logger
 
 
@@ -41,8 +42,8 @@ class ModelServiceClient:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, json=json_data) as resp:
                 if resp.status != 200:
-                    text = await resp.text()
-                    raise Exception(f"Model service error [{resp.status}]: {text}")
+                    detail = await read_remote_error(resp)
+                    raise Exception(f"Model service error [{resp.status}]: {detail}")
                 return await resp.json()
 
     async def siglip_image_features(self, image) -> np.ndarray:

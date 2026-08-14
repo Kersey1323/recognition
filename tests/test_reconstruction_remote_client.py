@@ -1,6 +1,11 @@
 import asyncio
 
-from csrcqsf.modules.railway_parts.integrations.reconstruction_client import ReconstructionServiceClient
+import pytest
+
+from csrcqsf.modules.railway_parts.integrations.reconstruction_client import (
+    ReconstructionServiceClient,
+    ReconstructionServiceClientError,
+)
 
 
 class _FakeResponse:
@@ -22,9 +27,10 @@ class _FakeResponse:
 
 
 class _FakeSession:
-    def __init__(self, recorder: dict, payload: dict):
+    def __init__(self, recorder: dict, payload: dict, status: int = 200):
         self.recorder = recorder
         self.payload = payload
+        self.status = status
 
     async def __aenter__(self):
         return self
@@ -36,7 +42,7 @@ class _FakeSession:
         self.recorder["method"] = method
         self.recorder["url"] = url
         self.recorder["json"] = json
-        return _FakeResponse(self.payload)
+        return _FakeResponse(self.payload, status=self.status)
 
 
 def test_reconstruction_client_posts_video_task_to_internal_route():
@@ -98,3 +104,30 @@ def test_reconstruction_client_posts_batch_status_route():
     assert recorder["method"] == "POST"
     assert recorder["url"] == "http://reconstruction:8000/reconstruction/tasks/status/batch"
     assert recorder["json"] == {"task_ids": ["task-1"]}
+
+
+def test_reconstruction_client_preserves_structured_remote_error_details():
+    client = ReconstructionServiceClient(base_url="http://reconstruction:8000", timeout_sec=9)
+
+    from unittest.mock import patch
+
+    with patch(
+        "aiohttp.ClientSession",
+        return_value=_FakeSession(
+            {},
+            {
+                "detail": "ConnectionError: Redis 连接失败",
+                "error_type": "ConnectionError",
+                "request_id": "remote-request-1",
+                "service": "reconstruction-server",
+            },
+            status=500,
+        ),
+    ):
+        with pytest.raises(ReconstructionServiceClientError) as exc_info:
+            asyncio.run(client.list_scenes())
+
+    message = str(exc_info.value)
+    assert "Redis 连接失败" in message
+    assert "ConnectionError" in message
+    assert "remote-request-1" in message

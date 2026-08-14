@@ -6,6 +6,7 @@ from csrcqsf.core.settings import (
     reconstruction_server_timeout_sec,
     reconstruction_server_url,
 )
+from csrcqsf.infra.external.error_response import read_remote_error
 
 
 class ReconstructionServiceClientError(Exception):
@@ -30,11 +31,7 @@ class ReconstructionServiceClient:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.request(method, url, json=json) as response:
                     if response.status >= 400:
-                        try:
-                            payload = await response.json()
-                            detail = payload.get("detail") or payload.get("message") or payload
-                        except Exception:
-                            detail = await response.text()
+                        detail = await read_remote_error(response)
                         raise ReconstructionServiceClientError(
                             f"重构服务请求失败 [{response.status}]: {detail}"
                         )
