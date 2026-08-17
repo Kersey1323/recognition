@@ -1,12 +1,12 @@
-from typing import Callable
+from typing import Any, Callable, Coroutine
 import asyncio
 import os
 
-from apscheduler.schedulers.background import BackgroundScheduler, BlockingScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from globals_vars import logger
 from apscheduler.job import Job as apsjob
-from datetime import datetime,timedelta
+from datetime import datetime
 from csrcqsf.core.settings import (
     main_db_env_configured,
     reconstruction_server_env_configured,
@@ -40,7 +40,7 @@ class BFRTrigger(CronTrigger):
     def is_cron_effective(cls, expr: str) -> bool:
         try:
             cls.from_crontab(expr=expr)
-        except:
+        except Exception:
             return False
         return True
 
@@ -64,6 +64,14 @@ def register_main_async_loop(loop: asyncio.AbstractEventLoop) -> None:
     _main_async_loop = loop
 
 
+def submit_coroutine_to_main_loop(coroutine: Coroutine[Any, Any, Any]):
+    """从调度器线程把异步业务提交到 FastAPI 主事件循环。"""
+    if _main_async_loop is None or _main_async_loop.is_closed():
+        coroutine.close()
+        raise RuntimeError("主事件循环尚未就绪")
+    return asyncio.run_coroutine_threadsafe(coroutine, _main_async_loop)
+
+
 def excute_job_once(func, *args, **kwargs):
     try:
         scheduler.add_job(func=func, trigger='date',
@@ -74,7 +82,7 @@ def excute_job_once(func, *args, **kwargs):
 
 def add_cron_job(func, cron: str, job_id: str, timeout=None, callback: Callable = None, *args, **kwargs):
     if job_id is None or job_id == '':
-        raise Exception(f'job_id不能为空')
+        raise Exception('job_id不能为空')
 
     job = scheduler.get_job(job_id=job_id)
 
@@ -102,7 +110,7 @@ def remove_cron_queue_job(job_id: str):
         if scheduler_job is not None:
             # 删除调度器里的job
             scheduler.remove_job(job_id=job_id)
-    except:
+    except Exception:
         pass
 
 

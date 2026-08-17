@@ -27,7 +27,6 @@ class VectorIndexer:
         siglip_collection_name: str,
         dinov2_collection_name: str,
         patch_tokens_dir: str,
-        enable_sam3: bool = True,
         model_client: Optional[ModelServiceClient] = None,
     ):
         self.model_client = model_client or get_model_client()
@@ -36,7 +35,6 @@ class VectorIndexer:
         self.siglip_collection_name = siglip_collection_name
         self.dinov2_collection_name = dinov2_collection_name
         self.patch_tokens_dir = patch_tokens_dir
-        self.enable_sam3 = enable_sam3
 
         os.makedirs(patch_tokens_dir, exist_ok=True)
 
@@ -67,14 +65,6 @@ class VectorIndexer:
                     logger.warning(f"Failed to load image {image_id}: {image_url}")
                     failed_image_ids.append(image_id)
                     continue
-
-                if self.enable_sam3:
-                    processed_image = await self.model_client.sam3_preprocess(image, item_name)
-                    if processed_image is not None:
-                        image = processed_image
-                        logger.debug(f"SAM3 preprocessing applied for image {image_id}")
-                    else:
-                        logger.warning(f"SAM3 preprocessing failed for {image_id}, using original image")
 
                 image_vector = await self.model_client.siglip_image_features(image)
 

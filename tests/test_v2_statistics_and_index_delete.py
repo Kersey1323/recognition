@@ -429,8 +429,9 @@ def test_rebuild_v2_index_marks_successful_images_indexed_in_pg():
     session.commit.assert_awaited()
 
 
-def test_rebuild_v2_index_persists_segmented_image_record_when_sam3_succeeds():
+def test_rebuild_v2_index_ignores_obsolete_segmented_image_outcome():
     parts_module = _import_railway_parts_manager()
+    assert not hasattr(parts_module.RailwayPartsManager, "_upload_v2_segmented_image")
 
     session = AsyncMock()
     fake_item = SimpleNamespace(
@@ -462,19 +463,10 @@ def test_rebuild_v2_index_persists_segmented_image_record_when_sam3_succeeds():
          patch.object(parts_module.SgoItemImages, "indexed_image", AsyncMock()), \
          patch.object(parts_module.SegmentedImage, "batch_create", AsyncMock()) as batch_create_mock, \
          patch.object(parts_module.RailwayPartsManager, "get_image_from_oss", AsyncMock(return_value=fake_image_array)), \
-         patch.object(parts_module.RailwayPartsManager, "_upload_v2_segmented_image", AsyncMock(return_value="bfr-ai-files/segmented/9001.jpg")) as upload_mock, \
          patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()), \
          patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
          patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager):
         manager_cls.return_value.index_image = AsyncMock(side_effect=_index_image)
         asyncio.run(parts_module.RailwayPartsManager.rebuild_v2_index(item_id=101, limit=1))
 
-    upload_mock.assert_awaited_once_with(fake_preprocess_outcome.result_image, 101, 9001)
-    batch_create_mock.assert_awaited_once()
-    records = batch_create_mock.await_args.args[1]
-    assert len(records) == 1
-    assert records[0].item_id == 101
-    assert records[0].source_image_id == 9001
-    assert records[0].source_image_url == "bfr-ai-files/source-a.jpg"
-    assert records[0].segmented_image_url == "bfr-ai-files/segmented/9001.jpg"
-    assert records[0].is_indexed == 1
+    batch_create_mock.assert_not_awaited()

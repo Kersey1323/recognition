@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import os
+import time
 import zipfile
+from typing import Callable
 
 from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
@@ -13,7 +16,7 @@ from sqlalchemy import select
 from urllib3 import PoolManager
 from urllib3.util import create_urllib3_context
 
-from csrcqsf.core.scheduler import scheduler
+from csrcqsf.core.scheduler import scheduler, submit_coroutine_to_main_loop
 from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.infra.db.mdp_db import sgo_sessionLocal
 from csrcqsf.infra.storage.minio import minio_bucket, minio_instance
@@ -30,6 +33,7 @@ from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import (
 )
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
 from csrcqsf.modules.sgo.schemas import ImageSourceType
+from csrcqsf.modules.sgo.sync_task_manager import sgo_sync_task_manager
 
 
 ctx = create_urllib3_context()
@@ -51,12 +55,39 @@ class SGOBiz:
 
     @classmethod
     def init(cls):
-        scheduler.add_job(cls.sync_parts_items, "interval", minutes=100)
+        scheduler.add_job(
+            cls._submit_scheduled_parts_sync,
+            "interval",
+            minutes=100,
+            id="sgo-parts-sync",
+            replace_existing=True,
+        )
         if os.getenv("SGO_ENABLE_IMAGE_SYNC", "false").lower() == "true":
             scheduler.add_job(cls.get_token, "interval", minutes=60)
             cls.get_token()
         else:
             logger.info("SGO 图片同步已禁用（SGO_ENABLE_IMAGE_SYNC != true）")
+
+    @classmethod
+    def _submit_scheduled_parts_sync(cls):
+        """定时线程只负责投递，实际同步仍在主事件循环的受管理任务中运行。"""
+        future = submit_coroutine_to_main_loop(cls._start_scheduled_parts_sync())
+
+        def _log_submission_result(completed_future):
+            try:
+                completed_future.result()
+            except Exception as exc:
+                logger.error(f"提交 SGO 配件定时同步失败: {exc}")
+
+        future.add_done_callback(_log_submission_result)
+
+    @classmethod
+    async def _start_scheduled_parts_sync(cls):
+        try:
+            task = sgo_sync_task_manager.start("parts", cls.sync_parts_items)
+            logger.info(f"SGO 配件定时同步已提交: task_id={task['task_id']}")
+        except RuntimeError as exc:
+            logger.info(f"跳过本轮 SGO 配件定时同步: {exc}")
 
     @classmethod
     def get_token(cls):
@@ -83,34 +114,92 @@ class SGOBiz:
             return await SgoItemImages.list_item_images_by_item_id(session, item_id)
 
     @classmethod
-    async def sync_parts_items(cls):
-        parts: dict[int, Items] = {}
+    async def sync_parts_items(
+        cls,
+        progress_callback: Callable[[dict], None] | None = None,
+    ) -> dict:
+        started_at = time.perf_counter()
         async with SessionLocal() as session:
-            parts_in_db = await Items.list_all_items(session)
-        for part in parts_in_db:
-            parts[part.id] = part
+            part_ids = set(await Items.list_all_item_ids(session))
 
         need_insert: list[Items] = []
+        skipped_count = 0
+        fail_count = 0
+        failed_item_ids: list[str] = []
         async with sgo_sessionLocal() as session:
             data_list = await SgoMaterielMasterplate.list_sgo_items(session=session)
-            for data in data_list:
-                if int(data.id) in parts:
-                    continue
-                new_part = Items()
-                new_part.id = int(data.id)
-                new_part.item_name = data.maktx
-                new_part.item_code = data.MATNR
-                if new_part.item_name is None or new_part.item_code is None:
-                    continue
-                need_insert.append(new_part)
+            source_parts = list(data_list)
+            total_items = len(source_parts)
+            if progress_callback is not None:
+                progress_callback(
+                    {
+                        "progress": 0,
+                        "total_items": total_items,
+                        "processed_items": 0,
+                    }
+                )
+
+            # 全量源表仍需逐行比对，但只把本地主库缺失且字段完整的配件加入事务。
+            report_interval = max(1, total_items // 100)
+            for index, data in enumerate(source_parts, start=1):
+                try:
+                    source_item_id = int(data.id)
+                except (TypeError, ValueError):
+                    fail_count += 1
+                    failed_item_ids.append(str(data.id))
+                else:
+                    if source_item_id in part_ids:
+                        skipped_count += 1
+                    elif data.maktx is None or data.MATNR is None:
+                        fail_count += 1
+                        failed_item_ids.append(str(data.id))
+                    else:
+                        new_part = Items()
+                        new_part.id = source_item_id
+                        new_part.item_name = data.maktx
+                        new_part.item_code = data.MATNR
+                        need_insert.append(new_part)
+
+                if progress_callback is not None and (
+                    index == total_items or index % report_interval == 0
+                ):
+                    elapsed = time.perf_counter() - started_at
+                    remaining = int(elapsed / index * (total_items - index)) if index else None
+                    progress_callback(
+                        {
+                            "progress": int(index * 100 / total_items) if total_items else 100,
+                            "total_items": total_items,
+                            "processed_items": index,
+                            "success_count": len(need_insert),
+                            "fail_count": fail_count,
+                            "created_count": len(need_insert),
+                            "skipped_count": skipped_count,
+                            "current_item_id": data.id,
+                            "estimated_remaining_seconds": remaining,
+                            "failed_item_ids": list(failed_item_ids),
+                        }
+                    )
+                    # 大批量比对期间定期让出事件循环，保证状态轮询和其他接口可响应。
+                    await asyncio.sleep(0)
 
         if need_insert:
             async with SessionLocal() as session:
                 session.add_all(need_insert)
                 await session.commit()
 
+        return {
+            "total_items": len(source_parts),
+            "processed_items": len(source_parts),
+            "success_count": len(need_insert),
+            "fail_count": fail_count,
+            "created_count": len(need_insert),
+            "skipped_count": skipped_count,
+            "synced_image_count": 0,
+            "failed_item_ids": failed_item_ids,
+        }
+
     @classmethod
-    async def get_baseimage_id_from_db(cls, item_id_list: list[str]):
+    async def get_baseimage_id_from_db(cls, item_id_list: list[str]) -> int:
         async with sgo_sessionLocal() as session:
             results = await SgoMaterielFileImg.list_image_file(session, item_id_list)
             need_download_pics: dict[str, str] = {}
@@ -126,11 +215,11 @@ class SGOBiz:
                     need_download_pics[url] = row.masterplate_id
 
         if not need_download_pics:
-            return
+            return 0
 
         need_to_download = await cls._filter_missing_raw_urls(raw_url_list, need_download_pics)
         if not need_to_download:
-            return
+            return 0
 
         sgo_image_list: list[SgoItemImages] = []
         zip_bytes = await run_sync(cls.download_images_from_sgo, need_to_download)
@@ -138,7 +227,8 @@ class SGOBiz:
             for index, file_name in enumerate(zip_ref.namelist()[:-1]):
                 content_bytes = zip_ref.read(file_name)
                 new_file_name = f"{need_to_download[index]}.jpg"
-                minio_instance.client.put_object(
+                await run_sync(
+                    minio_instance.client.put_object,
                     minio_bucket,
                     new_file_name,
                     io.BytesIO(content_bytes),
@@ -152,14 +242,82 @@ class SGOBiz:
                 sgo_image_list.append(sgo_image)
 
         await cls._commit_images(sgo_image_list)
+        return len(sgo_image_list)
 
     @classmethod
-    async def sync_images(cls, item_id_list: list[str]):
-        await cls.get_baseimage_id_from_db(item_id_list)
-        await cls.get_inquery_code_pic_from_db(item_id_list)
+    async def sync_images(
+        cls,
+        item_id_list: list[str],
+        progress_callback: Callable[[dict], None] | None = None,
+    ) -> dict:
+        normalized_ids = list(dict.fromkeys(str(item_id) for item_id in item_id_list))
+        total_items = len(normalized_ids)
+        success_count = 0
+        fail_count = 0
+        synced_image_count = 0
+        failed_item_ids: list[str] = []
+        started_at = time.perf_counter()
+
+        if not normalized_ids:
+            return {
+                "total_items": 0,
+                "processed_items": 0,
+                "success_count": 0,
+                "fail_count": 0,
+                "created_count": 0,
+                "skipped_count": 0,
+                "synced_image_count": 0,
+                "failed_item_ids": [],
+            }
+
+        if not cls.token:
+            await run_sync(cls.get_token)
+
+        for index, item_id in enumerate(normalized_ids, start=1):
+            item_synced_count = 0
+            try:
+                # 每个配件独立完成基础图和询码图同步，单条失败不会中断后续配件。
+                item_synced_count += await cls.get_baseimage_id_from_db([item_id])
+                item_synced_count += await cls.get_inquery_code_pic_from_db([item_id])
+                success_count += 1
+            except Exception as exc:
+                fail_count += 1
+                failed_item_ids.append(item_id)
+                logger.exception(f"同步配件图片失败: item_id={item_id}, error={exc}")
+            finally:
+                synced_image_count += item_synced_count
+
+            if progress_callback is not None:
+                elapsed = time.perf_counter() - started_at
+                remaining = int(elapsed / index * (total_items - index)) if index else None
+                progress_callback(
+                    {
+                        "progress": int(index * 100 / total_items) if total_items else 100,
+                        "total_items": total_items,
+                        "processed_items": index,
+                        "success_count": success_count,
+                        "fail_count": fail_count,
+                        "created_count": synced_image_count,
+                        "synced_image_count": synced_image_count,
+                        "current_item_id": item_id,
+                        "estimated_remaining_seconds": remaining,
+                        "failed_item_ids": list(failed_item_ids),
+                    }
+                )
+
+        return {
+            "total_items": total_items,
+            "processed_items": total_items,
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "created_count": synced_image_count,
+            "skipped_count": 0,
+            "synced_image_count": synced_image_count,
+            "failed_item_ids": failed_item_ids,
+        }
 
     @classmethod
-    async def get_inquery_code_pic_from_db(cls, item_id_list: list[str]):
+    async def get_inquery_code_pic_from_db(cls, item_id_list: list[str]) -> int:
         item_code_list: list[str] = []
         items_dict: dict[str, Items] = {}
 
@@ -170,7 +328,7 @@ class SGOBiz:
                 items_dict[item.item_code] = item
 
         if not item_code_list:
-            return
+            return 0
 
         stmt = (
             select(
@@ -210,11 +368,11 @@ class SGOBiz:
                         raw_url_list.append(url)
 
         if not raw_url_list:
-            return
+            return 0
 
         need_to_download = await cls._filter_missing_raw_urls(raw_url_list, need_download_pics)
         if not need_to_download:
-            return
+            return 0
 
         sgo_image_list: list[SgoItemImages] = []
         zip_bytes = await run_sync(cls.download_images_from_sgo, need_to_download)
@@ -237,6 +395,7 @@ class SGOBiz:
                 sgo_image_list.append(sgo_image)
 
         await cls._commit_images(sgo_image_list)
+        return len(sgo_image_list)
 
     @classmethod
     def download_images_from_sgo(cls, files_name: list[str]):
@@ -265,17 +424,11 @@ class SGOBiz:
 
     @classmethod
     async def sync_all_images(cls):
-        cls.get_token()
         async with SessionLocal() as session:
             parts_in_db = await Items.list_all_items(session)
             items_id = [str(item.id) for item in parts_in_db]
             items_id.reverse()
-            for item_id in items_id:
-                try:
-                    await cls.sync_images([item_id])
-                    logger.info(f"完成item_id为{item_id}的图像同步")
-                except Exception as exc:
-                    logger.error(f"下载图片出错{exc}")
+        return await cls.sync_images(items_id)
 
     @classmethod
     async def list_inquery(cls, page: int, per_page: int, status: str, has_indexed: int):

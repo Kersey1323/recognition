@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -7,15 +8,10 @@ from PIL import Image
 from csrcqsf.modules.railway_parts.vector_search.storage.milvus_manager import (
     MilvusManagerV2,
 )
+from csrcqsf.modules.railway_parts.vector_search.indexing.indexer import VectorIndexer
 
 
 class _FakeModelClient:
-    def __init__(self, segmented_image=None):
-        self.segmented_image = segmented_image
-
-    async def sam3_preprocess(self, image, item_name):
-        return self.segmented_image
-
     async def siglip_text_features(self, text):
         return np.array([0.3, 0.4], dtype=float)
 
@@ -29,22 +25,24 @@ class _FakeModelClient:
         return np.array([[0.7, 0.8], [0.9, 1.0]], dtype=float)
 
 
-def _build_manager(tmp_path, segmented_image=None):
+def _build_manager(tmp_path):
     manager = object.__new__(MilvusManagerV2)
     manager.siglip_collection = "SIGLIP_TEST"
     manager.dinov2_collection = "DINOV2_TEST"
     manager.patch_tokens_dir = str(tmp_path)
     manager.collection_manager = MagicMock()
-    manager.model_client = _FakeModelClient(segmented_image=segmented_image)
-    manager.enable_sam3 = segmented_image is not None
+    manager.model_client = _FakeModelClient()
     manager.image_variant_supported = True
-    manager.last_preprocess_outcome = None
     return manager
 
 
-def test_index_image_writes_original_and_segmented_variants_when_sam3_succeeds(tmp_path):
-    segmented_image = Image.new("RGB", (4, 4), "white")
-    manager = _build_manager(tmp_path, segmented_image=segmented_image)
+def test_vector_managers_do_not_expose_removed_sam3_switch():
+    assert "enable_sam3" not in inspect.signature(MilvusManagerV2).parameters
+    assert "enable_sam3" not in inspect.signature(VectorIndexer).parameters
+
+
+def test_index_image_writes_only_original_variant(tmp_path):
+    manager = _build_manager(tmp_path)
 
     siglip_ok, dinov2_ok = asyncio.run(
         manager.index_image(
@@ -63,19 +61,10 @@ def test_index_image_writes_original_and_segmented_variants_when_sam3_succeeds(t
 
     assert siglip_ok is True
     assert dinov2_ok is True
-    assert [record["image_variant"] for record in siglip_records] == [
-        "original",
-        "sam3_segmented",
-    ]
-    assert [record["image_variant"] for record in dinov2_records] == [
-        "original",
-        "sam3_segmented",
-    ]
+    assert [record["image_variant"] for record in siglip_records] == ["original"]
+    assert [record["image_variant"] for record in dinov2_records] == ["original"]
     assert dinov2_records[0]["patch_tokens_path"].endswith("_original.npy")
-    assert dinov2_records[1]["patch_tokens_path"].endswith("_sam3_segmented.npy")
     assert dinov2_records[0]["patch_token_key"] == "item_101_img_9001_original.npy"
-    assert dinov2_records[1]["patch_token_key"] == "item_101_img_9001_sam3_segmented.npy"
-    assert manager.last_preprocess_outcome is segmented_image
 
 
 def test_dedupe_hits_by_image_id_keeps_highest_scoring_variant():
@@ -96,8 +85,7 @@ def test_dedupe_hits_by_image_id_keeps_highest_scoring_variant():
 
 
 def test_index_image_falls_back_to_legacy_single_record_when_variant_field_missing(tmp_path):
-    segmented_image = Image.new("RGB", (4, 4), "white")
-    manager = _build_manager(tmp_path, segmented_image=segmented_image)
+    manager = _build_manager(tmp_path)
     manager.image_variant_supported = False
 
     siglip_ok, dinov2_ok = asyncio.run(
@@ -123,7 +111,6 @@ def test_index_image_falls_back_to_legacy_single_record_when_variant_field_missi
     assert "image_variant" not in dinov2_records[0]
     assert dinov2_records[0]["patch_token_key"] == "item_101_img_9001.npy"
     assert dinov2_records[0]["patch_tokens_path"].endswith("item_101_img_9001.npy")
-    assert manager.last_preprocess_outcome is segmented_image
 
 
 def test_resolve_patch_tokens_path_prefers_patch_token_key_and_falls_back_to_legacy_path(
@@ -181,7 +168,6 @@ def test_search_by_image_dinov2_degrades_to_coarse_results_when_patch_tokens_mis
     manager.model_client = _FakeModelClient()
     manager.collection_manager = MagicMock()
     manager.dinov2_collection = "DINOV2_TEST"
-    manager.enable_sam3 = False
     manager.image_variant_supported = False
     manager.patch_tokens_dir = str(tmp_path)
 

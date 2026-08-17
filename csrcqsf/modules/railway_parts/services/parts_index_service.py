@@ -18,16 +18,12 @@ def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) ->
     globals().update(
         {
             "datetime": parts_service_module.datetime,
-            "os": parts_service_module.os,
-            "Path": parts_service_module.Path,
             "run_sync": parts_service_module.run_sync,
-            "get_id": parts_service_module.get_id,
             "logger": parts_service_module.logger,
             "SessionLocal": parts_service_module.SessionLocal,
             "Items": parts_service_module.Items,
             "SgoItemImages": parts_service_module.SgoItemImages,
             "SegmentedImage": parts_service_module.SegmentedImage,
-            "SegmentStatus": parts_service_module.SegmentStatus,
             "MilvusManager": parts_service_module.MilvusManager,
             "ImageIndex": parts_service_module.ImageIndex,
             "IndexStatisticsRes": parts_service_module.IndexStatisticsRes,
@@ -36,9 +32,6 @@ def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) ->
             "date_to_str": parts_service_module.date_to_str,
             "_get_milvus_manager_v2_cls": parts_service_module._get_milvus_manager_v2_cls,
             "_get_milvus_state_manager_v2_cls": parts_service_module._get_milvus_state_manager_v2_cls,
-            "_get_minio_helpers": parts_service_module._get_minio_helpers,
-            "minio_bucket": parts_service_module.minio_bucket,
-            "temp_dir": parts_service_module.temp_dir,
         }
     )
 
@@ -83,31 +76,6 @@ async def delete_item_image_index(cls, item_id: int, image_url_list: list[str], 
                 feature_index_num=0,
             )
             await session.commit()
-
-
-async def _upload_v2_segmented_image(cls, image, item_id: int, source_image_id: int, runtime=None) -> str:
-    runtime = runtime or _runtime()
-    ensure_minio_bucket, minio_instance, _ = runtime._get_minio_helpers()
-    ensure_minio_bucket(runtime.minio_bucket)
-    runtime.Path(runtime.temp_dir).mkdir(parents=True, exist_ok=True)
-
-    token = runtime.get_id()
-    object_name = f"v2-segmented/{item_id}/{source_image_id}_{token}.jpg"
-    local_path = runtime.os.path.join(runtime.temp_dir, f"v2_segmented_{token}.jpg")
-    try:
-        rgb_image = image.convert("RGB")
-        await runtime.run_sync(rgb_image.save, local_path, "JPEG")
-        await runtime.run_sync(
-            minio_instance.upload_file,
-            runtime.minio_bucket,
-            object_name,
-            local_path,
-            "image/jpeg",
-        )
-        return f"{runtime.minio_bucket}/{object_name}"
-    finally:
-        if runtime.os.path.exists(local_path):
-            runtime.os.remove(local_path)
 
 
 async def statistics(cls, runtime=None):
@@ -240,7 +208,6 @@ async def rebuild_v2_index(
                 images = list(images_result) if images_result else []
                 item_success_count = 0
                 success_image_ids: list[int] = []
-                segmented_records_to_create: list = []
                 deleted_existing = False
                 image_status_changed = False
 
@@ -287,57 +254,6 @@ async def rebuild_v2_index(
                             description=item.item_name,
                         )
 
-                        preprocess_outcome = getattr(manager, "last_preprocess_outcome", None)
-                        if preprocess_outcome is not None:
-                            if preprocess_outcome.result_image is not None:
-                                try:
-                                    segmented_url = await cls._upload_v2_segmented_image(
-                                        preprocess_outcome.result_image,
-                                        item.id,
-                                        img.id,
-                                    )
-                                    segmented_records_to_create.append(
-                                        runtime.SegmentedImage(
-                                            id=runtime.get_id(),
-                                            item_id=item.id,
-                                            source_image_id=img.id,
-                                            source_image_url=img.image_url,
-                                            segmented_image_url=segmented_url,
-                                            status=runtime.SegmentStatus.SUCCESS,
-                                            is_indexed=1 if siglip_ok and dinov2_ok else 0,
-                                        )
-                                    )
-                                except Exception as exc:
-                                    runtime.logger.warning(
-                                        "保存分割图失败: item=%s, image=%s, error=%s",
-                                        item.id,
-                                        img.id,
-                                        exc,
-                                    )
-                                    segmented_records_to_create.append(
-                                        runtime.SegmentedImage(
-                                            id=runtime.get_id(),
-                                            item_id=item.id,
-                                            source_image_id=img.id,
-                                            source_image_url=img.image_url,
-                                            status=runtime.SegmentStatus.FAILED,
-                                            is_indexed=0,
-                                            error_message=str(exc),
-                                        )
-                                    )
-                            else:
-                                segmented_records_to_create.append(
-                                    runtime.SegmentedImage(
-                                        id=runtime.get_id(),
-                                        item_id=item.id,
-                                        source_image_id=img.id,
-                                        source_image_url=img.image_url,
-                                        status=runtime.SegmentStatus.FAILED,
-                                        is_indexed=0,
-                                        error_message="SAM3 preprocessing returned no segmented image",
-                                    )
-                                )
-
                         if siglip_ok and dinov2_ok:
                             success_count += 1
                             item_success_count += 1
@@ -358,9 +274,6 @@ async def rebuild_v2_index(
 
             if success_image_ids:
                 await runtime.SgoItemImages.indexed_image(session=session, image_id_list=success_image_ids)
-                image_status_changed = True
-            if segmented_records_to_create:
-                await runtime.SegmentedImage.batch_create(session, segmented_records_to_create)
                 image_status_changed = True
             if image_status_changed:
                 await session.commit()

@@ -20,7 +20,6 @@ from csrcqsf.infra.external.model_client import get_model_client
 logger = setup_logger(__name__)
 
 IMAGE_VARIANT_ORIGINAL = "original"
-IMAGE_VARIANT_SAM3_SEGMENTED = "sam3_segmented"
 LEGACY_PATCH_TOKENS_MARKER = os.path.join(
     "csrcqsf", "biz", "railwayparts", "vector_db", "patch_tokens"
 ) + os.sep
@@ -33,13 +32,12 @@ class MilvusManagerV2:
         self,
         config_path: Optional[str] = None,
         db_config_path: Optional[str] = None,
-        enable_sam3: bool = True
     ):
         """
         初始化 Milvus 管理器
 
         模型推理已迁移至独立的模型服务（MODEL_SERVICE_URL），
-        本地不再加载 SigLIP/DINOv2/SAM3 模型。
+        本地不再加载 SigLIP/DINOv2 模型。
         """
         logger.info("Initializing Milvus Manager...")
 
@@ -55,7 +53,6 @@ class MilvusManagerV2:
         self.siglip_collection = env_config.siglip_collection_name
         self.dinov2_collection = env_config.dinov2_collection_name
         self.patch_tokens_dir = env_config.dinov2_patch_tokens_dir
-        self.enable_sam3 = enable_sam3
 
         # 初始化 Milvus Collection 管理器
         logger.info(f"Connecting to Milvus at {env_config.milvus_host}:{env_config.milvus_port}")
@@ -65,7 +62,6 @@ class MilvusManagerV2:
         )
         self.image_variant_supported = self._detect_image_variant_support()
         self.patch_token_key_supported = self._detect_patch_token_key_support()
-        self.last_preprocess_outcome = None
 
         # 初始化图像加载器
         logger.info(f"Initializing image loader with MinIO endpoint: {env_config.minio_endpoint}")
@@ -81,7 +77,6 @@ class MilvusManagerV2:
         logger.info("Milvus Manager initialized successfully (models via remote service)")
         logger.info(f"  - SigLIP Collection: {self.siglip_collection}")
         logger.info(f"  - DINOv2 Collection: {self.dinov2_collection}")
-        logger.info(f"  - SAM3 Enabled: {self.enable_sam3}")
         logger.info(f"  - Image Variant Supported: {self.image_variant_supported}")
         logger.info(f"  - Patch Token Key Supported: {self.patch_token_key_supported}")
 
@@ -182,7 +177,7 @@ class MilvusManagerV2:
                 logger.warning(
                     "Milvus collections do not support image_variant; "
                     "falling back to legacy single-representation mode. "
-                    "Recreate V2 collections to enable original+segmented dual-write."
+                    "Recreate V2 collections to persist the original image variant explicitly."
                 )
             return supported
         except Exception as e:
@@ -334,31 +329,13 @@ class MilvusManagerV2:
         siglip_success = False
         dinov2_success = False
 
-        preprocess_outcome = None
-        if self.enable_sam3:
-            try:
-                result_image = await self.model_client.sam3_preprocess(image, item_name)
-                if result_image is not None:
-                    logger.debug(f"SAM3 preprocessing applied for image {image_id}")
-                    preprocess_outcome = result_image
-                else:
-                    logger.warning(f"SAM3 preprocessing failed for {image_id}, using original image")
-            except Exception as e:
-                logger.error(f"SAM3 preprocessing error for {image_id}: {e}")
-        self.last_preprocess_outcome = preprocess_outcome
-
         variant_supported = self._supports_image_variant()
         if variant_supported:
             image_variants: list[tuple[Optional[str], Image.Image]] = [
                 (IMAGE_VARIANT_ORIGINAL, image),
             ]
-            if preprocess_outcome is not None:
-                image_variants.append(
-                    (IMAGE_VARIANT_SAM3_SEGMENTED, preprocess_outcome)
-                )
         else:
-            legacy_image = preprocess_outcome if preprocess_outcome is not None else image
-            image_variants = [(None, legacy_image)]
+            image_variants = [(None, image)]
 
         # SigLIP 索引
         try:
@@ -506,19 +483,8 @@ class MilvusManagerV2:
         """SigLIP 图像检索"""
         logger.info(f"Image search with SigLIP (top-{top_k})")
 
-        # SAM3 预处理查询图像（如果启用）
-        processed_image = image
-        if self.enable_sam3:
-            try:
-                preprocessed = await self.model_client.sam3_preprocess(image, "query_object")
-                if preprocessed is not None:
-                    processed_image = preprocessed
-                    logger.debug("SAM3 preprocessing applied to query image")
-            except Exception as e:
-                logger.warning(f"SAM3 preprocessing failed for query image: {e}")
-
         # 提取图像特征
-        image_vector = await self.model_client.siglip_image_features(processed_image)
+        image_vector = await self.model_client.siglip_image_features(image)
 
         # 在 Milvus 中检索
         results = self.collection_manager.client.search(
@@ -540,20 +506,9 @@ class MilvusManagerV2:
         """DINOv2 两阶段图像检索"""
         logger.info(f"Image search with DINOv2 two-stage (coarse: {coarse_top_k}, fine: {fine_top_k})")
 
-        # SAM3 预处理查询图像（如果启用）
-        processed_image = image
-        if self.enable_sam3:
-            try:
-                preprocessed = await self.model_client.sam3_preprocess(image, "query_object")
-                if preprocessed is not None:
-                    processed_image = preprocessed
-                    logger.debug("SAM3 preprocessing applied to query image")
-            except Exception as e:
-                logger.warning(f"SAM3 preprocessing failed for query image: {e}")
-
         # 提取查询图像特征
-        query_global = await self.model_client.dinov2_global_vector(processed_image)
-        query_patch_tokens = await self.model_client.dinov2_patch_tokens(processed_image)
+        query_global = await self.model_client.dinov2_global_vector(image)
+        query_patch_tokens = await self.model_client.dinov2_patch_tokens(image)
 
         # 阶段1: 粗排
         logger.info("  Stage 1: Coarse ranking...")
@@ -614,21 +569,10 @@ class MilvusManagerV2:
         """混合图像检索（SigLIP + DINOv2 RRF 融合 + Patch 精排）"""
         logger.info(f"Image search with hybrid mode (coarse: {coarse_top_k}, fine: {fine_top_k}, alpha: {alpha})")
 
-        # SAM3 预处理查询图像（如果启用）
-        processed_image = image
-        if self.enable_sam3:
-            try:
-                preprocessed = await self.model_client.sam3_preprocess(image, "query_object")
-                if preprocessed is not None:
-                    processed_image = preprocessed
-                    logger.debug("SAM3 preprocessing applied to query image")
-            except Exception as e:
-                logger.warning(f"SAM3 preprocessing failed for query image: {e}")
-
         # 提取查询图像特征
-        siglip_vector = await self.model_client.siglip_image_features(processed_image)
-        dinov2_global = await self.model_client.dinov2_global_vector(processed_image)
-        query_patch_tokens = await self.model_client.dinov2_patch_tokens(processed_image)
+        siglip_vector = await self.model_client.siglip_image_features(image)
+        dinov2_global = await self.model_client.dinov2_global_vector(image)
+        query_patch_tokens = await self.model_client.dinov2_patch_tokens(image)
 
         # 阶段1: RRF 融合粗排
         logger.info("  Stage 1: RRF fusion...")

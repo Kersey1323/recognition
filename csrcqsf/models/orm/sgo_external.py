@@ -1617,8 +1617,9 @@ class SgoMaterielMasterplate(Base):
 
     @classmethod
     async def list_sgo_items(cls, session: AsyncSession):
-        stmt = select(cls).where(cls.column_id == 'A1')
-        return await session.scalars(stmt)
+        stmt = select(cls.id, cls.maktx, cls.MATNR).where(cls.column_id == 'A1')
+        result = await session.execute(stmt)
+        return result.all()
 
 
 class SgoMaterielSupplier(Base):

@@ -206,13 +206,11 @@ class MilvusManagerV2(_BaseMilvusManagerV2):
         cls,
         config_path: str | None = None,
         db_config_path: str | None = None,
-        enable_sam3: bool = True,
     ) -> "MilvusManagerV2":
         if cls._instance is None:
             cls._instance = cls(
                 config_path=config_path,
                 db_config_path=db_config_path,
-                enable_sam3=enable_sam3,
             )
         return cls._instance
 

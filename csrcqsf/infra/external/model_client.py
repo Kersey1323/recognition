@@ -1,5 +1,6 @@
 import base64
 import io
+import time
 from typing import Optional
 
 import aiohttp
@@ -14,12 +15,12 @@ from globals_vars import logger
 def _image_to_base64(image) -> str:
     if isinstance(image, Image.Image):
         buf = io.BytesIO()
-        image.save(buf, format="PNG")
+        image.convert("RGB").save(buf, format="JPEG", quality=90, optimize=True)
         return base64.b64encode(buf.getvalue()).decode()
     elif isinstance(image, np.ndarray):
-        pil_image = Image.fromarray(image.astype("uint8"))
+        pil_image = Image.fromarray(image.astype("uint8")).convert("RGB")
         buf = io.BytesIO()
-        pil_image.save(buf, format="PNG")
+        pil_image.save(buf, format="JPEG", quality=90, optimize=True)
         return base64.b64encode(buf.getvalue()).decode()
     elif isinstance(image, bytes):
         return base64.b64encode(image).decode()
@@ -39,12 +40,21 @@ class ModelServiceClient:
     async def _post(self, path: str, json_data: dict) -> dict:
         url = f"{self.base_url}{path}"
         timeout = aiohttp.ClientTimeout(total=120)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, json=json_data) as resp:
-                if resp.status != 200:
-                    detail = await read_remote_error(resp)
-                    raise Exception(f"Model service error [{resp.status}]: {detail}")
-                return await resp.json()
+        started_at = time.perf_counter()
+        image_payload_size = len(json_data.get("image_base64") or "")
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=json_data) as resp:
+                    if resp.status != 200:
+                        detail = await read_remote_error(resp)
+                        raise Exception(f"Model service error [{resp.status}]: {detail}")
+                    return await resp.json()
+        finally:
+            elapsed = time.perf_counter() - started_at
+            logger.info(
+                f"模型服务调用: path={path}, elapsed={elapsed:.3f}s, "
+                f"image_payload={image_payload_size / 1024:.1f}KiB"
+            )
 
     async def siglip_image_features(self, image) -> np.ndarray:
         data = await self._post("/api/v1/siglip/image-features", {
@@ -91,16 +101,6 @@ class ModelServiceClient:
         raw = base64.b64decode(data["embedding_base64"])
         shape = tuple(data["shape"])
         return np.frombuffer(raw, dtype=np.float32).reshape(shape)
-
-    async def sam3_preprocess(self, image, item_name: str) -> Optional[Image.Image]:
-        data = await self._post("/api/v1/sam3/preprocess", {
-            "image_base64": _image_to_base64(image),
-            "item_name": item_name,
-        })
-        if not data.get("success"):
-            return None
-        img_bytes = base64.b64decode(data["result_image_base64"])
-        return Image.open(io.BytesIO(img_bytes))
 
     async def ocr_recognize(self, image) -> list:
         data = await self._post("/api/v1/ocr/recognize", {

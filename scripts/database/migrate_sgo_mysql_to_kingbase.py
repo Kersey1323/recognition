@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""将询码记录相关表从 SGO MySQL 迁移到本机 KingbaseES。"""
+"""将主业务使用的 SGO 表从 MySQL 迁移到 KingbaseES。"""
 
 from __future__ import annotations
 
@@ -165,7 +165,116 @@ TABLE_SPECS = {
             IndexSpec("idx_sgo_code_inquiry_return_item_code", ("item_code",)),
         ),
     ),
+    "sgo_materiel_masterplate": TableSpec(
+        "sgo_materiel_masterplate",
+        columns=(
+            ColumnSpec("id", "VARCHAR(64)", primary_key=True),
+            ColumnSpec("materiel_info_id", "VARCHAR(64)"),
+            ColumnSpec("MATNR", "VARCHAR(12)"),
+            ColumnSpec("mfc_id", "VARCHAR(10)"),
+            ColumnSpec("technical_notes", "VARCHAR(2000)"),
+            ColumnSpec("gross_weight", "VARCHAR(10)"),
+            ColumnSpec("picture_info", "TEXT"),
+            ColumnSpec("column_id", "VARCHAR(255)"),
+            ColumnSpec("org_code", "VARCHAR(19)"),
+            ColumnSpec("item_type", "VARCHAR(32)"),
+            ColumnSpec("maintenance_type", "VARCHAR(5)"),
+            ColumnSpec("support_level", "VARCHAR(5)"),
+            ColumnSpec("place_class", "VARCHAR(5)"),
+            ColumnSpec("material_class", "VARCHAR(5)"),
+            ColumnSpec("create_time", "TIMESTAMP"),
+            ColumnSpec("creater_account", "VARCHAR(20)"),
+            ColumnSpec("creater", "VARCHAR(10)"),
+            ColumnSpec("update_time", "TIMESTAMP"),
+            ColumnSpec("updater_account", "VARCHAR(20)"),
+            ColumnSpec("updater", "VARCHAR(10)"),
+            ColumnSpec("is_sap", "VARCHAR(5)"),
+            ColumnSpec("is_train", "VARCHAR(5)"),
+            ColumnSpec("tenant_id_", "VARCHAR(64)"),
+            ColumnSpec("MATERIEL_TYPE", "VARCHAR(2)"),
+            ColumnSpec("maktx", "VARCHAR(255)"),
+            ColumnSpec("vrkme", "VARCHAR(150)"),
+            ColumnSpec("zeinr", "VARCHAR(150)"),
+            ColumnSpec("show_status", "VARCHAR(255)"),
+            ColumnSpec("NTGEW", "VARCHAR(10)"),
+            ColumnSpec("use_status", "VARCHAR(255)"),
+            ColumnSpec("use_illustrate", "TEXT"),
+            ColumnSpec("is_batch", "VARCHAR(255)"),
+            ColumnSpec("inspect_flag", "VARCHAR(255)"),
+            ColumnSpec("inspect_file", "VARCHAR(100)"),
+            ColumnSpec("maintenance_notes", "VARCHAR(100)"),
+            ColumnSpec("transportation_notes", "VARCHAR(100)"),
+            ColumnSpec("maintenance_flag", "VARCHAR(5)"),
+            ColumnSpec("min_packing_quantity", "VARCHAR(10)"),
+            ColumnSpec("vehicle_info", "VARCHAR(10)"),
+            ColumnSpec("catalog_info", "VARCHAR(10)"),
+            ColumnSpec("subjection_info", "VARCHAR(100)"),
+            ColumnSpec("wrkst", "VARCHAR(255)"),
+            ColumnSpec("material_quality", "VARCHAR(255)"),
+            ColumnSpec("GROES", "VARCHAR(155)"),
+            ColumnSpec("pic_flag", "CHAR(1)"),
+            ColumnSpec("remark", "VARCHAR(255)"),
+            ColumnSpec("flag", "VARCHAR(255)"),
+            ColumnSpec("remark_item", "VARCHAR(255)"),
+            ColumnSpec("is_express_suitable", "VARCHAR(5)"),
+        ),
+        indexes=(
+            IndexSpec(
+                "idx_sgo_materiel_masterplate_matnr_column",
+                ("MATNR", "column_id"),
+            ),
+            IndexSpec(
+                "idx_sgo_materiel_masterplate_info",
+                ("materiel_info_id",),
+            ),
+            IndexSpec(
+                "uq_sgo_materiel_masterplate_info_column",
+                ("materiel_info_id", "column_id"),
+                unique=True,
+            ),
+        ),
+    ),
+    "sgo_materiel_file_img": TableSpec(
+        "sgo_materiel_file_img",
+        columns=(
+            ColumnSpec("id", "VARCHAR(64)", primary_key=True),
+            ColumnSpec("masterplate_id", "VARCHAR(64)"),
+            ColumnSpec("file_src", "VARCHAR(2000)"),
+            ColumnSpec("sort", "VARCHAR(2)"),
+            ColumnSpec("create_time", "TIMESTAMP"),
+            ColumnSpec("creater", "VARCHAR(20)"),
+            ColumnSpec("file_type", "VARCHAR(2)"),
+            ColumnSpec("file_title", "VARCHAR(50)"),
+            ColumnSpec("tenant_id_", "VARCHAR(64)"),
+            ColumnSpec("is_show", "VARCHAR(10)"),
+            ColumnSpec("is_download", "VARCHAR(10)"),
+        ),
+        indexes=(
+            IndexSpec(
+                "idx_sgo_materiel_file_img_masterplate_id",
+                ("masterplate_id",),
+            ),
+            IndexSpec(
+                "idx_sgo_materiel_file_img_file_type",
+                ("file_type",),
+            ),
+        ),
+    ),
 }
+
+
+def select_table_specs(raw_tables: str | None) -> dict[str, TableSpec]:
+    if not raw_tables:
+        return dict(TABLE_SPECS)
+
+    requested = [name.strip() for name in raw_tables.split(",") if name.strip()]
+    unknown = [name for name in requested if name not in TABLE_SPECS]
+    if unknown:
+        available = ", ".join(TABLE_SPECS)
+        raise ValueError(
+            f"未知迁移表: {', '.join(unknown)}；可选表: {available}"
+        )
+    return {name: TABLE_SPECS[name] for name in dict.fromkeys(requested)}
 
 
 class MigrationConfig(NamedTuple):
@@ -190,6 +299,21 @@ def _required_env(name: str) -> str:
     return value
 
 
+def _first_env(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return default
+
+
+def _required_first_env(*names: str) -> str:
+    value = _first_env(*names)
+    if not value:
+        raise RuntimeError(f"缺少环境变量: {' 或 '.join(names)}")
+    return value
+
+
 def load_config() -> MigrationConfig:
     return MigrationConfig(
         source_host=_required_env("SGO_MYSQL_HOST"),
@@ -197,11 +321,26 @@ def load_config() -> MigrationConfig:
         source_user=_required_env("SGO_MYSQL_USER"),
         source_password=_required_env("SGO_MYSQL_PASSWORD"),
         source_database=os.getenv("SGO_MYSQL_DATABASE", "mdpdb").strip() or "mdpdb",
-        target_host=os.getenv("KINGBASE_HOST", "127.0.0.1").strip() or "127.0.0.1",
-        target_port=int(os.getenv("KINGBASE_PORT", "54321")),
-        target_user=os.getenv("KINGBASE_USER", "system").strip() or "system",
-        target_password=_required_env("KINGBASE_PASSWORD"),
-        target_database=os.getenv("KINGBASE_DATABASE", "mdpdb").strip() or "mdpdb",
+        target_host=_first_env(
+            "KINGBASE_HOST",
+            "SGO_KINGBASE_HOST",
+            default="127.0.0.1",
+        ),
+        target_port=int(_first_env("KINGBASE_PORT", "SGO_KINGBASE_PORT", default="54321")),
+        target_user=_first_env(
+            "KINGBASE_USER",
+            "SGO_KINGBASE_USER",
+            default="system",
+        ),
+        target_password=_required_first_env(
+            "KINGBASE_PASSWORD",
+            "SGO_KINGBASE_PASSWORD",
+        ),
+        target_database=_first_env(
+            "KINGBASE_DATABASE",
+            "SGO_KINGBASE_DATABASE",
+            default="mdpdb",
+        ),
         target_schema=os.getenv("KINGBASE_SCHEMA", "public").strip() or "public",
         target_admin_database=os.getenv("KINGBASE_ADMIN_DATABASE", "test").strip() or "test",
     )
@@ -233,12 +372,16 @@ def ensure_target_database(config: MigrationConfig) -> None:
         connection.close()
 
 
-def ensure_target_schema(connection, schema: str) -> None:
+def ensure_target_schema(
+    connection,
+    schema: str,
+    table_specs: dict[str, TableSpec],
+) -> None:
     with connection.cursor() as cursor:
         cursor.execute(
             sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema))
         )
-        for table in TABLE_SPECS.values():
+        for table in table_specs.values():
             cursor.execute(table.create_table_sql(schema))
             for index in table.indexes:
                 cursor.execute(table.create_index_sql(schema, index))
@@ -256,10 +399,16 @@ def target_count(connection, schema: str, table_name: str) -> int:
         return int(cursor.fetchone()[0])
 
 
-def prepare_target_tables(connection, schema: str, *, replace: bool) -> None:
+def prepare_target_tables(
+    connection,
+    schema: str,
+    table_specs: dict[str, TableSpec],
+    *,
+    replace: bool,
+) -> None:
     counts = {
         table_name: target_count(connection, schema, table_name)
-        for table_name in TABLE_SPECS
+        for table_name in table_specs
     }
     non_empty = {name: count for name, count in counts.items() if count > 0}
     if non_empty and not replace:
@@ -271,7 +420,7 @@ def prepare_target_tables(connection, schema: str, *, replace: bool) -> None:
         return
 
     with connection.cursor() as cursor:
-        for table_name in reversed(TABLE_SPECS):
+        for table_name in reversed(table_specs):
             cursor.execute(
                 sql.SQL("TRUNCATE TABLE {}.{}").format(
                     sql.Identifier(schema),
@@ -358,13 +507,14 @@ async def migrate_table(
 
 async def run_migration(args) -> None:
     config = load_config()
+    table_specs = select_table_specs(args.tables)
     if args.create_database:
         ensure_target_database(config)
 
     target_connection = _connect_kingbase(config)
     source_connection = None
     try:
-        ensure_target_schema(target_connection, config.target_schema)
+        ensure_target_schema(target_connection, config.target_schema, table_specs)
         if args.create_only:
             print("Kingbase 表结构创建完成")
             return
@@ -374,9 +524,10 @@ async def run_migration(args) -> None:
             prepare_target_tables(
                 target_connection,
                 config.target_schema,
+                table_specs,
                 replace=args.replace,
             )
-            for table in TABLE_SPECS.values():
+            for table in table_specs.values():
                 await migrate_table(
                     source_connection,
                     target_connection,
@@ -386,7 +537,7 @@ async def run_migration(args) -> None:
                 )
 
         mismatches = []
-        for table_name in TABLE_SPECS:
+        for table_name in table_specs:
             source_rows = await source_count(source_connection, table_name)
             target_rows = target_count(target_connection, config.target_schema, table_name)
             status = "一致" if source_rows == target_rows else "不一致"
@@ -399,7 +550,7 @@ async def run_migration(args) -> None:
 
         if mismatches:
             raise RuntimeError(f"迁移行数校验失败: {', '.join(mismatches)}")
-        print("询码记录表迁移及行数校验完成")
+        print("SGO 业务表迁移及行数校验完成")
     finally:
         if source_connection is not None:
             await source_connection.ensure_closed()
@@ -417,6 +568,10 @@ def parse_args():
     parser.add_argument("--create-only", action="store_true", help="只创建表结构")
     parser.add_argument("--verify-only", action="store_true", help="只比较源端和目标端行数")
     parser.add_argument(
+        "--tables",
+        help="仅迁移指定表；多张表用逗号分隔，默认迁移全部 SGO 业务表",
+    )
+    parser.add_argument(
         "--replace",
         action="store_true",
         help="清空 Kingbase 目标表后重新迁移；默认拒绝覆盖已有数据",
@@ -426,6 +581,10 @@ def parse_args():
         parser.error("--batch-size 必须大于 0")
     if args.create_only and args.verify_only:
         parser.error("--create-only 和 --verify-only 不能同时使用")
+    try:
+        select_table_specs(args.tables)
+    except ValueError as exc:
+        parser.error(str(exc))
     return args
 
 

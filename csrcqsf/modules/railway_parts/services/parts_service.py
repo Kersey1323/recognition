@@ -233,17 +233,6 @@ class RailwayPartsManager:
         )
 
     @classmethod
-    async def _upload_v2_segmented_image(cls, image, item_id: int, source_image_id: int) -> str:
-        _bind_parts_index_runtime()
-        return await parts_index_service._upload_v2_segmented_image(
-            cls,
-            image=image,
-            item_id=item_id,
-            source_image_id=source_image_id,
-            runtime=_runtime_context(),
-        )
-
-    @classmethod
     async def _upload_v2_search_query_image(
         cls,
         history_id: int,

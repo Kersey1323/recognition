@@ -1,11 +1,16 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from bfrcommon.api_models import PageReq, PageRes
 from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.modules.sgo.repositories import SgoItemImages
 from csrcqsf.modules.sgo.services import SGOBiz
-from csrcqsf.modules.sgo.schemas import ListInqueryItem
+from csrcqsf.modules.sgo.schemas import (
+    ListInqueryItem,
+    SgoSyncTaskStartRes,
+    SgoSyncTaskStatusRes,
+)
+from csrcqsf.modules.sgo.sync_task_manager import sgo_sync_task_manager
 
 import json
 
@@ -54,7 +59,16 @@ class SyncItemsImages(BaseModel):
     }
 })
 async def sgo_parts_sync(_: SyncItemsReq):
-    await SGOBiz.sync_parts_items()
+    try:
+        task = sgo_sync_task_manager.start("parts", SGOBiz.sync_parts_items)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return SgoSyncTaskStartRes(
+        message="配件基础信息同步任务已在后台启动",
+        task_id=task["task_id"],
+        task_type=task["task_type"],
+        status=task["status"],
+    )
 
 
 @sgo_router.post('/sgo/parts/images/sync', tags=["业务-SGO集成"], summary='同步选中的配件的照片', responses={
@@ -63,7 +77,32 @@ async def sgo_parts_sync(_: SyncItemsReq):
     }
 })
 async def sgo_parts_image_sync(req: SyncItemsImages):
-    await SGOBiz.sync_images(req.items_id_list)
+    try:
+        task = sgo_sync_task_manager.start(
+            "images",
+            SGOBiz.sync_images,
+            item_id_list=req.items_id_list,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return SgoSyncTaskStartRes(
+        message="配件图片同步任务已在后台启动",
+        task_id=task["task_id"],
+        task_type=task["task_type"],
+        status=task["status"],
+    )
+
+
+@sgo_router.get(
+    '/sgo/sync/status/{task_id}',
+    tags=["业务-SGO集成"],
+    summary='查询 SGO 同步任务进度',
+)
+async def sgo_sync_status(task_id: str):
+    task = sgo_sync_task_manager.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"SGO 同步任务不存在: task_id={task_id}")
+    return SgoSyncTaskStatusRes(**task)
 
 
 @sgo_router.post('/sgo/inquery/list', tags=["业务-SGO集成"], summary='获取询码记录列表', responses={
