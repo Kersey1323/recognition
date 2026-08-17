@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 from bfrcommon.api_models import PageReq, PageRes
 from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.modules.sgo.repositories import SgoItemImages
+from csrcqsf.modules.sgo.photo_parser import extract_photo_raw_urls
 from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.modules.sgo.schemas import (
     ListInqueryItem,
@@ -11,9 +12,6 @@ from csrcqsf.modules.sgo.schemas import (
     SgoSyncTaskStatusRes,
 )
 from csrcqsf.modules.sgo.sync_task_manager import sgo_sync_task_manager
-
-import json
-
 
 sgo_router = APIRouter(
     prefix="/sgo",
@@ -119,20 +117,8 @@ async def sgo_inquery_list(req: ListInqueryReq):
 
     raw_url_list: list[str] = []
     for data in inquery_list.data:
-        if data.nameplate_photos:
-            file_describe = json.loads(data.nameplate_photos)
-            for file_item in file_describe:
-                url_array = str(file_item['url']).split("_")
-                if len(url_array) < 2:
-                    continue
-                raw_url_list.append(url_array[1])
-        if data.detailed_photos:
-            file_describe = json.loads(data.detailed_photos)
-            for file_item in file_describe:
-                url_array = str(file_item['url']).split("_")
-                if len(url_array) < 2:
-                    continue
-                raw_url_list.append(url_array[1])
+        raw_url_list.extend(extract_photo_raw_urls(data.nameplate_photos))
+        raw_url_list.extend(extract_photo_raw_urls(data.detailed_photos))
 
     sgo_image_dict: dict[str, SgoItemImages] = {}
     if raw_url_list:
@@ -159,25 +145,13 @@ async def sgo_inquery_list(req: ListInqueryReq):
         item.train_no = data.train_no
         item.subordinate_component = data.subordinate_component
 
-        if data.nameplate_photos:
-            file_describe = json.loads(data.nameplate_photos)
-            for file_item in file_describe:
-                url_array = str(file_item['url']).split("_")
-                if len(url_array) < 2:
-                    continue
-                url = url_array[1]
-                if url in sgo_image_dict:
-                    item.nameplate_photos_urls.append(sgo_image_dict[url].image_url)
+        for url in extract_photo_raw_urls(data.nameplate_photos):
+            if url in sgo_image_dict:
+                item.nameplate_photos_urls.append(sgo_image_dict[url].image_url)
 
-        if data.detailed_photos:
-            file_describe = json.loads(data.detailed_photos)
-            for file_item in file_describe:
-                url_array = str(file_item['url']).split("_")
-                if len(url_array) < 2:
-                    continue
-                url = url_array[1]
-                if url in sgo_image_dict:
-                    item.detailed_photos_urls.append(sgo_image_dict[url].image_url)
+        for url in extract_photo_raw_urls(data.detailed_photos):
+            if url in sgo_image_dict:
+                item.detailed_photos_urls.append(sgo_image_dict[url].image_url)
 
         res.items.append(item)
 

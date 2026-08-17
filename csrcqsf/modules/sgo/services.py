@@ -32,6 +32,7 @@ from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import (
     MilvusStateManagerV2,
 )
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
+from csrcqsf.modules.sgo.photo_parser import extract_photo_raw_urls
 from csrcqsf.modules.sgo.schemas import ImageSourceType
 from csrcqsf.modules.sgo.sync_task_manager import sgo_sync_task_manager
 
@@ -347,25 +348,13 @@ class SGOBiz:
             need_download_pics: dict[str, int] = {}
             raw_url_list: list[str] = []
             for detailed_photos_str, nameplate_photos_str, item_code in results:
-                if detailed_photos_str:
-                    detailed_photos = json.loads(detailed_photos_str)
-                    for photo in detailed_photos:
-                        url_array = str(photo["url"]).split("_")
-                        if len(url_array) < 2:
-                            continue
-                        url = url_array[1]
-                        need_download_pics[url] = items_dict[item_code].id
-                        raw_url_list.append(url)
+                for url in extract_photo_raw_urls(detailed_photos_str):
+                    need_download_pics[url] = items_dict[item_code].id
+                    raw_url_list.append(url)
 
-                if nameplate_photos_str:
-                    nameplate_photos = json.loads(nameplate_photos_str)
-                    for photo in nameplate_photos:
-                        url_array = str(photo["url"]).split("_")
-                        if len(url_array) < 2:
-                            continue
-                        url = url_array[1]
-                        need_download_pics[url] = items_dict[item_code].id
-                        raw_url_list.append(url)
+                for url in extract_photo_raw_urls(nameplate_photos_str):
+                    need_download_pics[url] = items_dict[item_code].id
+                    raw_url_list.append(url)
 
         if not raw_url_list:
             return 0

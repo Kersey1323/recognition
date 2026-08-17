@@ -93,3 +93,41 @@ def test_kingbase_dialect_reads_postgresql_compatible_server_version():
     dialect = KingbaseAsyncpgDialect()
 
     assert dialect._get_server_version_info(Connection()) == (12, 1)
+
+
+def test_kingbase_introspection_casts_recursive_depth_anchors_to_bigint():
+    from csrcqsf.infra.db.kingbase_dialect import _patch_asyncpg_introspection_query
+
+    query = """
+        WITH RECURSIVE typebases(oid, depth) AS (
+            SELECT t2.typbasetype AS oid, 0 AS depth
+            UNION ALL
+            SELECT t2.typbasetype AS oid, tb.depth + 1 AS depth
+        ),
+        typeinfo_tree(attrnames, depth) AS (
+            SELECT ti.attrnames, 0
+            UNION ALL
+            SELECT ti.attrnames, tt.depth + 1
+        )
+    """
+
+    patched = _patch_asyncpg_introspection_query(query)
+
+    assert "CAST(0 AS BIGINT) AS depth" in patched
+    assert "SELECT ti.attrnames, CAST(0 AS BIGINT)" in patched
+
+
+def test_kingbase_dialect_uses_patched_asyncpg_connection():
+    from sqlalchemy.engine import make_url
+
+    from csrcqsf.infra.db.kingbase_dialect import (
+        KingbaseAsyncpgConnection,
+        KingbaseAsyncpgDialect,
+    )
+
+    dialect = KingbaseAsyncpgDialect()
+    _, connect_args = dialect.create_connect_args(
+        make_url("kingbase+asyncpg://system:password@127.0.0.1:54321/mdpdb")
+    )
+
+    assert connect_args["connection_class"] is KingbaseAsyncpgConnection
