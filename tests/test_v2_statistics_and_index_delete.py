@@ -213,7 +213,11 @@ def test_rebuild_v2_index_syncs_single_item_state_after_success():
 
     session = AsyncMock()
     fake_item = SimpleNamespace(id=101, item_name="橡胶套", item_code="40000543491")
-    fake_image = SimpleNamespace(id=9001, image_url="bfr-ai-files/demo.jpg")
+    fake_image = SimpleNamespace(
+        id=9001,
+        image_url="bfr-ai-files/demo.jpg",
+        image_source="CREATEBYSELF",
+    )
     fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
     fake_state_manager = MagicMock()
     fake_cv2 = SimpleNamespace(
@@ -246,7 +250,11 @@ def test_rebuild_v2_index_bulk_mode_filters_existing_indexes_by_default():
         item_code="40000543491",
         has_v2_index=0,
     )
-    fake_image = SimpleNamespace(id=9001, image_url="bfr-ai-files/demo.jpg")
+    fake_image = SimpleNamespace(
+        id=9001,
+        image_url="bfr-ai-files/demo.jpg",
+        image_source="CREATEBYSELF",
+    )
     fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
     fake_state_manager = MagicMock()
     fake_cv2 = SimpleNamespace(
@@ -281,7 +289,11 @@ def test_rebuild_v2_index_reports_tqdm_progress_and_eta():
         SimpleNamespace(id=101, item_name="橡胶套", item_code="A", has_v2_index=0),
         SimpleNamespace(id=102, item_name="固定座", item_code="B", has_v2_index=0),
     ]
-    fake_image = SimpleNamespace(id=9001, image_url="bfr-ai-files/demo.jpg")
+    fake_image = SimpleNamespace(
+        id=9001,
+        image_url="bfr-ai-files/demo.jpg",
+        image_source="CREATEBYSELF",
+    )
     fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
     progress_events = []
 
@@ -350,7 +362,11 @@ def test_rebuild_v2_index_force_mode_deletes_existing_vectors_before_reindex():
         item_code="40000543491",
         has_v2_index=1,
     )
-    fake_image = SimpleNamespace(id=9001, image_url="bfr-ai-files/demo.jpg")
+    fake_image = SimpleNamespace(
+        id=9001,
+        image_url="bfr-ai-files/demo.jpg",
+        image_source="CREATEBYSELF",
+    )
     fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
     fake_state_manager = MagicMock()
     fake_cv2 = SimpleNamespace(
@@ -401,7 +417,11 @@ def test_rebuild_v2_index_force_mode_syncs_state_after_delete_even_if_reindex_fa
         item_code="40000543491",
         has_v2_index=1,
     )
-    fake_image = SimpleNamespace(id=9001, image_url="bfr-ai-files/demo.jpg")
+    fake_image = SimpleNamespace(
+        id=9001,
+        image_url="bfr-ai-files/demo.jpg",
+        image_source="CREATEBYSELF",
+    )
     fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
     fake_state_manager = MagicMock()
     fake_cv2 = SimpleNamespace(
@@ -442,8 +462,16 @@ def test_rebuild_v2_index_marks_successful_images_indexed_in_pg():
         has_v2_index=0,
     )
     fake_images = [
-        SimpleNamespace(id=9001, image_url="bfr-ai-files/a.jpg"),
-        SimpleNamespace(id=9002, image_url="bfr-ai-files/b.jpg"),
+        SimpleNamespace(
+            id=9001,
+            image_url="bfr-ai-files/a.jpg",
+            image_source="CREATEBYSELF",
+        ),
+        SimpleNamespace(
+            id=9002,
+            image_url="bfr-ai-files/b.jpg",
+            image_source="CREATEBYSELF",
+        ),
     ]
     fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
     fake_state_manager = MagicMock()
@@ -479,7 +507,11 @@ def test_rebuild_v2_index_ignores_obsolete_segmented_image_outcome():
         item_code="40000976677",
         has_v2_index=0,
     )
-    fake_image = SimpleNamespace(id=9001, image_url="bfr-ai-files/source-a.jpg")
+    fake_image = SimpleNamespace(
+        id=9001,
+        image_url="bfr-ai-files/source-a.jpg",
+        image_source="CREATEBYSELF",
+    )
     fake_image_array = np.zeros((2, 2, 3), dtype=np.uint8)
     fake_state_manager = MagicMock()
     fake_cv2 = SimpleNamespace(

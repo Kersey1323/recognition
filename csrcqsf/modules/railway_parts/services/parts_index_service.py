@@ -266,14 +266,15 @@ async def rebuild_v2_index(
                         raw_image_source = getattr(img, "image_source", None)
                         image_source = getattr(raw_image_source, "value", raw_image_source)
                         existing_segmented = None
-                        if image_source != "INQUERY" and not rebuild_existing:
+                        should_segment = image_source == "CREATEBYSELF"
+                        if should_segment and not rebuild_existing:
                             existing_segmented = await segmented_service.get_latest_success(
                                 item.id,
                                 img.id,
                             )
 
-                        if image_source == "INQUERY":
-                            # 询码图片保留现场背景信息，直接使用原图建立检索索引。
+                        if not should_segment:
+                            # 仅手动上传图片执行主体分割，业务同步图片保留原始画面建立索引。
                             image_vector = await model_client.siglip_image_features(pil_image)
                             global_vector = await model_client.dinov2_global_vector(pil_image)
                             patch_tokens = await model_client.dinov2_patch_tokens(pil_image)
@@ -295,7 +296,11 @@ async def rebuild_v2_index(
                                 is_fallback_error = (
                                     isinstance(exc, runtime.ModelServiceError)
                                     and exc.error_code
-                                    in {"foreground_not_detected", "empty_mask"}
+                                    in {
+                                        "foreground_not_detected",
+                                        "empty_mask",
+                                        "invalid_foreground_mask",
+                                    }
                                 )
                                 await segmented_service.persist_failure(
                                     item_id=item.id,

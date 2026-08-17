@@ -148,7 +148,7 @@ def test_rebuild_requires_composite_model_capability_before_opening_database():
     runtime.SessionLocal.assert_not_called()
 
 
-def test_rebuild_segments_managed_sources_but_indexes_inquery_original_image():
+def test_rebuild_segments_only_createbyself_and_indexes_other_sources_original():
     images = [
         SimpleNamespace(id=9001, image_url="bfr-ai-files/a.jpg", image_source="BASEINFO"),
         SimpleNamespace(id=9002, image_url="bfr-ai-files/b.jpg", image_source="INQUERY"),
@@ -165,25 +165,27 @@ def test_rebuild_segments_managed_sources_but_indexes_inquery_original_image():
     )
 
     scenario.model_client.require_indexing_extract_capability.assert_awaited_once()
-    assert scenario.model_client.indexing_extract.await_count == 2
-    assert scenario.segmented_service.get_latest_success.await_count == 2
+    assert scenario.model_client.indexing_extract.await_count == 1
+    assert scenario.segmented_service.get_latest_success.await_count == 1
     assert [
         call.args[1]
         for call in scenario.segmented_service.get_latest_success.await_args_list
-    ] == [9001, 9003]
-    assert scenario.segmented_service.persist_success.await_count == 2
-    scenario.model_client.siglip_image_features.assert_awaited_once()
-    scenario.model_client.dinov2_global_vector.assert_awaited_once()
-    scenario.model_client.dinov2_patch_tokens.assert_awaited_once()
+    ] == [9003]
+    assert scenario.segmented_service.persist_success.await_count == 1
+    assert scenario.model_client.siglip_image_features.await_count == 2
+    assert scenario.model_client.dinov2_global_vector.await_count == 2
+    assert scenario.model_client.dinov2_patch_tokens.await_count == 2
     assert scenario.manager.index_precomputed_features.await_count == 3
-    inquery_call = next(
-        call
+    calls_by_image_id = {
+        call.kwargs["image_id"]: call.kwargs
         for call in scenario.manager.index_precomputed_features.await_args_list
-        if call.kwargs["image_id"] == 9002
-    )
-    assert inquery_call.kwargs["image_url"] == "bfr-ai-files/b.jpg"
-    assert inquery_call.kwargs["image_variant"] == "original"
-    assert result["segmented_count"] == 2
+    }
+    assert calls_by_image_id[9001]["image_url"] == "bfr-ai-files/a.jpg"
+    assert calls_by_image_id[9001]["image_variant"] == "original"
+    assert calls_by_image_id[9002]["image_url"] == "bfr-ai-files/b.jpg"
+    assert calls_by_image_id[9002]["image_variant"] == "original"
+    assert calls_by_image_id[9003]["image_variant"] == "segmented"
+    assert result["segmented_count"] == 1
     assert result["fallback_count"] == 0
     assert result["success_count"] == 3
 
@@ -192,7 +194,7 @@ def test_foreground_detection_error_falls_back_to_original_features():
     image = SimpleNamespace(
         id=9001,
         image_url="bfr-ai-files/a.jpg",
-        image_source="BASEINFO",
+        image_source="CREATEBYSELF",
     )
     scenario = build_scenario(
         [image],
@@ -220,11 +222,41 @@ def test_foreground_detection_error_falls_back_to_original_features():
     assert result["success_count"] == 1
 
 
+def test_invalid_foreground_mask_falls_back_to_original_features():
+    image = SimpleNamespace(
+        id=9001,
+        image_url="bfr-ai-files/a.jpg",
+        image_source="CREATEBYSELF",
+    )
+    scenario = build_scenario(
+        [image],
+        extraction_side_effect=ModelServiceError(
+            422,
+            "turntable-like mask",
+            error_code="invalid_foreground_mask",
+        ),
+    )
+
+    result = asyncio.run(
+        parts_index_service.rebuild_v2_index(
+            scenario.railway_manager,
+            item_id=101,
+            runtime=scenario.runtime,
+        )
+    )
+
+    call = scenario.manager.index_precomputed_features.await_args.kwargs
+    assert call["image_url"] == "bfr-ai-files/a.jpg"
+    assert call["image_variant"] == "original"
+    assert result["fallback_count"] == 1
+    assert result["success_count"] == 1
+
+
 def test_model_service_unavailable_does_not_silently_fallback():
     image = SimpleNamespace(
         id=9001,
         image_url="bfr-ai-files/a.jpg",
-        image_source="BASEINFO",
+        image_source="CREATEBYSELF",
     )
     scenario = build_scenario(
         [image],
@@ -250,7 +282,7 @@ def test_existing_segmented_image_is_reused_without_running_segmentation_again()
     image = SimpleNamespace(
         id=9001,
         image_url="bfr-ai-files/a.jpg",
-        image_source="BASEINFO",
+        image_source="CREATEBYSELF",
     )
     existing = SimpleNamespace(
         id=7001,
