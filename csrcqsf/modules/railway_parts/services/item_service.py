@@ -25,6 +25,7 @@ def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) ->
             "SgoCodeInquiryReturn": parts_service_module.SgoCodeInquiryReturn,
             "SgoItemImages": parts_service_module.SgoItemImages,
             "SegmentedImage": parts_service_module.SegmentedImage,
+            "SegmentedImageService": parts_service_module.SegmentedImageService,
             "ImageSourceType": parts_service_module.ImageSourceType,
             "SegmentStatus": parts_service_module.SegmentStatus,
             "ListItem": parts_service_module.ListItem,
@@ -142,6 +143,15 @@ async def delete_item_image(
         await session.commit()
 
     image_url = image.image_url
+    segmented_error = ""
+    try:
+        async with runtime.SessionLocal() as session:
+            segmented_service = runtime.SegmentedImageService(session)
+            await segmented_service.remove_source_artifacts(item_id, image_id)
+            await session.commit()
+    except Exception as exc:
+        segmented_error = str(exc)
+
     minio_deleted = False
     minio_error = ""
     if image_url:
@@ -157,14 +167,23 @@ async def delete_item_image(
     try:
         state_manager = runtime._get_milvus_state_manager_v2_cls()()
         delete_result = state_manager.delete_item_image_index(item_id, image_id)
+        state_manager.delete_item_image_patch_tokens(item_id, image_id)
         milvus_delete_count = int(delete_result.get("total_deleted", 0))
         milvus_deleted = True
     except Exception as exc:
         milvus_error = str(exc)
 
     message = "图片删除成功"
-    if minio_error and milvus_error:
+    if segmented_error and minio_error and milvus_error:
+        message = "图片已删除，分割产物、MinIO 原图和 Milvus 索引删除失败，请人工检查对象残留并对该配件重新同步索引"
+    elif minio_error and milvus_error:
         message = "图片已删除，MinIO 对象和 Milvus 索引删除失败，请人工检查对象残留并对该配件重新同步索引"
+    elif segmented_error and minio_error:
+        message = "图片已删除，分割产物和 MinIO 原图删除失败，请人工检查对象残留并对该配件重新同步索引"
+    elif segmented_error and milvus_error:
+        message = "图片已删除，分割产物和 Milvus 索引删除失败，请对该配件重新同步索引"
+    elif segmented_error:
+        message = "图片已删除，分割产物删除失败，请对该配件重新同步索引"
     elif minio_error:
         message = "图片已删除，MinIO 对象删除失败，请人工检查对象残留"
     elif milvus_error:

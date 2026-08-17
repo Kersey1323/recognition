@@ -32,6 +32,9 @@ def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) ->
             "date_to_str": parts_service_module.date_to_str,
             "_get_milvus_manager_v2_cls": parts_service_module._get_milvus_manager_v2_cls,
             "_get_milvus_state_manager_v2_cls": parts_service_module._get_milvus_state_manager_v2_cls,
+            "get_model_client": parts_service_module.get_model_client,
+            "ModelServiceError": parts_service_module.ModelServiceError,
+            "SegmentedImageService": parts_service_module.SegmentedImageService,
         }
     )
 
@@ -122,6 +125,9 @@ async def rebuild_v2_index(
     runtime=None,
 ):
     runtime = runtime or _runtime()
+    model_client = runtime.get_model_client()
+    # 索引任务必须具备完整分割和特征能力；模型缺失时整批拒绝，避免悄悄生成原图索引。
+    await model_client.require_indexing_extract_capability()
     manager = runtime._get_milvus_manager_v2_cls()()
     state_manager = runtime._get_milvus_state_manager_v2_cls()()
 
@@ -147,6 +153,8 @@ async def rebuild_v2_index(
         fail_count = 0
         processed_item_count = 0
         skipped_existing_count = 0
+        segmented_count = 0
+        fallback_count = 0
 
         from tqdm import tqdm
 
@@ -169,6 +177,8 @@ async def rebuild_v2_index(
                     "processed_items": processed_items,
                     "success_count": success_count,
                     "fail_count": fail_count,
+                    "segmented_count": segmented_count,
+                    "fallback_count": fallback_count,
                     "current_item_id": current_item_id,
                     "estimated_remaining_seconds": estimated_remaining_seconds,
                 }
@@ -210,28 +220,35 @@ async def rebuild_v2_index(
                 success_image_ids: list[int] = []
                 deleted_existing = False
                 image_status_changed = False
+                segmented_service = runtime.SegmentedImageService(session)
 
                 if len(images) == 0:
                     runtime.logger.warning(f"配件 {item.id} 没有图片，跳过")
                     continue
 
-                if rebuild_existing and getattr(item, "has_v2_index", 0) == 1:
-                    delete_result = state_manager.delete_item_index(item.id)
+                if rebuild_existing:
+                    delete_result = {"siglip_deleted": 0, "dinov2_deleted": 0}
+                    if getattr(item, "has_v2_index", 0) == 1:
+                        delete_result = state_manager.delete_item_index(item.id)
+                    deleted_patch_tokens = manager.delete_item_patch_tokens(item.id)
+                    for image in images:
+                        await segmented_service.remove_source_artifacts(item.id, image.id)
                     await runtime.SgoItemImages.un_indexed_image(
                         session=session,
                         image_id_list=[img.id for img in images],
                     )
-                    await runtime.SegmentedImage.delete_by_item_id(session, item.id)
                     deleted_existing = True
                     image_status_changed = True
                     runtime.logger.info(
-                        "强制重建前已删除旧索引: item=%s, siglip=%s, dinov2=%s",
+                        "强制重建前已删除旧索引: item=%s, siglip=%s, dinov2=%s, patch_tokens=%s",
                         item.id,
                         int(delete_result.get("siglip_deleted", 0) or 0),
                         int(delete_result.get("dinov2_deleted", 0) or 0),
+                        deleted_patch_tokens,
                     )
 
                 processed_item_count += 1
+                text_vector = await model_client.siglip_text_features(item.item_name)
                 for img in images:
                     try:
                         image_array = await cls.get_image_from_oss(img.image_url)
@@ -244,17 +261,93 @@ async def rebuild_v2_index(
 
                         image_rgb = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
                         pil_image = Image.fromarray(image_rgb)
-                        siglip_ok, dinov2_ok = await manager.index_image(
-                            image=pil_image,
+
+                        segmented_record = None
+                        raw_image_source = getattr(img, "image_source", None)
+                        image_source = getattr(raw_image_source, "value", raw_image_source)
+                        existing_segmented = None
+                        if image_source != "INQUERY" and not rebuild_existing:
+                            existing_segmented = await segmented_service.get_latest_success(
+                                item.id,
+                                img.id,
+                            )
+
+                        if image_source == "INQUERY":
+                            # 询码图片保留现场背景信息，直接使用原图建立检索索引。
+                            image_vector = await model_client.siglip_image_features(pil_image)
+                            global_vector = await model_client.dinov2_global_vector(pil_image)
+                            patch_tokens = await model_client.dinov2_patch_tokens(pil_image)
+                            indexed_image_url = img.image_url
+                            image_variant = "original"
+                        elif existing_segmented is not None:
+                            indexed_image = await segmented_service.load_image(existing_segmented)
+                            image_vector = await model_client.siglip_image_features(indexed_image)
+                            global_vector = await model_client.dinov2_global_vector(indexed_image)
+                            patch_tokens = await model_client.dinov2_patch_tokens(indexed_image)
+                            indexed_image_url = existing_segmented.segmented_image_url
+                            image_variant = "segmented"
+                            segmented_record = existing_segmented
+                            segmented_count += 1
+                        else:
+                            try:
+                                extracted = await model_client.indexing_extract(pil_image)
+                            except Exception as exc:
+                                is_fallback_error = (
+                                    isinstance(exc, runtime.ModelServiceError)
+                                    and exc.error_code
+                                    in {"foreground_not_detected", "empty_mask"}
+                                )
+                                await segmented_service.persist_failure(
+                                    item_id=item.id,
+                                    source_image_id=img.id,
+                                    source_image_url=img.image_url,
+                                    error=str(exc),
+                                )
+                                image_status_changed = True
+                                if not is_fallback_error:
+                                    raise
+
+                                # 单图主体不可识别时保留该图片的原图索引，其他模型或网络错误不回退。
+                                fallback_count += 1
+                                image_vector = await model_client.siglip_image_features(pil_image)
+                                global_vector = await model_client.dinov2_global_vector(pil_image)
+                                patch_tokens = await model_client.dinov2_patch_tokens(pil_image)
+                                indexed_image_url = img.image_url
+                                image_variant = "original"
+                            else:
+                                segmented_record = await segmented_service.persist_success(
+                                    item_id=item.id,
+                                    source_image_id=img.id,
+                                    source_image_url=img.image_url,
+                                    image=extracted.segmented_image,
+                                    bbox=extracted.bbox,
+                                    mask_area=extracted.mask_area,
+                                )
+                                image_status_changed = True
+                                image_vector = extracted.siglip_vector
+                                global_vector = extracted.dinov2_global_vector
+                                patch_tokens = extracted.dinov2_patch_tokens
+                                indexed_image_url = segmented_record.segmented_image_url
+                                image_variant = "segmented"
+                                segmented_count += 1
+
+                        siglip_ok, dinov2_ok = await manager.index_precomputed_features(
                             item_id=item.id,
                             item_name=item.item_name,
                             item_code=item.item_code,
                             image_id=img.id,
-                            image_url=img.image_url,
+                            image_url=indexed_image_url,
                             description=item.item_name,
+                            siglip_image_vector=image_vector,
+                            siglip_text_vector=text_vector,
+                            dinov2_global_vector=global_vector,
+                            dinov2_patch_tokens=patch_tokens,
+                            image_variant=image_variant,
                         )
 
                         if siglip_ok and dinov2_ok:
+                            if segmented_record is not None:
+                                await segmented_service.mark_indexed(segmented_record)
                             success_count += 1
                             item_success_count += 1
                             success_image_ids.append(img.id)
@@ -288,6 +381,8 @@ async def rebuild_v2_index(
             "total": success_count + fail_count,
             "processed_item_count": processed_item_count,
             "skipped_existing_count": skipped_existing_count,
+            "segmented_count": segmented_count,
+            "fallback_count": fallback_count,
         }
 
 

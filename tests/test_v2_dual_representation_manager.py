@@ -1,8 +1,10 @@
 import asyncio
 import inspect
+import os
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from csrcqsf.modules.railway_parts.vector_search.storage.milvus_manager import (
@@ -65,6 +67,53 @@ def test_index_image_writes_only_original_variant(tmp_path):
     assert [record["image_variant"] for record in dinov2_records] == ["original"]
     assert dinov2_records[0]["patch_tokens_path"].endswith("_original.npy")
     assert dinov2_records[0]["patch_token_key"] == "item_101_img_9001_original.npy"
+
+
+def test_index_precomputed_features_writes_segmented_vectors_and_atomic_tokens(
+    tmp_path,
+    monkeypatch,
+):
+    manager = _build_manager(tmp_path)
+    manager.patch_token_key_supported = True
+    replace_calls = []
+    real_replace = os.replace
+
+    def replace(source, target):
+        replace_calls.append((source, target))
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", replace)
+    tokens = np.asarray([[0.7, 0.8], [0.9, 1.0]], dtype=np.float32)
+
+    siglip_ok, dinov2_ok = asyncio.run(
+        manager.index_precomputed_features(
+            item_id=101,
+            item_name="特殊螺栓M10X40",
+            item_code="40000543491",
+            image_id=9001,
+            image_url="bfr-ai-files/segmented/101/9001/a.png",
+            description="特殊螺栓M10X40",
+            siglip_image_vector=np.asarray([0.1, 0.2], dtype=np.float32),
+            siglip_text_vector=np.asarray([0.3, 0.4], dtype=np.float32),
+            dinov2_global_vector=np.asarray([0.5, 0.6], dtype=np.float32),
+            dinov2_patch_tokens=tokens,
+            image_variant="segmented",
+        )
+    )
+
+    assert (siglip_ok, dinov2_ok) == (True, True)
+    siglip_record = manager.collection_manager.insert_siglip_records.call_args.args[1][0]
+    dinov2_record = manager.collection_manager.insert_dinov2_records.call_args.args[1][0]
+    assert siglip_record["image_variant"] == "segmented"
+    assert siglip_record["image_url"] == "bfr-ai-files/segmented/101/9001/a.png"
+    assert siglip_record["text_vector"] == pytest.approx([0.3, 0.4])
+    assert dinov2_record["image_variant"] == "segmented"
+    assert dinov2_record["patch_tokens"] == pytest.approx([0.8, 0.9])
+    token_path = tmp_path / "item_101_img_9001_segmented.npy"
+    np.testing.assert_array_equal(np.load(token_path), tokens)
+    assert len(replace_calls) == 1
+    assert replace_calls[0][1] == str(token_path)
+    assert not list(tmp_path.glob("*.tmp*"))
 
 
 def test_dedupe_hits_by_image_id_keeps_highest_scoring_variant():

@@ -18,6 +18,8 @@ def test_index_rebuild_task_manager_tracks_progress_eta_and_completion():
                     "processed_items": 4,
                     "success_count": 12,
                     "fail_count": 1,
+                    "segmented_count": 10,
+                    "fallback_count": 2,
                     "current_item_id": 101,
                     "estimated_remaining_seconds": 90,
                 }
@@ -29,6 +31,8 @@ def test_index_rebuild_task_manager_tracks_progress_eta_and_completion():
                 "total": 32,
                 "processed_item_count": 10,
                 "skipped_existing_count": 0,
+                "segmented_count": 25,
+                "fallback_count": 5,
             }
 
         started = manager.start(
@@ -44,6 +48,8 @@ def test_index_rebuild_task_manager_tracks_progress_eta_and_completion():
         assert running["progress"] == 40
         assert running["estimated_remaining_seconds"] == 90
         assert running["estimated_remaining"] == "约1分30秒"
+        assert running["segmented_count"] == 10
+        assert running["fallback_count"] == 2
 
         release.set()
         for _ in range(10):
@@ -56,6 +62,8 @@ def test_index_rebuild_task_manager_tracks_progress_eta_and_completion():
         assert completed["progress"] == 100
         assert completed["estimated_remaining_seconds"] == 0
         assert completed["estimated_remaining"] == "已完成"
+        assert completed["segmented_count"] == 25
+        assert completed["fallback_count"] == 5
 
     asyncio.run(scenario())
 

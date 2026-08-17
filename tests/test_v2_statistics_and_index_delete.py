@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
+import pytest
+from PIL import Image
 
 
 class _AsyncSessionContext:
@@ -68,6 +70,43 @@ def _import_railway_parts_manager():
 
     _import_railway_parts_manager._cached = parts_module
     return parts_module
+
+
+@pytest.fixture(autouse=True)
+def _mock_indexing_segmentation_runtime():
+    parts_module = _import_railway_parts_manager()
+    extracted = SimpleNamespace(
+        segmented_image=Image.new("RGB", (2, 2), "black"),
+        bbox=(0, 0, 2, 2),
+        mask_area=4,
+        siglip_vector=np.asarray([0.1, 0.2], dtype=np.float32),
+        dinov2_global_vector=np.asarray([0.3, 0.4], dtype=np.float32),
+        dinov2_patch_tokens=np.asarray([[0.5, 0.6]], dtype=np.float32),
+    )
+    model_client = SimpleNamespace(
+        require_indexing_extract_capability=AsyncMock(),
+        siglip_text_features=AsyncMock(
+            return_value=np.asarray([0.7, 0.8], dtype=np.float32)
+        ),
+        indexing_extract=AsyncMock(return_value=extracted),
+    )
+    record = SimpleNamespace(
+        id=7001,
+        segmented_image_url="bfr-ai-files/segmented/101/9001/a.png",
+    )
+    segmented_service = SimpleNamespace(
+        get_latest_success=AsyncMock(return_value=None),
+        persist_success=AsyncMock(return_value=record),
+        persist_failure=AsyncMock(),
+        mark_indexed=AsyncMock(),
+        remove_source_artifacts=AsyncMock(return_value=0),
+    )
+    with patch.object(parts_module, "get_model_client", return_value=model_client), patch.object(
+        parts_module,
+        "SegmentedImageService",
+        return_value=segmented_service,
+    ):
+        yield
 
 
 def test_statistics_reads_v2_snapshot_and_zeroes_legacy_recognition_fields():
@@ -190,7 +229,7 @@ def test_rebuild_v2_index_syncs_single_item_state_after_success():
          patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()) as sync_mock, \
          patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
          patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager) as state_cls:
-        manager_cls.return_value.index_image = AsyncMock(return_value=(True, True))
+        manager_cls.return_value.index_precomputed_features = AsyncMock(return_value=(True, True))
         asyncio.run(parts_module.RailwayPartsManager.rebuild_v2_index(item_id=101, limit=1))
 
     state_cls.assert_called_once_with()
@@ -223,7 +262,7 @@ def test_rebuild_v2_index_bulk_mode_filters_existing_indexes_by_default():
          patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()) as sync_mock, \
          patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
          patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager):
-        manager_cls.return_value.index_image = AsyncMock(return_value=(True, True))
+        manager_cls.return_value.index_precomputed_features = AsyncMock(return_value=(True, True))
         result = asyncio.run(parts_module.RailwayPartsManager.rebuild_v2_index(limit=1))
 
     stmt = scalars_mock.await_args.args[0]
@@ -254,7 +293,7 @@ def test_rebuild_v2_index_reports_tqdm_progress_and_eta():
          patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()), \
          patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
          patch.object(parts_module, "MilvusStateManagerV2", return_value=MagicMock()):
-        manager_cls.return_value.index_image = AsyncMock(return_value=(True, True))
+        manager_cls.return_value.index_precomputed_features = AsyncMock(return_value=(True, True))
         manager_cls.return_value.last_preprocess_outcome = None
         asyncio.run(
             parts_module.RailwayPartsManager.rebuild_v2_index(
@@ -285,7 +324,7 @@ def test_rebuild_v2_index_single_item_skips_existing_when_not_forcing_rebuild():
          patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock()) as list_images_mock, \
          patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
          patch.object(parts_module, "MilvusStateManagerV2") as state_cls:
-        manager_cls.return_value.index_image = AsyncMock()
+        manager_cls.return_value.index_precomputed_features = AsyncMock()
         result = asyncio.run(
             parts_module.RailwayPartsManager.rebuild_v2_index(
                 item_id=101,
@@ -296,7 +335,7 @@ def test_rebuild_v2_index_single_item_skips_existing_when_not_forcing_rebuild():
 
     list_images_mock.assert_not_awaited()
     state_cls.return_value.delete_item_index.assert_not_called()
-    manager_cls.return_value.index_image.assert_not_awaited()
+    manager_cls.return_value.index_precomputed_features.assert_not_awaited()
     assert result["processed_item_count"] == 0
     assert result["skipped_existing_count"] == 1
 
@@ -320,7 +359,7 @@ def test_rebuild_v2_index_force_mode_deletes_existing_vectors_before_reindex():
     )
     call_order: list[str] = []
 
-    async def _index_image(**_kwargs):
+    async def _index_precomputed_features(**_kwargs):
         call_order.append("index")
         return True, True
 
@@ -336,7 +375,7 @@ def test_rebuild_v2_index_force_mode_deletes_existing_vectors_before_reindex():
          patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()) as sync_mock, \
          patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
          patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager):
-        manager_cls.return_value.index_image = AsyncMock(side_effect=_index_image)
+        manager_cls.return_value.index_precomputed_features = AsyncMock(side_effect=_index_precomputed_features)
         fake_state_manager.delete_item_index.side_effect = _delete_item_index
         result = asyncio.run(
             parts_module.RailwayPartsManager.rebuild_v2_index(
@@ -378,7 +417,7 @@ def test_rebuild_v2_index_force_mode_syncs_state_after_delete_even_if_reindex_fa
          patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()) as sync_mock, \
          patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
          patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager):
-        manager_cls.return_value.index_image = AsyncMock(return_value=(False, False))
+        manager_cls.return_value.index_precomputed_features = AsyncMock(return_value=(False, False))
         fake_state_manager.delete_item_index.return_value = {"siglip_deleted": 4, "dinov2_deleted": 4}
         result = asyncio.run(
             parts_module.RailwayPartsManager.rebuild_v2_index(
@@ -422,7 +461,7 @@ def test_rebuild_v2_index_marks_successful_images_indexed_in_pg():
          patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()), \
          patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
          patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager):
-        manager_cls.return_value.index_image = AsyncMock(side_effect=[(True, True), (False, False)])
+        manager_cls.return_value.index_precomputed_features = AsyncMock(side_effect=[(True, True), (False, False)])
         asyncio.run(parts_module.RailwayPartsManager.rebuild_v2_index(item_id=101, limit=1))
 
     indexed_mock.assert_awaited_once_with(session=session, image_id_list=[9001])
@@ -452,7 +491,7 @@ def test_rebuild_v2_index_ignores_obsolete_segmented_image_outcome():
         selected_prompt="toilet lid",
     )
 
-    async def _index_image(**_kwargs):
+    async def _index_precomputed_features(**_kwargs):
         manager_cls.return_value.last_preprocess_outcome = fake_preprocess_outcome
         return True, True
 
@@ -466,7 +505,7 @@ def test_rebuild_v2_index_ignores_obsolete_segmented_image_outcome():
          patch.object(parts_module.RailwayPartsManager, "sync_item_v2_index_state", AsyncMock()), \
          patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
          patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager):
-        manager_cls.return_value.index_image = AsyncMock(side_effect=_index_image)
+        manager_cls.return_value.index_precomputed_features = AsyncMock(side_effect=_index_precomputed_features)
         asyncio.run(parts_module.RailwayPartsManager.rebuild_v2_index(item_id=101, limit=1))
 
     batch_create_mock.assert_not_awaited()

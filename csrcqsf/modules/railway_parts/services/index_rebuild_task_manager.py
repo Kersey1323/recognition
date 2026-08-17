@@ -66,6 +66,8 @@ class IndexRebuildTaskManager:
             "processed_items": 0,
             "success_count": 0,
             "fail_count": 0,
+            "segmented_count": 0,
+            "fallback_count": 0,
             "current_item_id": None,
             "estimated_remaining_seconds": None,
             "estimated_remaining": None,
@@ -99,6 +101,8 @@ class IndexRebuildTaskManager:
             "processed_items",
             "success_count",
             "fail_count",
+            "segmented_count",
+            "fallback_count",
             "estimated_remaining_seconds",
         ):
             if field in progress:
@@ -156,6 +160,8 @@ class IndexRebuildTaskManager:
                 processed_items=state["total_items"],
                 success_count=int(result.get("success_count", 0) or 0),
                 fail_count=int(result.get("fail_count", 0) or 0),
+                segmented_count=int(result.get("segmented_count", 0) or 0),
+                fallback_count=int(result.get("fallback_count", 0) or 0),
                 current_item_id=None,
                 estimated_remaining_seconds=0,
                 estimated_remaining="已完成",

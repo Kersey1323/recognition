@@ -168,6 +168,8 @@ def test_v2_index_rebuild_status_route_returns_managed_task_snapshot():
         "processed_items": 200,
         "success_count": 790,
         "fail_count": 3,
+        "segmented_count": 700,
+        "fallback_count": 90,
         "current_item_id": "1595252389601431552",
         "estimated_remaining_seconds": 600,
         "estimated_remaining": "约10分钟",
@@ -182,3 +184,5 @@ def test_v2_index_rebuild_status_route_returns_managed_task_snapshot():
     assert result.task_id == "index-task-1"
     assert result.progress == 40
     assert result.estimated_remaining_seconds == 600
+    assert result.segmented_count == 700
+    assert result.fallback_count == 90

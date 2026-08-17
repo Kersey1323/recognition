@@ -276,6 +276,9 @@ _apply_runtime_connection_overrides(ai_settings)
 
 basis_api_http_url = _first_non_empty_env("BASIS_API_HTTP_URL", default="")
 model_service_url = os.getenv("MODEL_SERVICE_URL", "http://localhost:5555")
+model_service_index_timeout_sec = int(
+    os.getenv("MODEL_SERVICE_INDEX_TIMEOUT_SEC", "120")
+)
 reconstruction_server_url = _first_non_empty_env(
     "RECONSTRUCTION_SERVER_URL",
     default="http://127.0.0.1:8000",

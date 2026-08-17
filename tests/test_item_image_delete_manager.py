@@ -15,16 +15,22 @@ def test_delete_item_image_marks_db_and_cleans_external_resources():
         is_deleted=0,
     )
 
+    segmented_service = SimpleNamespace(
+        remove_source_artifacts=AsyncMock(return_value=1)
+    )
+    minio_mock = AsyncMock(return_value=None)
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.SgoItemImages, "get_item_image", AsyncMock(return_value=fake_image)), \
          patch.object(parts_module.SgoItemImages, "mark_deleted", AsyncMock()) as mark_deleted_mock, \
-         patch("csrcqsf.modules.railway_parts.services.item_service._delete_minio_object", AsyncMock(return_value=None)) as minio_mock:
+         patch.object(parts_module, "SegmentedImageService", return_value=segmented_service), \
+         patch.dict(parts_module.item_service.delete_item_image.__globals__, {"_delete_minio_object": minio_mock}):
         state_manager = MagicMock()
         state_manager.delete_item_image_index.return_value = {
             "siglip_deleted": 1,
             "dinov2_deleted": 1,
             "total_deleted": 2,
         }
+        state_manager.delete_item_image_patch_tokens.return_value = 1
         with patch.object(parts_module, "_get_milvus_state_manager_v2_cls", return_value=lambda: state_manager):
             result = asyncio.run(
                 parts_module.RailwayPartsManager.delete_item_image(
@@ -36,6 +42,8 @@ def test_delete_item_image_marks_db_and_cleans_external_resources():
 
     mark_deleted_mock.assert_awaited_once()
     minio_mock.assert_awaited_once()
+    segmented_service.remove_source_artifacts.assert_awaited_once_with(101, 202)
+    state_manager.delete_item_image_patch_tokens.assert_called_once_with(101, 202)
     assert result["db_deleted"] is True
     assert result["minio_deleted"] is True
     assert result["milvus_deleted"] is True
@@ -52,10 +60,15 @@ def test_delete_item_image_keeps_success_when_milvus_delete_fails():
         is_deleted=0,
     )
 
+    segmented_service = SimpleNamespace(
+        remove_source_artifacts=AsyncMock(return_value=0)
+    )
+    minio_mock = AsyncMock(return_value=None)
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.SgoItemImages, "get_item_image", AsyncMock(return_value=fake_image)), \
          patch.object(parts_module.SgoItemImages, "mark_deleted", AsyncMock()), \
-         patch("csrcqsf.modules.railway_parts.services.item_service._delete_minio_object", AsyncMock(return_value=None)):
+         patch.object(parts_module, "SegmentedImageService", return_value=segmented_service), \
+         patch.dict(parts_module.item_service.delete_item_image.__globals__, {"_delete_minio_object": minio_mock}):
         state_manager = MagicMock()
         state_manager.delete_item_image_index.side_effect = RuntimeError("milvus down")
         with patch.object(parts_module, "_get_milvus_state_manager_v2_cls", return_value=lambda: state_manager):
@@ -70,6 +83,49 @@ def test_delete_item_image_keeps_success_when_milvus_delete_fails():
     assert result["db_deleted"] is True
     assert result["minio_deleted"] is True
     assert result["milvus_deleted"] is False
+    assert "重新同步索引" in result["message"]
+
+
+def test_delete_item_image_keeps_db_delete_when_segmented_cleanup_fails():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    fake_image = SimpleNamespace(
+        id=202,
+        item_id=101,
+        image_url="bfr-ai-files/manual-upload/101/a.jpg",
+        is_deleted=0,
+    )
+    segmented_service = SimpleNamespace(
+        remove_source_artifacts=AsyncMock(
+            side_effect=RuntimeError("segmented object unavailable")
+        )
+    )
+    state_manager = MagicMock()
+    state_manager.delete_item_image_index.return_value = {
+        "siglip_deleted": 1,
+        "dinov2_deleted": 1,
+        "total_deleted": 2,
+    }
+    state_manager.delete_item_image_patch_tokens.return_value = 1
+    minio_mock = AsyncMock(return_value=None)
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.SgoItemImages, "get_item_image", AsyncMock(return_value=fake_image)), \
+         patch.object(parts_module.SgoItemImages, "mark_deleted", AsyncMock()), \
+         patch.object(parts_module, "SegmentedImageService", return_value=segmented_service), \
+         patch.object(parts_module, "_get_milvus_state_manager_v2_cls", return_value=lambda: state_manager), \
+         patch.dict(parts_module.item_service.delete_item_image.__globals__, {"_delete_minio_object": minio_mock}):
+        result = asyncio.run(
+            parts_module.RailwayPartsManager.delete_item_image(
+                item_id=101,
+                image_id=202,
+            )
+        )
+
+    assert result["db_deleted"] is True
+    assert result["minio_deleted"] is True
+    assert result["milvus_deleted"] is True
+    assert "分割产物删除失败" in result["message"]
     assert "重新同步索引" in result["message"]
 
 

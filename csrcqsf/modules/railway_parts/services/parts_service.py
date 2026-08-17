@@ -60,6 +60,8 @@ from csrcqsf.modules.railway_parts.schemas.search import (
     SearchRes,
 )
 from csrcqsf.modules.railway_parts.services import item_service, parts_index_service, parts_search_service
+from csrcqsf.modules.railway_parts.services.segmented_image_service import SegmentedImageService
+from csrcqsf.infra.external.model_client import ModelServiceError, get_model_client
 from csrcqsf.modules.sgo.schemas import ImageSourceType, SegmentStatus
 from csrcqsf.core.settings import minio_bucket, minio_search_history_bucket, temp_dir
 from globals_vars import logger

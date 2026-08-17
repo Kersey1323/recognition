@@ -2,6 +2,7 @@
 V2 Milvus 轻量状态管理器
 只负责 collection 状态与管理操作，不加载模型。
 """
+import os
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -51,6 +52,7 @@ class MilvusStateManagerV2:
         env_config = get_config()
         self.siglip_collection = env_config.siglip_collection_name
         self.dinov2_collection = env_config.dinov2_collection_name
+        self.patch_tokens_dir = env_config.dinov2_patch_tokens_dir
         self.collection_manager = CollectionManager(
             host=env_config.milvus_host,
             port=env_config.milvus_port,
@@ -216,6 +218,18 @@ class MilvusStateManagerV2:
                 self.dinov2_collection, item_id
             ),
         }
+
+    def delete_item_image_patch_tokens(self, item_id: int, image_id: int) -> int:
+        """删除指定原图的原图/分割图 patch tokens，避免逻辑删除后仍被精排读取。"""
+        deleted = 0
+        if not os.path.isdir(self.patch_tokens_dir):
+            return deleted
+        prefix = f"item_{item_id}_img_{image_id}"
+        for filename in os.listdir(self.patch_tokens_dir):
+            if filename.startswith(prefix) and filename.endswith(".npy"):
+                os.remove(os.path.join(self.patch_tokens_dir, filename))
+                deleted += 1
+        return deleted
 
     def delete_item_image_index(self, item_id: int, image_id: int) -> dict[str, int]:
         """删除指定 item_id + image_id 在 V2 collections 中的向量记录。"""

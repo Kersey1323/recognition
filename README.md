@@ -105,6 +105,10 @@ cp .env.example .env
 说明：
 
 - `MODEL_SERVICE_URL` 不可用时，依赖模型推理的接口无法正常使用
+- V2 索引构建要求模型服务 `/health` 包含 `indexing_extract`；任务会先校验能力，再读取业务数据
+- V2 索引对 `BASEINFO`、`INQUERY`、`CREATEBYSELF` 图片统一执行 YOLO-World + SAM2 黑底抠图，仅主体未检测到或空 mask 时回退原图
+- 分割 PNG 写入 `MINIO_BUCKET/segmented/{item_id}/{image_id}/`，记录保存在 `segmented_image_info`
+- `MODEL_SERVICE_INDEX_TIMEOUT_SEC` 控制单张组合提取超时，默认 120 秒
 - `RECONSTRUCTION_SERVER_URL` 不配置时，主业务仍可启动，但三维重构相关接口会禁用
 - `DINOV2_PATCH_TOKENS_DIR` 默认是 `state/vector_db/patch_tokens`，部署时应挂载持久化目录
 
@@ -139,6 +143,8 @@ python main.py
 
 - 部署模型服务并配置 `MODEL_SERVICE_URL`
 - 部署 `reconstruction_server` 并配置 `RECONSTRUCTION_SERVER_URL`
+
+发布时先升级模型服务并确认 `/health` 已声明 `indexing_extract`，再升级主业务服务。反向发布会导致索引任务在能力前检阶段被拒绝，但不会影响其他业务接口。
 
 ## Docker 部署说明
 

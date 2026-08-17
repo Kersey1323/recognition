@@ -65,6 +65,40 @@ class SegmentedImage(PlainBase):
             and_(cls.item_id == item_id, cls.status == SegmentStatus.PENDING)
         )
         return await session.scalars(stmt)
+
+    @classmethod
+    async def get_latest_success(
+        cls,
+        session: AsyncSession,
+        item_id: int,
+        source_image_id: int,
+    ):
+        stmt = (
+            select(cls)
+            .where(
+                cls.item_id == item_id,
+                cls.source_image_id == source_image_id,
+                cls.status == SegmentStatus.SUCCESS,
+            )
+            .order_by(cls.id.desc())
+            .limit(1)
+        )
+        result = await session.scalars(stmt)
+        return result.first()
+
+    @classmethod
+    async def list_by_source_image(
+        cls,
+        session: AsyncSession,
+        item_id: int,
+        source_image_id: int,
+    ) -> list['SegmentedImage']:
+        stmt = select(cls).where(
+            cls.item_id == item_id,
+            cls.source_image_id == source_image_id,
+        )
+        result = await session.scalars(stmt)
+        return list(result.all())
     
     @classmethod
     async def update_status(cls, session: AsyncSession, record_id: int, 
@@ -99,6 +133,20 @@ class SegmentedImage(PlainBase):
     @classmethod
     async def delete_by_item_id(cls, session: AsyncSession, item_id: int):
         stmt = delete(cls).where(cls.item_id == item_id)
+        await session.execute(stmt)
+        await session.flush()
+
+    @classmethod
+    async def delete_by_source_image(
+        cls,
+        session: AsyncSession,
+        item_id: int,
+        source_image_id: int,
+    ) -> None:
+        stmt = delete(cls).where(
+            cls.item_id == item_id,
+            cls.source_image_id == source_image_id,
+        )
         await session.execute(stmt)
         await session.flush()
 

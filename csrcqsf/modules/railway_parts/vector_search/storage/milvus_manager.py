@@ -3,6 +3,7 @@ Milvus 统一管理器
 集成向量建库和检索功能
 """
 import os
+import uuid
 import numpy as np
 from PIL import Image
 from typing import List, Dict, Tuple, Optional, Literal
@@ -20,6 +21,7 @@ from csrcqsf.infra.external.model_client import get_model_client
 logger = setup_logger(__name__)
 
 IMAGE_VARIANT_ORIGINAL = "original"
+IMAGE_VARIANT_SEGMENTED = "segmented"
 LEGACY_PATCH_TOKENS_MARKER = os.path.join(
     "csrcqsf", "biz", "railwayparts", "vector_db", "patch_tokens"
 ) + os.sep
@@ -140,6 +142,18 @@ class MilvusManagerV2:
             "dinov2_deleted": dinov2_deleted,
             "total_deleted": siglip_deleted + dinov2_deleted,
         }
+
+    def delete_item_patch_tokens(self, item_id: int) -> int:
+        """删除配件重建前遗留的全部原图和分割图 patch tokens。"""
+        deleted = 0
+        if not os.path.isdir(self.patch_tokens_dir):
+            return deleted
+        prefix = f"item_{item_id}_img_"
+        for filename in os.listdir(self.patch_tokens_dir):
+            if filename.startswith(prefix) and filename.endswith(".npy"):
+                os.remove(os.path.join(self.patch_tokens_dir, filename))
+                deleted += 1
+        return deleted
 
     def _dedupe_hits_by_image_id(self, hits: List[Dict]) -> List[Dict]:
         """按源 image_id 去重，保留分数更高的一条变体命中。"""
@@ -405,6 +419,98 @@ class MilvusManagerV2:
 
         except Exception as e:
             logger.error(f"Failed to index DINOv2 for image {image_id}: {e}")
+
+        return siglip_success, dinov2_success
+
+    async def index_precomputed_features(
+        self,
+        *,
+        item_id: int,
+        item_name: str,
+        item_code: str,
+        image_id: int,
+        image_url: str,
+        description: str,
+        siglip_image_vector: np.ndarray,
+        siglip_text_vector: np.ndarray,
+        dinov2_global_vector: np.ndarray,
+        dinov2_patch_tokens: np.ndarray,
+        image_variant: str = IMAGE_VARIANT_SEGMENTED,
+    ) -> Tuple[bool, bool]:
+        """将模型服务一次性返回的分割图特征写入两套 V2 索引。"""
+        from datetime import datetime
+
+        created_at = datetime.now().isoformat()
+        variant_supported = self._supports_image_variant()
+        siglip_success = False
+        dinov2_success = False
+
+        siglip_record = {
+            "item_id": item_id,
+            "item_name": item_name,
+            "item_code": item_code,
+            "image_id": image_id,
+            "image_url": image_url,
+            "description": description,
+            "image_vector": np.asarray(siglip_image_vector).tolist(),
+            "text_vector": np.asarray(siglip_text_vector).tolist(),
+            "created_at": created_at,
+        }
+        if variant_supported:
+            siglip_record["image_variant"] = image_variant
+        try:
+            self.collection_manager.insert_siglip_records(
+                self.siglip_collection,
+                [siglip_record],
+            )
+            siglip_success = True
+        except Exception as exc:
+            logger.error(
+                f"Failed to index precomputed SigLIP for image {image_id}: {exc}"
+            )
+
+        try:
+            patch_tokens = np.asarray(dinov2_patch_tokens, dtype=np.float32)
+            patch_token_key = self._build_patch_token_key(
+                item_id,
+                image_id,
+                image_variant if variant_supported else None,
+            )
+            patch_tokens_path = self._build_patch_tokens_path(patch_token_key)
+            os.makedirs(os.path.dirname(patch_tokens_path), exist_ok=True)
+            temporary_path = f"{patch_tokens_path}.tmp-{uuid.uuid4().hex}"
+            try:
+                with open(temporary_path, "wb") as temporary_file:
+                    np.save(temporary_file, patch_tokens)
+                os.replace(temporary_path, patch_tokens_path)
+            finally:
+                if os.path.exists(temporary_path):
+                    os.remove(temporary_path)
+
+            dinov2_record = {
+                "item_id": item_id,
+                "item_name": item_name,
+                "item_code": item_code,
+                "image_id": image_id,
+                "image_url": image_url,
+                "global_vector": np.asarray(dinov2_global_vector).tolist(),
+                "patch_tokens": np.mean(patch_tokens, axis=0).tolist(),
+                "patch_tokens_path": patch_tokens_path,
+                "created_at": created_at,
+            }
+            if self._supports_patch_token_key():
+                dinov2_record["patch_token_key"] = patch_token_key
+            if variant_supported:
+                dinov2_record["image_variant"] = image_variant
+            self.collection_manager.insert_dinov2_records(
+                self.dinov2_collection,
+                [dinov2_record],
+            )
+            dinov2_success = True
+        except Exception as exc:
+            logger.error(
+                f"Failed to index precomputed DINOv2 for image {image_id}: {exc}"
+            )
 
         return siglip_success, dinov2_success
 

@@ -421,6 +421,8 @@ class ReconstructionIndexRebuildStatusRes(BaseModel):
     processed_items: int = Field(..., description='已处理的配件数')
     success_count: int = Field(..., description='成功建立索引的图片数量')
     fail_count: int = Field(..., description='失败的图片数量')
+    segmented_count: int = Field(0, description='使用分割图成功建立索引的图片数量')
+    fallback_count: int = Field(0, description='主体未识别而回退原图索引的图片数量')
     current_item_id: Optional[str] = Field(None, description='当前正在处理的配件ID')
     estimated_remaining_seconds: Optional[int] = Field(None, description='预计剩余秒数')
     estimated_remaining: Optional[str] = Field(None, description='预计剩余时间展示文本')

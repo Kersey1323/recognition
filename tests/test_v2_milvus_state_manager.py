@@ -6,12 +6,13 @@ from csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager im
 )
 
 
-def _fake_env():
+def _fake_env(patch_tokens_dir="state/vector_db/patch_tokens"):
     return SimpleNamespace(
         milvus_host="localhost",
         milvus_port=19530,
         siglip_collection_name="PARTS_SIGLIP_TEST",
         dinov2_collection_name="PARTS_DINOV2_TEST",
+        dinov2_patch_tokens_dir=str(patch_tokens_dir),
     )
 
 
@@ -92,6 +93,30 @@ def test_state_manager_delete_create_and_drop_delegate_to_collection_manager():
     fake_collection_manager.create_siglip_collection.assert_called_once_with("PARTS_SIGLIP_TEST")
     fake_collection_manager.create_dinov2_collection.assert_called_once_with("PARTS_DINOV2_TEST")
     fake_collection_manager.drop_collection.assert_called_once_with("PARTS_SIGLIP_TEST")
+
+
+def test_state_manager_deletes_patch_tokens_for_one_source_image_only(tmp_path):
+    keep = tmp_path / "item_101_img_9002_segmented.npy"
+    targets = [
+        tmp_path / "item_101_img_9001.npy",
+        tmp_path / "item_101_img_9001_original.npy",
+        tmp_path / "item_101_img_9001_segmented.npy",
+    ]
+    for path in [keep, *targets]:
+        path.write_bytes(b"tokens")
+
+    with patch(
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.get_config",
+        return_value=_fake_env(tmp_path),
+    ), patch(
+        "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager.CollectionManager",
+        return_value=MagicMock(),
+    ):
+        manager = MilvusStateManagerV2()
+
+    assert manager.delete_item_image_patch_tokens(101, 9001) == 3
+    assert keep.exists()
+    assert all(not path.exists() for path in targets)
 
 
 def test_state_manager_get_indexed_images_by_item_id_uses_intersection_of_two_collections():
