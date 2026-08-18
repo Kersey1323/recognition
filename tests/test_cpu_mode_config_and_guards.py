@@ -1,6 +1,5 @@
 import asyncio
 import importlib
-import os
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -103,6 +102,9 @@ def _build_reconstruction_api_model_module() -> ModuleType:
         "ReconstructionAllTasksRes",
         "ReconstructionIndexRebuildRes",
         "ReconstructionIndexRebuildStatusRes",
+        "ReconstructionIndexTaskCancelReq",
+        "ReconstructionIndexTaskListReq",
+        "ReconstructionIndexTaskListRes",
         "ReconstructionListRes",
         "ReconstructionMultipartUploadUrlItem",
         "ReconstructionMultipartUploadedPartItem",
@@ -178,6 +180,9 @@ def _seed_fake_railway_parts_schema_modules() -> dict[str, ModuleType]:
         "ReconstructionAllTasksRes",
         "ReconstructionIndexRebuildRes",
         "ReconstructionIndexRebuildStatusRes",
+        "ReconstructionIndexTaskCancelReq",
+        "ReconstructionIndexTaskListReq",
+        "ReconstructionIndexTaskListRes",
         "ReconstructionListRes",
         "ReconstructionResultMessageRes",
         "ReconstructionResultUploadRes",
@@ -517,6 +522,9 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
     fake_pg_module = ModuleType("csrcqsf.infra.db.main_db")
     fake_pg_module.db_migrate = AsyncMock()
 
+    fake_index_task_module = ModuleType("csrcqsf.models.orm.index_rebuild_task")
+    fake_index_task_module.recover_index_rebuild_tasks = AsyncMock()
+
     fake_minio_module = ModuleType("csrcqsf.infra.storage.minio")
     fake_minio_module.create_minio_buckets = AsyncMock()
 
@@ -551,6 +559,7 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
             "globals_vars": fake_logger_module,
             "csrcqsf.modules.image.services": fake_image_services_module,
             "csrcqsf.infra.db.main_db": fake_pg_module,
+            "csrcqsf.models.orm.index_rebuild_task": fake_index_task_module,
             "csrcqsf.infra.storage.minio": fake_minio_module,
             "csrcqsf.modules.sgo.services": fake_sgo_services_module,
             "csrcqsf.core.scheduler": fake_scheduler_module,

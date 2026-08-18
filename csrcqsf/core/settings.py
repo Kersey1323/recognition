@@ -279,6 +279,10 @@ model_service_url = os.getenv("MODEL_SERVICE_URL", "http://localhost:5555")
 model_service_index_timeout_sec = int(
     os.getenv("MODEL_SERVICE_INDEX_TIMEOUT_SEC", "120")
 )
+index_single_task_max_concurrency = max(
+    1,
+    int(os.getenv("INDEX_SINGLE_TASK_MAX_CONCURRENCY", "16")),
+)
 reconstruction_server_url = _first_non_empty_env(
     "RECONSTRUCTION_SERVER_URL",
     default="http://127.0.0.1:8000",

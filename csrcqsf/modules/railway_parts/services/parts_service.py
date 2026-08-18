@@ -685,6 +685,14 @@ class RailwayPartsManager:
         limit: int = None,
         rebuild_existing: bool = False,
         progress_callback=None,
+        resume_after_created_at=None,
+        resume_after_item_id: int = None,
+        initial_completed_item_count: int = 0,
+        initial_success_count: int = 0,
+        initial_fail_count: int = 0,
+        initial_segmented_count: int = 0,
+        initial_fallback_count: int = 0,
+        total_items_override: int = None,
     ):
         _bind_parts_index_runtime()
         return await parts_index_service.rebuild_v2_index(
@@ -693,6 +701,14 @@ class RailwayPartsManager:
             limit=limit,
             rebuild_existing=rebuild_existing,
             progress_callback=progress_callback,
+            resume_after_created_at=resume_after_created_at,
+            resume_after_item_id=resume_after_item_id,
+            initial_completed_item_count=initial_completed_item_count,
+            initial_success_count=initial_success_count,
+            initial_fail_count=initial_fail_count,
+            initial_segmented_count=initial_segmented_count,
+            initial_fallback_count=initial_fallback_count,
+            total_items_override=total_items_override,
             runtime=_runtime_context(),
         )
 

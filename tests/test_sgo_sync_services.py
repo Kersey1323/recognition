@@ -104,3 +104,77 @@ def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
     assert result["created_count"] == 1
     assert result["fail_count"] == 1
     assert result["failed_item_ids"] == ["invalid"]
+
+
+def test_sync_inquiry_history_maps_item_codes_and_reports_progress():
+    progress = []
+    source_rows = [
+        {
+            "inquiry_id": "inq-1",
+            "inquiry_num": "CX001",
+            "vehicle": "SFE27_CRH380A统",
+            "train_no": "2777",
+            "car_num": "01",
+            "inquiry_item_name": "盖板",
+            "subordinate_component": "座椅",
+            "remark": "01车座椅盖板",
+            "return_item_name": "座椅中扶手盖板",
+            "return_item_code": "code-1",
+            "inquiry_time": "2023-05-18 15:26:35",
+        },
+        {
+            "inquiry_id": "inq-2",
+            "inquiry_num": "CX002",
+            "vehicle": "SFE28",
+            "train_no": "2334",
+            "car_num": "07",
+            "inquiry_item_name": "滤网",
+            "subordinate_component": "电茶炉",
+            "remark": "电茶炉进水电磁阀前滤网",
+            "return_item_name": "进水滤网",
+            "return_item_code": "code-2",
+            "inquiry_time": "2023-05-19 15:26:35",
+        },
+    ]
+
+    async def upsert(payloads, *, batch_size):
+        assert batch_size == 50
+        assert payloads[0]["item_id"] == 101
+        assert payloads[0]["vehicle_batch"] == "SFE27"
+        assert payloads[1]["item_id"] is None
+        assert payloads[1]["vehicle_batch"] == "SFE28"
+        return len(payloads)
+
+    with patch.object(
+        SGOBiz,
+        "_list_sgo_inquiry_history_source_rows",
+        AsyncMock(return_value=source_rows),
+    ), patch.object(
+        SGOBiz,
+        "_list_main_item_ids_by_codes",
+        AsyncMock(return_value={"code-1": 101}),
+    ), patch.object(
+        SGOBiz,
+        "_upsert_inquiry_history_payloads",
+        AsyncMock(side_effect=upsert),
+    ):
+        result = asyncio.run(
+            SGOBiz.sync_inquiry_history(
+                limit=2,
+                batch_size=50,
+                progress_callback=progress.append,
+            )
+        )
+
+    assert result == {
+        "total_items": 2,
+        "processed_items": 2,
+        "success_count": 2,
+        "fail_count": 0,
+        "created_count": 2,
+        "skipped_count": 0,
+        "synced_image_count": 0,
+        "failed_item_ids": [],
+    }
+    assert [item["progress"] for item in progress] == [0, 100]
+    assert progress[-1]["current_item_id"] == "inq-2"

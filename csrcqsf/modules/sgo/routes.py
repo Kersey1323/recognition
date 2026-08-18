@@ -51,6 +51,11 @@ class SyncItemsImages(BaseModel):
     items_id_list: list[str] = []
 
 
+class SyncInquiryHistoryReq(BaseModel):
+    limit: int | None = Field(default=None, description="仅同步前 N 条，空值表示全量")
+    batch_size: int = Field(default=500, ge=1, description="每批写入主库的记录数")
+
+
 @sgo_router.post('/sgo/parts/sync', tags=["业务-SGO集成"], summary='同步一次所有的配件基本信息', responses={
     200: {
         'model': str
@@ -85,6 +90,29 @@ async def sgo_parts_image_sync(req: SyncItemsImages):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return SgoSyncTaskStartRes(
         message="配件图片同步任务已在后台启动",
+        task_id=task["task_id"],
+        task_type=task["task_type"],
+        status=task["status"],
+    )
+
+
+@sgo_router.post(
+    '/sgo/inquiry-history/sync',
+    tags=["业务-SGO集成"],
+    summary='同步 SGO 询码历史到主业务库',
+)
+async def sgo_inquiry_history_sync(req: SyncInquiryHistoryReq):
+    try:
+        task = sgo_sync_task_manager.start(
+            "inquiry-history",
+            SGOBiz.sync_inquiry_history,
+            limit=req.limit,
+            batch_size=req.batch_size,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return SgoSyncTaskStartRes(
+        message="SGO 询码历史同步任务已在后台启动",
         task_id=task["task_id"],
         task_type=task["task_type"],
         status=task["status"],

@@ -6,13 +6,14 @@ import json
 import os
 import time
 import zipfile
+from datetime import datetime
 from typing import Callable
 
 from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
 from globals_vars import logger
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from urllib3 import PoolManager
 from urllib3.util import create_urllib3_context
 
@@ -21,6 +22,7 @@ from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.infra.db.mdp_db import sgo_sessionLocal
 from csrcqsf.infra.storage.minio import minio_bucket, minio_instance
 from csrcqsf.models.orm.item import Items
+from csrcqsf.models.orm.item_inquiry_history import ItemInquiryHistory
 from csrcqsf.models.orm.sgo import SgoItemImages
 from csrcqsf.models.orm.sgo_external import (
     SgoCodeInquiry,
@@ -40,6 +42,91 @@ from csrcqsf.modules.sgo.sync_task_manager import sgo_sync_task_manager
 ctx = create_urllib3_context()
 ctx.load_default_certs()
 ctx.set_ciphers("AES256-GCM-SHA384")
+
+
+INQUIRY_HISTORY_COLUMNS = (
+    "id",
+    "created_by",
+    "updated_by",
+    "time_created",
+    "time_updated",
+    "item_id",
+    "item_code",
+    "inquiry_id",
+    "inquiry_num",
+    "vehicle_batch",
+    "vehicle",
+    "train_no",
+    "car_num",
+    "inquiry_item_name",
+    "subordinate_component",
+    "remark",
+    "return_item_name",
+    "return_item_code",
+    "inquiry_time",
+    "source",
+)
+
+
+def _clean_text(value):
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return value
+    value = value.strip()
+    return value or None
+
+
+def _normalize_vehicle_batch(vehicle: str | None) -> str | None:
+    vehicle = _clean_text(vehicle)
+    if vehicle is None:
+        return None
+    return vehicle.split("_", 1)[0].strip() or None
+
+
+def _inquiry_history_payload_from_source_row(row: dict, item_id: int | None) -> dict:
+    return_item_code = _clean_text(row.get("return_item_code"))
+    vehicle = _clean_text(row.get("vehicle"))
+    return {
+        "item_id": item_id,
+        "item_code": return_item_code,
+        "inquiry_id": _clean_text(row.get("inquiry_id")),
+        "inquiry_num": _clean_text(row.get("inquiry_num")),
+        "vehicle_batch": _normalize_vehicle_batch(vehicle),
+        "vehicle": vehicle,
+        "train_no": _clean_text(row.get("train_no")),
+        "car_num": _clean_text(row.get("car_num")),
+        "inquiry_item_name": _clean_text(row.get("inquiry_item_name")),
+        "subordinate_component": _clean_text(row.get("subordinate_component")),
+        "remark": _clean_text(row.get("remark")),
+        "return_item_name": _clean_text(row.get("return_item_name")),
+        "return_item_code": return_item_code,
+        "inquiry_time": row.get("inquiry_time"),
+        "source": "sgo",
+    }
+
+
+def _build_inquiry_history_upsert_sql() -> str:
+    columns = ", ".join(f"`{column}`" for column in INQUIRY_HISTORY_COLUMNS)
+    placeholders = ", ".join(f":{column}" for column in INQUIRY_HISTORY_COLUMNS)
+    updates = ", ".join(
+        f"`{column}` = new.`{column}`"
+        for column in INQUIRY_HISTORY_COLUMNS
+        if column
+        not in {
+            "id",
+            "time_created",
+            "time_updated",
+            "inquiry_id",
+            "return_item_code",
+            "source",
+        }
+    )
+    return (
+        f"INSERT INTO `{ItemInquiryHistory.__tablename__}` ({columns}) "
+        f"VALUES ({placeholders}) AS new "
+        f"ON DUPLICATE KEY UPDATE {updates}, `time_updated` = CURRENT_TIMESTAMP"
+    )
 
 
 class TokenResponse(BaseModel):
@@ -316,6 +403,154 @@ class SGOBiz:
             "synced_image_count": synced_image_count,
             "failed_item_ids": failed_item_ids,
         }
+
+    @classmethod
+    async def sync_inquiry_history(
+        cls,
+        *,
+        limit: int | None = None,
+        batch_size: int = 500,
+        progress_callback: Callable[[dict], None] | None = None,
+    ) -> dict:
+        source_rows = await cls._list_sgo_inquiry_history_source_rows(limit=limit)
+        total_items = len(source_rows)
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "progress": 0,
+                    "total_items": total_items,
+                    "processed_items": 0,
+                    "success_count": 0,
+                    "fail_count": 0,
+                    "created_count": 0,
+                    "skipped_count": 0,
+                    "synced_image_count": 0,
+                    "failed_item_ids": [],
+                }
+            )
+
+        item_codes = {
+            item_code
+            for row in source_rows
+            if (item_code := _clean_text(row.get("return_item_code"))) is not None
+        }
+        item_id_map = await cls._list_main_item_ids_by_codes(item_codes)
+        payloads = [
+            _inquiry_history_payload_from_source_row(
+                row,
+                item_id=item_id_map.get(str(_clean_text(row.get("return_item_code")))),
+            )
+            for row in source_rows
+        ]
+        processed_count = await cls._upsert_inquiry_history_payloads(
+            payloads,
+            batch_size=batch_size,
+        )
+
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "progress": 100,
+                    "total_items": total_items,
+                    "processed_items": total_items,
+                    "success_count": processed_count,
+                    "fail_count": 0,
+                    "created_count": processed_count,
+                    "skipped_count": 0,
+                    "synced_image_count": 0,
+                    "current_item_id": source_rows[-1]["inquiry_id"] if source_rows else None,
+                    "estimated_remaining_seconds": 0,
+                    "failed_item_ids": [],
+                }
+            )
+
+        return {
+            "total_items": total_items,
+            "processed_items": total_items,
+            "success_count": processed_count,
+            "fail_count": 0,
+            "created_count": processed_count,
+            "skipped_count": 0,
+            "synced_image_count": 0,
+            "failed_item_ids": [],
+        }
+
+    @classmethod
+    async def _list_sgo_inquiry_history_source_rows(
+        cls,
+        *,
+        limit: int | None = None,
+    ) -> list[dict]:
+        stmt = (
+            select(
+                SgoCodeInquiry.id.label("inquiry_id"),
+                SgoCodeInquiry.inquiry_num.label("inquiry_num"),
+                SgoCodeInquiry.vehicle.label("vehicle"),
+                SgoCodeInquiry.train_no.label("train_no"),
+                SgoCodeInquiry.car_num.label("car_num"),
+                SgoCodeInquiry.item_name.label("inquiry_item_name"),
+                SgoCodeInquiry.subordinate_component.label("subordinate_component"),
+                SgoCodeInquiry.remark.label("remark"),
+                SgoCodeInquiryReturn.item_name.label("return_item_name"),
+                SgoCodeInquiryReturn.item_code.label("return_item_code"),
+                SgoCodeInquiry.create_time.label("inquiry_time"),
+            )
+            .join(SgoCodeInquiryReturn, SgoCodeInquiry.id == SgoCodeInquiryReturn.inquiry_id)
+            .where(SgoCodeInquiryReturn.item_code.is_not(None))
+            .where(SgoCodeInquiryReturn.item_code != "")
+            .order_by(SgoCodeInquiry.create_time.asc(), SgoCodeInquiry.id.asc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+
+        async with sgo_sessionLocal() as session:
+            result = await session.execute(stmt)
+            return [dict(row._mapping) for row in result]
+
+    @classmethod
+    async def _list_main_item_ids_by_codes(cls, item_codes: set[str]) -> dict[str, int]:
+        if not item_codes:
+            return {}
+        async with SessionLocal() as session:
+            result = await session.execute(
+                select(Items.item_code, Items.id).where(Items.item_code.in_(item_codes))
+            )
+            return {str(item_code): int(item_id) for item_code, item_id in result}
+
+    @classmethod
+    async def _upsert_inquiry_history_payloads(
+        cls,
+        payloads: list[dict],
+        *,
+        batch_size: int,
+    ) -> int:
+        if not payloads:
+            return 0
+
+        statement = text(_build_inquiry_history_upsert_sql())
+        processed_count = 0
+        async with SessionLocal() as session:
+            for offset in range(0, len(payloads), batch_size):
+                batch = payloads[offset : offset + batch_size]
+                rows = []
+                for payload in batch:
+                    now = datetime.now()
+                    # 询码历史由外部 SGO 回填结果驱动，直接 SQL upsert 需补齐主库 Base 审计字段。
+                    rows.append(
+                        {
+                            "id": get_id(),
+                            "created_by": 0,
+                            "updated_by": 0,
+                            "time_created": now,
+                            "time_updated": now,
+                            **payload,
+                        }
+                    )
+                await session.execute(statement, rows)
+                processed_count += len(rows)
+                await session.flush()
+            await session.commit()
+        return processed_count
 
     @classmethod
     async def get_inquery_code_pic_from_db(cls, item_id_list: list[str]) -> int:

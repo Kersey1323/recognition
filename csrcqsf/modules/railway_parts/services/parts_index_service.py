@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import inspect
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Callable, TypeAlias
+
+from sqlalchemy import and_, or_
 
 if TYPE_CHECKING:
     from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import (
@@ -121,7 +124,15 @@ async def rebuild_v2_index(
     item_id: int = None,
     limit: int = None,
     rebuild_existing: bool = False,
-    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    progress_callback: Callable[[dict[str, Any]], Any] | None = None,
+    resume_after_created_at: Any = None,
+    resume_after_item_id: int | None = None,
+    initial_completed_item_count: int = 0,
+    initial_success_count: int = 0,
+    initial_fail_count: int = 0,
+    initial_segmented_count: int = 0,
+    initial_fallback_count: int = 0,
+    total_items_override: int | None = None,
     runtime=None,
 ):
     runtime = runtime or _runtime()
@@ -137,85 +148,111 @@ async def rebuild_v2_index(
             if items[0] is None:
                 raise Exception(f"配件不存在: {item_id}")
         else:
-            item_id_stmt = runtime.select(runtime.SgoItemImages.item_id).where(
-                runtime.SgoItemImages.is_deleted == 0
-            ).distinct()
-            stmt = runtime.select(runtime.Items).where(runtime.Items.id.in_(item_id_stmt))
+            image_filters = [runtime.SgoItemImages.is_deleted == 0]
             if not rebuild_existing:
-                stmt = stmt.where(runtime.Items.has_v2_index == 0)
+                # 部分图片已入库的配件仍需补建剩余图片，不能用配件级状态整体排除。
+                image_filters.append(runtime.SgoItemImages.is_indexed != 1)
+            item_id_stmt = (
+                runtime.select(runtime.SgoItemImages.item_id)
+                .where(*image_filters)
+                .distinct()
+            )
+            stmt = runtime.select(runtime.Items).where(runtime.Items.id.in_(item_id_stmt))
+            if resume_after_created_at is not None and resume_after_item_id is not None:
+                # Retry resumes after the last completed part; an interrupted current part is retried.
+                stmt = stmt.where(
+                    or_(
+                        runtime.Items.time_created < resume_after_created_at,
+                        and_(
+                            runtime.Items.time_created == resume_after_created_at,
+                            runtime.Items.id < resume_after_item_id,
+                        ),
+                    )
+                )
             stmt = stmt.order_by(runtime.Items.time_created.desc()).order_by(runtime.Items.id.desc())
             if limit is not None:
                 stmt = stmt.limit(limit)
             items = list(await session.scalars(stmt))
 
         runtime.logger.info(f"开始为 {len(items)} 个配件建立 V2 索引")
-        success_count = 0
-        fail_count = 0
+        success_count = initial_success_count
+        fail_count = initial_fail_count
         processed_item_count = 0
         skipped_existing_count = 0
-        segmented_count = 0
-        fallback_count = 0
+        segmented_count = initial_segmented_count
+        fallback_count = initial_fallback_count
 
         from tqdm import tqdm
 
-        total_items = len(items)
+        total_items = total_items_override or (initial_completed_item_count + len(items))
         progress_bar = tqdm(items)
 
-        def report_progress(
+        async def report_progress(
             processed_items: int,
             current_item_id: int | None,
             estimated_remaining_seconds: int | None,
+            completed_item: Any = None,
         ) -> None:
             if progress_callback is None:
                 return
             progress = int(processed_items * 100 / total_items) if total_items else 100
             # 索引进度按配件统计；图片成功/失败数展示当前实际处理结果。
-            progress_callback(
-                {
-                    "progress": progress,
-                    "total_items": total_items,
-                    "processed_items": processed_items,
-                    "success_count": success_count,
-                    "fail_count": fail_count,
-                    "segmented_count": segmented_count,
-                    "fallback_count": fallback_count,
-                    "current_item_id": current_item_id,
-                    "estimated_remaining_seconds": estimated_remaining_seconds,
-                }
-            )
+            snapshot = {
+                "progress": progress,
+                "total_items": total_items,
+                "completed_item_count": processed_items,
+                "processed_items": processed_items,
+                "success_count": success_count,
+                "fail_count": fail_count,
+                "segmented_count": segmented_count,
+                "fallback_count": fallback_count,
+                "current_item_id": current_item_id,
+                "estimated_remaining_seconds": estimated_remaining_seconds,
+            }
+            if completed_item is not None:
+                snapshot["last_completed_item_id"] = completed_item.id
+                snapshot["last_completed_item_created_at"] = getattr(
+                    completed_item,
+                    "time_created",
+                    None,
+                )
+            callback_result = progress_callback(snapshot)
+            if inspect.isawaitable(callback_result):
+                await callback_result
 
-        report_progress(0, None, None)
+        await report_progress(initial_completed_item_count, None, None)
         for position, item in enumerate(progress_bar, start=1):
-            processed_for_progress = position - 1
+            processed_for_progress = initial_completed_item_count + position - 1
             elapsed = float(progress_bar.format_dict.get("elapsed") or 0)
             rate = progress_bar.format_dict.get("rate")
             estimated_remaining_seconds = None
             if rate is not None and rate > 0:
+                estimated_remaining_seconds = max(0, round((len(items) - position + 1) / rate))
+            elif position > 1:
+                average_seconds = elapsed / (position - 1)
                 estimated_remaining_seconds = max(
                     0,
-                    round((total_items - processed_for_progress) / rate),
+                    round(average_seconds * (len(items) - position + 1)),
                 )
-            elif processed_for_progress > 0:
-                average_seconds = elapsed / processed_for_progress
-                estimated_remaining_seconds = max(
-                    0,
-                    round(average_seconds * (total_items - processed_for_progress)),
-                )
-            report_progress(
+            await report_progress(
                 processed_for_progress,
                 item.id if item is not None else None,
                 estimated_remaining_seconds,
             )
             if item is None:
                 continue
-            if not rebuild_existing and getattr(item, "has_v2_index", 0) == 1:
-                skipped_existing_count += 1
-                runtime.logger.info(f"跳过已存在索引的配件: item={item.id}")
-                continue
 
             try:
                 images_result = await runtime.SgoItemImages.list_item_images_by_item_id(session, item.id)
-                images = list(images_result) if images_result else []
+                all_images = list(images_result) if images_result else []
+                images = all_images
+                if not rebuild_existing:
+                    # 非强制重建只补建未索引图片，避免重复覆盖已有向量和分割产物。
+                    images = [
+                        image
+                        for image in all_images
+                        if int(getattr(image, "is_indexed", 0) or 0) != 1
+                    ]
                 item_success_count = 0
                 success_image_ids: list[int] = []
                 deleted_existing = False
@@ -223,7 +260,17 @@ async def rebuild_v2_index(
                 segmented_service = runtime.SegmentedImageService(session)
 
                 if len(images) == 0:
-                    runtime.logger.warning(f"配件 {item.id} 没有图片，跳过")
+                    if all_images:
+                        skipped_existing_count += 1
+                        runtime.logger.info(f"配件 {item.id} 没有待构建索引的图片，跳过")
+                    else:
+                        runtime.logger.warning(f"配件 {item.id} 没有图片，跳过")
+                    await report_progress(
+                        initial_completed_item_count + position,
+                        None,
+                        0 if position == len(items) else estimated_remaining_seconds,
+                        completed_item=item,
+                    )
                     continue
 
                 if rebuild_existing:
@@ -368,6 +415,12 @@ async def rebuild_v2_index(
             except Exception as exc:
                 fail_count += 1
                 runtime.logger.error(f"处理配件失败: item={item.id}, error={exc}")
+                await report_progress(
+                    initial_completed_item_count + position,
+                    None,
+                    0 if position == len(items) else estimated_remaining_seconds,
+                    completed_item=item,
+                )
                 continue
 
             if success_image_ids:
@@ -378,7 +431,15 @@ async def rebuild_v2_index(
             if item_success_count > 0 or deleted_existing:
                 await cls.sync_item_v2_index_state(item.id, state_manager=state_manager)
 
-        report_progress(total_items, None, 0)
+            await report_progress(
+                initial_completed_item_count + position,
+                None,
+                0 if position == len(items) else estimated_remaining_seconds,
+                completed_item=item,
+            )
+
+        if not items:
+            await report_progress(initial_completed_item_count, None, 0)
         runtime.logger.info(f"V2 索引重建完成: 成功={success_count}, 失败={fail_count}")
         return {
             "success_count": success_count,

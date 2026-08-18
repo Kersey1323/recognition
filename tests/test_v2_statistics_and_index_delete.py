@@ -320,7 +320,7 @@ def test_rebuild_v2_index_reports_tqdm_progress_and_eta():
     assert progress_events[-1]["estimated_remaining_seconds"] == 0
 
 
-def test_rebuild_v2_index_single_item_skips_existing_when_not_forcing_rebuild():
+def test_rebuild_v2_index_single_item_skips_when_all_images_are_indexed():
     parts_module = _import_railway_parts_manager()
 
     session = AsyncMock()
@@ -330,10 +330,16 @@ def test_rebuild_v2_index_single_item_skips_existing_when_not_forcing_rebuild():
         item_code="40000543491",
         has_v2_index=1,
     )
+    indexed_image = SimpleNamespace(
+        id=9001,
+        image_url="bfr-ai-files/indexed.jpg",
+        image_source="BASEINFO",
+        is_indexed=1,
+    )
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
-         patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock()) as list_images_mock, \
+         patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock(return_value=[indexed_image])) as list_images_mock, \
          patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
          patch.object(parts_module, "MilvusStateManagerV2") as state_cls:
         manager_cls.return_value.index_precomputed_features = AsyncMock()
@@ -345,7 +351,7 @@ def test_rebuild_v2_index_single_item_skips_existing_when_not_forcing_rebuild():
             )
         )
 
-    list_images_mock.assert_not_awaited()
+    list_images_mock.assert_awaited_once_with(session, 101)
     state_cls.return_value.delete_item_index.assert_not_called()
     manager_cls.return_value.index_precomputed_features.assert_not_awaited()
     assert result["processed_item_count"] == 0

@@ -1,7 +1,7 @@
 """
 三维重构 API 模型
 """
-from typing import Optional
+from typing import Literal, Optional
 
 from bfrcommon.api_models import PageReq
 from pydantic import BaseModel, Field, root_validator, validator
@@ -394,12 +394,27 @@ class ReconstructionAllTasksRes(BaseModel):
 
 
 class ReconstructionIndexRebuildRes(BaseModel):
-    message: str = Field(..., description='消息')
-    task_id: Optional[str] = Field(None, description='后台索引任务ID')
-    status: Optional[str] = Field(None, description='后台任务状态')
-    item_id: Optional[str] = Field(None, description='配件ID，字符串返回以避免前端精度丢失')
-    limit: Optional[str | int] = Field(None, description='处理数量限制')
-    rebuild_existing: bool = Field(False, description='是否重建已存在的索引')
+    message: str = Field(..., description='任务提交结果说明')
+    task_id: Optional[str] = Field(
+        None,
+        description='任务提交后立即返回的后台索引任务ID，用于查询进度、取消或重试',
+    )
+    status: Optional[str] = Field(
+        None,
+        description='任务初始状态，正常提交时为 pending',
+    )
+    item_id: Optional[str] = Field(
+        None,
+        description='单配件任务的配件ID；批量任务为 null，字符串返回以避免前端精度丢失',
+    )
+    limit: Optional[str | int] = Field(
+        None,
+        description='批量任务的配件数量上限；未限制时返回 all，不代表图片数量',
+    )
+    rebuild_existing: bool = Field(
+        False,
+        description='false 仅补建未索引图片；true 清理旧索引和分割产物后重建全部有效图片',
+    )
     success_count: int | None = Field(None, description='成功建立索引的图片数量')
     fail_count: int | None = Field(None, description='失败的图片数量')
     total: int | None = Field(None, description='本次处理的图片总数')
@@ -414,18 +429,136 @@ class ReconstructionIndexRebuildRes(BaseModel):
 
 
 class ReconstructionIndexRebuildStatusRes(BaseModel):
-    task_id: str = Field(..., description='后台索引任务ID')
-    status: str = Field(..., description='任务状态：pending/running/success/failed/cancelled')
-    progress: int = Field(..., ge=0, le=100, description='按配件数量计算的完成百分比')
-    total_items: int = Field(..., description='本次选中的配件总数')
-    processed_items: int = Field(..., description='已处理的配件数')
-    success_count: int = Field(..., description='成功建立索引的图片数量')
-    fail_count: int = Field(..., description='失败的图片数量')
-    segmented_count: int = Field(0, description='使用分割图成功建立索引的图片数量')
-    fallback_count: int = Field(0, description='主体未识别而回退原图索引的图片数量')
+    task_id: str = Field(..., description='当前后台索引任务ID')
+    root_task_id: Optional[str] = Field(None, description='整条重试链首次提交的任务ID')
+    retry_from_task_id: Optional[str] = Field(None, description='创建当前任务的直接来源任务ID')
+    task_scope: Optional[str] = Field(
+        None,
+        description='任务范围：single 为指定单个配件，batch 为按条件选择多个配件',
+    )
+    item_id: Optional[str] = Field(None, description='single 任务的配件ID；batch 任务为 null')
+    item_limit: Optional[int] = Field(
+        None,
+        description='任务提交时设置的配件数量上限；null 表示不限制，不是图片数量',
+    )
+    rebuild_existing: bool = Field(
+        False,
+        description='false 仅补建未索引图片；true 清理后重建全部有效图片',
+    )
+    status: str = Field(
+        ...,
+        description='任务状态：pending/running/cancelling/success/failed/cancelled/interrupted',
+    )
+    progress: int = Field(..., ge=0, le=100, description='按已完成配件数计算的进度百分比')
+    total_items: int = Field(..., description='本次任务实际选中的配件总数')
+    processed_items: int = Field(..., description='已完成处理的配件数，用于前端展示进度')
+    completed_item_count: int = Field(0, description='已写入持久化检查点的配件数，重试从该检查点继续')
+    success_count: int = Field(..., description='成功同时写入 SigLIP 和 DINOv2 索引的图片数量')
+    fail_count: int = Field(..., description='索引失败的图片数量')
+    segmented_count: int = Field(
+        0,
+        description='CREATEBYSELF 图片经自动分割后成功建立索引的数量',
+    )
+    fallback_count: int = Field(
+        0,
+        description='CREATEBYSELF 图片因主体未识别、空 Mask 或无效 Mask 而回退原图索引的数量',
+    )
     current_item_id: Optional[str] = Field(None, description='当前正在处理的配件ID')
-    estimated_remaining_seconds: Optional[int] = Field(None, description='预计剩余秒数')
-    estimated_remaining: Optional[str] = Field(None, description='预计剩余时间展示文本')
-    error_message: Optional[str] = Field(None, description='任务失败原因')
+    last_completed_item_id: Optional[str] = Field(None, description='最近完成的配件ID')
+    last_completed_item_created_at: Optional[str] = Field(None, description='最近完成配件的创建时间')
+    estimated_remaining_seconds: Optional[int] = Field(
+        None,
+        description='根据已完成配件平均耗时估算的剩余秒数；样本不足或任务结束时可能为 null',
+    )
+    estimated_remaining: Optional[str] = Field(
+        None,
+        description='可直接展示的预计剩余时间，例如“约10分30秒”',
+    )
+    error_message: Optional[str] = Field(None, description='任务状态为 failed 时的具体失败原因')
+    cancel_reason: Optional[str] = Field(None, description='调用取消接口时提交的取消原因')
+    heartbeat_at: Optional[str] = Field(None, description='最近一次任务心跳时间')
+    started_at: Optional[str] = Field(None, description='任务开始时间')
+    completed_at: Optional[str] = Field(None, description='任务结束时间')
     time_created: Optional[str] = Field(None, description='任务创建时间')
     time_updated: Optional[str] = Field(None, description='状态更新时间')
+
+    @validator(
+        "item_id",
+        "current_item_id",
+        "last_completed_item_id",
+        pre=True,
+        allow_reuse=True,
+    )
+    def normalize_index_item_id(cls, value):
+        if value is None:
+            return None
+        return str(value)
+
+
+class ReconstructionIndexTaskListReq(PageReq):
+    page: int = Field(
+        ...,
+        ge=0,
+        description='页码；沿用公共分页参数，前端通常从 1 开始',
+        example=1,
+    )
+    per_page: int = Field(
+        ...,
+        ge=0,
+        alias='pageSize',
+        description='每页任务数量',
+        example=20,
+    )
+    status: Literal[
+        "all",
+        "active",
+        "pending",
+        "running",
+        "cancelling",
+        "success",
+        "failed",
+        "cancelled",
+        "interrupted",
+    ] = Field(
+        "all",
+        description=(
+            '任务状态筛选：all 全部；active 包含等待、运行和取消中的任务；其余值分别对应 '
+            'pending、running、cancelling、success、failed、cancelled、interrupted'
+        ),
+    )
+    task_scope: Literal["all", "single", "batch"] = Field(
+        "all",
+        description='任务范围筛选：all 全部；single 单配件任务；batch 批量任务',
+    )
+    item_id: Optional[str] = Field(
+        None,
+        description='按配件ID筛选 single 任务，建议按字符串传递；null 表示不限制配件',
+    )
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "page": 1,
+                "pageSize": 20,
+                "status": "active",
+                "task_scope": "all",
+            }
+        }
+
+
+class ReconstructionIndexTaskListRes(BaseModel):
+    total: int = Field(..., description='总任务数')
+    page: int = Field(..., description='当前页码')
+    pageSize: int = Field(..., description='每页数量')
+    records: list[ReconstructionIndexRebuildStatusRes] = Field(
+        default_factory=list,
+        description='索引任务列表',
+    )
+
+
+class ReconstructionIndexTaskCancelReq(BaseModel):
+    cancel_reason: Optional[str] = Field(
+        None,
+        max_length=500,
+        description='可选取消原因，将随任务记录持久化并供前端展示，最长500字符',
+    )

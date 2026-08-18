@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, call, patch
+from unittest.mock import AsyncMock, call, patch
 
 
 class _AsyncBegin:
@@ -49,11 +49,13 @@ def test_load_main_db_models_imports_all_main_db_model_modules():
 
     assert imported == [
         "csrcqsf.models.orm.files",
+        "csrcqsf.models.orm.index_rebuild_task",
         "csrcqsf.models.orm.item",
         "csrcqsf.models.orm.reconstruction",
         "csrcqsf.models.orm.reconstruction_upload",
         "csrcqsf.models.orm.search_history",
         "csrcqsf.models.orm.sgo",
+        "csrcqsf.models.orm.item_inquiry_history",
     ]
 
 
@@ -88,9 +90,12 @@ def test_db_migrate_bootstraps_database_then_creates_all_tables():
     with patch.object(pg_module, "engine", fake_engine), \
          patch("csrcqsf.infra.db.main_db.ensure_main_database_exists", AsyncMock()) as ensure_db_mock, \
          patch("csrcqsf.infra.db.main_db.load_main_db_models") as load_models_mock, \
+         patch("csrcqsf.infra.db.main_db.run_pending_migrations", AsyncMock()) as migrations_mock, \
          patch("csrcqsf.infra.db.main_db._ensure_item_info_columns", AsyncMock()) as ensure_item_mock, \
          patch("csrcqsf.infra.db.main_db._ensure_search_history_columns", AsyncMock()) as ensure_history_mock, \
-         patch("csrcqsf.infra.db.main_db._ensure_reconstruction_columns", AsyncMock()) as ensure_reconstruction_mock:
+         patch("csrcqsf.infra.db.main_db._ensure_reconstruction_columns", AsyncMock()) as ensure_reconstruction_mock, \
+         patch("csrcqsf.infra.db.main_db._ensure_reconstruction_upload_session_columns", AsyncMock()) as ensure_upload_mock, \
+         patch("csrcqsf.infra.db.main_db._ensure_sgo_item_image_columns", AsyncMock()) as ensure_image_mock:
         asyncio.run(pg_module.db_migrate())
 
     ensure_db_mock.assert_awaited_once()
@@ -99,9 +104,12 @@ def test_db_migrate_bootstraps_database_then_creates_all_tables():
         call(pg_module.Base.metadata.create_all),
         call(pg_module.PlainBase.metadata.create_all),
     ]
+    migrations_mock.assert_awaited_once_with(fake_conn)
     ensure_item_mock.assert_awaited_once_with(fake_conn)
     ensure_history_mock.assert_awaited_once_with(fake_conn)
     ensure_reconstruction_mock.assert_awaited_once_with(fake_conn)
+    ensure_upload_mock.assert_awaited_once_with(fake_conn)
+    ensure_image_mock.assert_awaited_once_with(fake_conn)
 
 
 def test_db_migrate_contains_reconstruction_upload_column_backfills():

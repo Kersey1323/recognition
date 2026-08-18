@@ -76,6 +76,33 @@ def test_images_sync_route_and_status_use_same_task_manager():
     assert status.synced_image_count == 3
 
 
+def test_inquiry_history_sync_route_submits_background_task_without_awaiting_runner():
+    manager = MagicMock()
+    manager.start.return_value = {
+        "task_id": "history-task-1",
+        "status": "pending",
+        "task_type": "inquiry-history",
+    }
+
+    with patch.object(routes, "sgo_sync_task_manager", manager), patch.object(
+        routes.SGOBiz,
+        "sync_inquiry_history",
+        AsyncMock(),
+    ) as runner:
+        result = asyncio.run(routes.sgo_inquiry_history_sync(routes.SyncInquiryHistoryReq()))
+
+    runner.assert_not_awaited()
+    manager.start.assert_called_once_with(
+        "inquiry-history",
+        runner,
+        limit=None,
+        batch_size=500,
+    )
+    assert result.task_id == "history-task-1"
+    assert result.status == "pending"
+    assert result.task_type == "inquiry-history"
+
+
 def test_sync_status_returns_404_for_unknown_task():
     manager = MagicMock()
     manager.get.return_value = None

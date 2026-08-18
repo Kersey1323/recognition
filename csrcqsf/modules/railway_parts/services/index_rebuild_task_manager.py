@@ -1,17 +1,24 @@
-"""In-process lifecycle management for long-running V2 index rebuilds."""
+"""Persistent lifecycle management for V2 index rebuild tasks."""
 
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime
 import logging
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
+from csrcqsf.core.settings import index_single_task_max_concurrency
+from csrcqsf.modules.railway_parts.repositories.index_rebuild_task_repository import (
+    IndexRebuildTaskRepository,
+)
+
 
 logger = logging.getLogger(__name__)
 
 IndexRebuildRunner = Callable[..., Awaitable[dict[str, Any]]]
+RETRYABLE_STATUSES = {"interrupted", "failed", "cancelled"}
 
 
 def _format_remaining(seconds: int | None) -> str | None:
@@ -19,7 +26,6 @@ def _format_remaining(seconds: int | None) -> str | None:
         return None
     if seconds <= 0:
         return "已完成"
-
     hours, remainder = divmod(seconds, 3600)
     minutes, remaining_seconds = divmod(remainder, 60)
     if hours:
@@ -29,154 +35,381 @@ def _format_remaining(seconds: int | None) -> str | None:
     return f"约{remaining_seconds}秒"
 
 
+def _decorate(record: dict[str, Any] | None) -> dict[str, Any] | None:
+    if record is None:
+        return None
+    snapshot = dict(record)
+    snapshot["estimated_remaining"] = _format_remaining(
+        snapshot.get("estimated_remaining_seconds")
+    )
+    for field in ("item_id", "current_item_id", "last_completed_item_id"):
+        if snapshot.get(field) is not None:
+            snapshot[field] = str(snapshot[field])
+    for field in (
+        "last_completed_item_created_at",
+        "heartbeat_at",
+        "started_at",
+        "completed_at",
+        "time_created",
+        "time_updated",
+    ):
+        if isinstance(snapshot.get(field), datetime):
+            snapshot[field] = snapshot[field].isoformat()
+    return snapshot
+
+
+@dataclass
+class _ActiveTask:
+    task: asyncio.Task[Any]
+    task_scope: str
+    item_id: int | None
+
+
 class IndexRebuildTaskManager:
-    """Keep index jobs alive and expose process-local progress snapshots."""
+    """Run tasks in-process while keeping their observable lifecycle in MySQL."""
 
-    def __init__(self, max_history: int = 100) -> None:
-        self._tasks: dict[str, dict[str, Any]] = {}
-        self._running_tasks: set[asyncio.Task[Any]] = set()
-        self._max_history = max_history
+    def __init__(
+        self,
+        repository=None,
+        max_single_tasks: int | None = None,
+    ) -> None:
+        self._repository = repository or IndexRebuildTaskRepository()
+        self._max_single_tasks = max_single_tasks or index_single_task_max_concurrency
+        self._active: dict[str, _ActiveTask] = {}
+        self._lock = asyncio.Lock()
 
-    def start(
+    @property
+    def active_task_ids(self) -> tuple[str, ...]:
+        return tuple(self._active.keys())
+
+    async def start(
         self,
         runner: IndexRebuildRunner,
         item_id: int | None,
         limit: int | None,
         rebuild_existing: bool,
     ) -> dict[str, Any]:
-        active = next(
-            (
-                state
-                for state in self._tasks.values()
-                if state["status"] in {"pending", "running"}
-            ),
-            None,
+        return await self._start(
+            runner=runner,
+            item_id=item_id,
+            record_limit=limit,
+            execution_limit=limit,
+            rebuild_existing=rebuild_existing,
         )
-        if active is not None:
-            raise RuntimeError(f"已有索引重建任务正在执行: task_id={active['task_id']}")
 
-        self._trim_history()
-        task_id = str(uuid4())
-        now = datetime.now().isoformat(timespec="seconds")
-        self._tasks[task_id] = {
-            "task_id": task_id,
-            "status": "pending",
-            "progress": 0,
-            "total_items": 0,
-            "processed_items": 0,
-            "success_count": 0,
-            "fail_count": 0,
-            "segmented_count": 0,
-            "fallback_count": 0,
-            "current_item_id": None,
-            "estimated_remaining_seconds": None,
-            "estimated_remaining": None,
-            "error_message": None,
-            "time_created": now,
-            "time_updated": now,
-        }
-        task = asyncio.create_task(
-            self._run(
+    async def _start(
+        self,
+        *,
+        runner: IndexRebuildRunner,
+        item_id: int | None,
+        record_limit: int | None,
+        execution_limit: int | None,
+        rebuild_existing: bool,
+        source: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        task_scope = "single" if item_id is not None else "batch"
+        async with self._lock:
+            self._check_capacity(task_scope, item_id)
+            task_id = str(uuid4())
+            initial = source or {}
+            record = await self._repository.create(
                 task_id=task_id,
-                runner=runner,
+                root_task_id=initial.get("root_task_id") or task_id,
+                retry_from_task_id=initial.get("task_id"),
+                task_scope=task_scope,
                 item_id=item_id,
-                limit=limit,
+                item_limit=record_limit,
                 rebuild_existing=rebuild_existing,
-            ),
-            name=f"v2-index-rebuild-{task_id}",
-        )
-        self._running_tasks.add(task)
-        task.add_done_callback(self._running_tasks.discard)
-        return dict(self._tasks[task_id])
-
-    def get(self, task_id: str) -> dict[str, Any] | None:
-        state = self._tasks.get(task_id)
-        return dict(state) if state is not None else None
-
-    def _update_progress(self, task_id: str, progress: dict[str, Any]) -> None:
-        state = self._tasks[task_id]
-        for field in (
-            "progress",
-            "total_items",
-            "processed_items",
-            "success_count",
-            "fail_count",
-            "segmented_count",
-            "fallback_count",
-            "estimated_remaining_seconds",
-        ):
-            if field in progress:
-                state[field] = progress[field]
-        if "current_item_id" in progress:
-            current_item_id = progress["current_item_id"]
-            state["current_item_id"] = (
-                str(current_item_id) if current_item_id is not None else None
+                progress=int(initial.get("progress", 0) or 0),
+                total_items=int(initial.get("total_items", 0) or 0),
+                completed_item_count=int(initial.get("completed_item_count", 0) or 0),
+                processed_items=int(initial.get("processed_items", 0) or 0),
+                success_count=int(initial.get("success_count", 0) or 0),
+                fail_count=int(initial.get("fail_count", 0) or 0),
+                segmented_count=int(initial.get("segmented_count", 0) or 0),
+                fallback_count=int(initial.get("fallback_count", 0) or 0),
+                last_completed_item_id=initial.get("last_completed_item_id"),
+                last_completed_item_created_at=initial.get(
+                    "last_completed_item_created_at"
+                ),
             )
-        state["estimated_remaining"] = _format_remaining(
-            state["estimated_remaining_seconds"]
+            task = asyncio.create_task(
+                self._run(
+                    task_id=task_id,
+                    runner=runner,
+                    item_id=item_id,
+                    limit=execution_limit,
+                    rebuild_existing=rebuild_existing,
+                    initial=initial,
+                ),
+                name=f"v2-index-rebuild-{task_id}",
+            )
+            self._active[task_id] = _ActiveTask(task, task_scope, item_id)
+            task.add_done_callback(
+                lambda completed_task, completed_task_id=task_id: self._on_task_done(
+                    completed_task_id,
+                    completed_task,
+                )
+            )
+            return _decorate(record)
+
+    def _on_task_done(
+        self,
+        task_id: str,
+        completed_task: asyncio.Task[Any],
+    ) -> None:
+        if not completed_task.cancelled():
+            error = completed_task.exception()
+            if error is not None:
+                logger.error(
+                    "V2 index rebuild task lifecycle exited unexpectedly: task_id=%s",
+                    task_id,
+                    exc_info=(type(error), error, error.__traceback__),
+                )
+        asyncio.create_task(
+            self._finalize_finished_task(task_id, completed_task),
+            name=f"v2-index-rebuild-finalize-{task_id}",
         )
-        state["time_updated"] = datetime.now().isoformat(timespec="seconds")
+
+    async def _finalize_finished_task(
+        self,
+        task_id: str,
+        completed_task: asyncio.Task[Any],
+    ) -> None:
+        if completed_task.cancelled():
+            record = await self._repository.get(task_id)
+            if record is not None and record.get("status") in {
+                "pending",
+                "running",
+                "cancelling",
+            }:
+                # A task cancelled before its first coroutine step cannot run _run's cleanup.
+                now = datetime.now()
+                await self._repository.transition(
+                    task_id,
+                    ("pending", "running", "cancelling"),
+                    status="cancelled",
+                    current_item_id=None,
+                    completed_at=now,
+                    heartbeat_at=now,
+                    estimated_remaining_seconds=None,
+                )
+        async with self._lock:
+            active = self._active.get(task_id)
+            if active is not None and active.task is completed_task:
+                self._active.pop(task_id, None)
+
+    def _check_capacity(self, task_scope: str, item_id: int | None) -> None:
+        active_values = tuple(self._active.values())
+        has_batch = any(active.task_scope == "batch" for active in active_values)
+        if has_batch or (task_scope == "batch" and active_values):
+            raise RuntimeError("批量索引任务与其他索引任务不能并行")
+        if task_scope == "single":
+            if any(active.item_id == item_id for active in active_values):
+                raise RuntimeError(f"配件已有索引任务正在执行: item_id={item_id}")
+            single_count = sum(
+                active.task_scope == "single" for active in active_values
+            )
+            if single_count >= self._max_single_tasks:
+                raise RuntimeError(
+                    f"单配件索引任务已达到并发上限: {self._max_single_tasks}"
+                )
 
     async def _run(
         self,
+        *,
         task_id: str,
         runner: IndexRebuildRunner,
         item_id: int | None,
         limit: int | None,
         rebuild_existing: bool,
+        initial: dict[str, Any],
     ) -> None:
-        state = self._tasks[task_id]
-        state["status"] = "running"
-        state["time_updated"] = datetime.now().isoformat(timespec="seconds")
+        now = datetime.now()
+        started = await self._repository.transition(
+            task_id,
+            ("pending",),
+            status="running",
+            started_at=now,
+            heartbeat_at=now,
+        )
+        if started is None:
+            return
+
+        async def persist_progress(progress: dict[str, Any]) -> None:
+            await self._repository.update(
+                task_id,
+                **progress,
+                heartbeat_at=datetime.now(),
+            )
+
         try:
             result = await runner(
                 item_id=item_id,
                 limit=limit,
                 rebuild_existing=rebuild_existing,
-                progress_callback=lambda progress: self._update_progress(task_id, progress),
+                progress_callback=persist_progress,
+                resume_after_created_at=initial.get("last_completed_item_created_at"),
+                resume_after_item_id=initial.get("last_completed_item_id"),
+                initial_completed_item_count=int(
+                    initial.get("completed_item_count", 0) or 0
+                ),
+                initial_success_count=int(initial.get("success_count", 0) or 0),
+                initial_fail_count=int(initial.get("fail_count", 0) or 0),
+                initial_segmented_count=int(initial.get("segmented_count", 0) or 0),
+                initial_fallback_count=int(initial.get("fallback_count", 0) or 0),
+                total_items_override=int(initial.get("total_items", 0) or 0) or None,
             )
-        except asyncio.CancelledError:
-            state.update(
-                status="cancelled",
-                error_message="服务停止，索引重建任务已取消",
-                estimated_remaining_seconds=None,
-                estimated_remaining=None,
-                time_updated=datetime.now().isoformat(timespec="seconds"),
-            )
-            raise
-        except Exception as exc:
-            logger.exception("V2 index rebuild task failed: task_id=%s", task_id)
-            state.update(
-                status="failed",
-                error_message=str(exc),
-                estimated_remaining_seconds=None,
-                estimated_remaining=None,
-                time_updated=datetime.now().isoformat(timespec="seconds"),
-            )
-        else:
-            state.update(
+            current = await self._repository.get(task_id) or {}
+            completed = await self._repository.transition(
+                task_id,
+                ("running",),
                 status="success",
                 progress=100,
-                processed_items=state["total_items"],
+                processed_items=int(current.get("total_items", 0) or 0),
+                completed_item_count=int(current.get("total_items", 0) or 0),
                 success_count=int(result.get("success_count", 0) or 0),
                 fail_count=int(result.get("fail_count", 0) or 0),
                 segmented_count=int(result.get("segmented_count", 0) or 0),
                 fallback_count=int(result.get("fallback_count", 0) or 0),
                 current_item_id=None,
+                completed_at=datetime.now(),
+                heartbeat_at=datetime.now(),
                 estimated_remaining_seconds=0,
-                estimated_remaining="已完成",
-                time_updated=datetime.now().isoformat(timespec="seconds"),
             )
+            if completed is None:
+                current = await self._repository.get(task_id) or {}
+                if current.get("status") == "cancelling":
+                    now = datetime.now()
+                    await self._repository.transition(
+                        task_id,
+                        ("cancelling",),
+                        status="cancelled",
+                        current_item_id=None,
+                        completed_at=now,
+                        heartbeat_at=now,
+                        estimated_remaining_seconds=None,
+                    )
+        except asyncio.CancelledError:
+            now = datetime.now()
+            await self._repository.transition(
+                task_id,
+                ("pending", "running", "cancelling"),
+                status="cancelled",
+                current_item_id=None,
+                completed_at=now,
+                heartbeat_at=now,
+                estimated_remaining_seconds=None,
+            )
+            raise
+        except Exception as exc:
+            logger.exception("V2 index rebuild task failed: task_id=%s", task_id)
+            now = datetime.now()
+            failed = await self._repository.transition(
+                task_id,
+                ("pending", "running"),
+                status="failed",
+                current_item_id=None,
+                completed_at=now,
+                heartbeat_at=now,
+                error_message=str(exc),
+                estimated_remaining_seconds=None,
+            )
+            if failed is None:
+                await self._repository.transition(
+                    task_id,
+                    ("cancelling",),
+                    status="cancelled",
+                    current_item_id=None,
+                    completed_at=now,
+                    heartbeat_at=now,
+                    estimated_remaining_seconds=None,
+                )
+        finally:
+            async with self._lock:
+                self._active.pop(task_id, None)
 
-    def _trim_history(self) -> None:
-        completed_ids = [
-            task_id
-            for task_id, state in self._tasks.items()
-            if state["status"] not in {"pending", "running"}
-        ]
-        overflow = len(self._tasks) - self._max_history + 1
-        for task_id in completed_ids[:max(0, overflow)]:
-            self._tasks.pop(task_id, None)
+    async def get(self, task_id: str) -> dict[str, Any] | None:
+        return _decorate(await self._repository.get(task_id))
+
+    async def list(self, **filters) -> tuple[list[dict[str, Any]], int]:
+        records, total = await self._repository.list(**filters)
+        return [_decorate(record) for record in records], total
+
+    async def cancel(
+        self,
+        task_id: str,
+        cancel_reason: str | None = None,
+    ) -> dict[str, Any]:
+        async with self._lock:
+            record = await self._repository.get(task_id)
+            if record is None:
+                raise KeyError(task_id)
+            status = record["status"]
+            if status in {"cancelling", "cancelled"}:
+                return _decorate(record)
+            if status not in {"pending", "running"}:
+                raise RuntimeError(f"终态索引任务不可取消: status={status}")
+            active = self._active.get(task_id)
+            if active is None:
+                interrupted = await self._repository.mark_missing_active_task_interrupted(
+                    task_id
+                )
+                return _decorate(interrupted)
+            updated = await self._repository.transition(
+                task_id,
+                ("pending", "running"),
+                status="cancelling",
+                cancel_reason=cancel_reason,
+                heartbeat_at=datetime.now(),
+            )
+            if updated is None:
+                latest = await self._repository.get(task_id)
+                if latest is None:
+                    raise KeyError(task_id)
+                if latest["status"] in {"cancelling", "cancelled"}:
+                    return _decorate(latest)
+                raise RuntimeError(
+                    f"终态索引任务不可取消: status={latest['status']}"
+                )
+            active.task.cancel()
+            return _decorate(updated)
+
+    async def retry(
+        self,
+        task_id: str,
+        *,
+        runner: IndexRebuildRunner,
+    ) -> dict[str, Any]:
+        source = await self._repository.get(task_id)
+        if source is None:
+            raise KeyError(task_id)
+        if source["status"] not in RETRYABLE_STATUSES:
+            raise RuntimeError(f"当前索引任务不可重试: status={source['status']}")
+
+        item_id = source.get("item_id")
+        record_limit = source.get("item_limit")
+        if item_id is not None:
+            execution_limit = 1
+        elif int(source.get("total_items", 0) or 0) == 0:
+            execution_limit = record_limit
+        else:
+            execution_limit = max(
+                int(source["total_items"] or 0)
+                - int(source.get("completed_item_count", 0) or 0),
+                0,
+            )
+        if execution_limit == 0:
+            raise RuntimeError("索引任务没有剩余配件可重试")
+
+        return await self._start(
+            runner=runner,
+            item_id=int(item_id) if item_id is not None else None,
+            record_limit=execution_limit,
+            execution_limit=execution_limit,
+            rebuild_existing=bool(source.get("rebuild_existing", False)),
+            source=source,
+        )
 
 
 index_rebuild_task_manager = IndexRebuildTaskManager()

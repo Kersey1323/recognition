@@ -25,6 +25,7 @@ from csrcqsf.modules.image.services import SegmentBiz
 from csrcqsf.modules.railway_parts.routes import asset_proxy_router, parts_router
 from csrcqsf.modules.sgo.routes import sgo_router
 from csrcqsf.infra.db.main_db import db_migrate
+from csrcqsf.models.orm.index_rebuild_task import recover_index_rebuild_tasks
 from csrcqsf.infra.storage.minio import create_minio_buckets
 from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.core.scheduler import register_main_async_loop
@@ -77,6 +78,11 @@ async def lifespan(app: FastAPI):
                 f"host={ai_settings.mysql.url}, port={ai_settings.mysql.port}, "
                 f"database={main_db_database}"
             ),
+        )
+        await run_startup_step(
+            "索引重建任务状态恢复",
+            recover_index_rebuild_tasks,
+            logger=logger,
         )
     else:
         logger.warning("未显式配置主业务库环境变量，跳过数据库迁移初始化")

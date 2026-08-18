@@ -1,6 +1,8 @@
 """Routes for vector index, search, and search history."""
 
-from fastapi import File, Form, HTTPException, UploadFile
+from typing import Annotated
+
+from fastapi import File, Form, HTTPException, Path, Query, UploadFile
 from anyio.to_thread import run_sync
 
 from csrcqsf.modules.railway_parts.schemas.search import (
@@ -21,6 +23,9 @@ from csrcqsf.modules.railway_parts.schemas.search import (
 from csrcqsf.modules.railway_parts.schemas.reconstruction import (
     ReconstructionIndexRebuildRes,
     ReconstructionIndexRebuildStatusRes,
+    ReconstructionIndexTaskCancelReq,
+    ReconstructionIndexTaskListReq,
+    ReconstructionIndexTaskListRes,
 )
 from csrcqsf.modules.railway_parts.services.index_rebuild_task_manager import (
     index_rebuild_task_manager,
@@ -78,28 +83,53 @@ async def init_v2_collections():
     }
 
 
-@parts_router.post('/v2/index/rebuild', tags=["算法-向量检索V2"], summary='重建V2索引')
+@parts_router.post(
+    '/v2/index/rebuild',
+    tags=["算法-向量检索V2"],
+    summary='提交V2索引重建任务',
+    response_model=ReconstructionIndexRebuildRes,
+)
 async def rebuild_v2_index(
-    item_id: str = None,
-    limit: int = None,
-    rebuild_existing: bool = False,
+    item_id: str | None = Query(
+        default=None,
+        description='指定配件ID；不传时创建批量任务。ID建议按字符串传递，避免前端精度丢失',
+        example='1979108557241831424',
+    ),
+    limit: int | None = Query(
+        default=None,
+        ge=1,
+        description='批量任务最多处理的配件数量上限，不是图片数量；不传表示处理全部候选配件',
+        example=500,
+    ),
+    rebuild_existing: bool = Query(
+        default=False,
+        description=(
+            '是否强制重建：false 仅处理存在未索引图片的配件，并仅补建未索引图片；'
+            'true 会先删除所选配件的旧向量、patch tokens 和分割产物，再重建全部有效图片'
+        ),
+    ),
 ):
     """
-    重建V2向量索引 (SigLIP + DINOv2)
+    提交进程内后台任务，立即返回 `task_id`，前端不需要等待索引完成。
 
-    参数：
-    - item_id: 指定配件ID（可选，为空则重建所有）
-    - limit: 限制处理数量（可选，用于测试，如 limit=10 只处理10条数据）
-    注意：
-    - 所有索引任务都在当前服务进程内异步执行
-    - 提交后使用返回的 task_id 查询进度和预计剩余时间
+    图片处理规则：
+
+    - `CREATEBYSELF`：调用模型服务 `/api/v1/indexing/extract`，执行 YOLO-World + SAM2
+      主体分割，并直接返回 SigLIP、DINOv2 特征。
+    - `BASEINFO`、`INQUERY`、空值或未知来源：不分割，使用原图分别调用 SigLIP、DINOv2
+      特征接口。
+    - 主体未识别、空 Mask 或无效 Mask：记录分割失败并回退原图索引；模型加载、网络等技术
+      异常不回退，该图片计入失败数。
+
+    任务约束：批量任务不能与其他索引任务并行；单配件任务最多并行 16 个，同一配件不能重复提交。
+    提交后通过进度接口轮询，页面重新打开时可通过任务列表找回 `task_id`。
     """
     ensure_vector_models_enabled()
     int_item_id = int(item_id) if item_id not in (None, "") else None
 
     # 单配件、小批量和全量索引使用同一任务生命周期，避免前端维护两套交互。
     try:
-        task = index_rebuild_task_manager.start(
+        task = await index_rebuild_task_manager.start(
             runner=RailwayPartsManager.rebuild_v2_index,
             item_id=int_item_id,
             limit=limit,
@@ -121,13 +151,136 @@ async def rebuild_v2_index(
     '/v2/index/rebuild/status/{task_id}',
     tags=["算法-向量检索V2"],
     summary='查询V2索引重建进度',
+    response_model=ReconstructionIndexRebuildStatusRes,
 )
-async def get_v2_index_rebuild_status(task_id: str):
-    """查询当前服务进程内的索引任务进度和预计剩余时间。"""
-    task = index_rebuild_task_manager.get(task_id)
+async def get_v2_index_rebuild_status(
+    task_id: Annotated[str, Path(description='提交或重试索引任务时返回的后台任务ID')],
+):
+    """从持久化任务记录查询进度、图片处理统计、预计剩余时间和失败原因。"""
+    task = await index_rebuild_task_manager.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"索引重建任务不存在: task_id={task_id}")
     return ReconstructionIndexRebuildStatusRes(**task)
+
+
+@parts_router.post(
+    '/v2/index/rebuild/tasks/list',
+    tags=["算法-向量检索V2"],
+    summary='查询V2索引重建任务列表',
+    response_model=ReconstructionIndexTaskListRes,
+)
+async def list_v2_index_rebuild_tasks(req: ReconstructionIndexTaskListReq):
+    """
+    分页查询持久化任务，用于页面重新打开后恢复任务列表和继续轮询。
+
+    **请求字段**
+
+    | 字段 | 含义 |
+    | --- | --- |
+    | `page` | 页码，建议从 1 开始 |
+    | `pageSize` | 每页返回的任务数量 |
+    | `status` | 按任务状态筛选，取值见下表 |
+    | `task_scope` | 按任务范围筛选，取值见下表 |
+    | `item_id` | 可选配件ID；有值时只查询该配件的 `single` 任务 |
+
+    **status 状态**
+
+    | 值 | 含义 |
+    | --- | --- |
+    | `all` | 不按状态筛选，返回全部状态 |
+    | `active` | 活动任务集合，包括等待中、运行中、取消中的任务 |
+    | `pending` | 已创建，正在等待后台执行 |
+    | `running` | 后台正在构建索引 |
+    | `cancelling` | 已收到取消请求，正在等待任务协程退出 |
+    | `success` | 任务已执行完成；仍需检查 `fail_count` 是否存在单图失败 |
+    | `failed` | 任务级异常导致整体执行失败，可查看 `error_message` |
+    | `cancelled` | 任务已取消并结束 |
+    | `interrupted` | 服务重启时发现任务未完成，可调用重试接口继续 |
+
+    **task_scope 范围**
+
+    | 值 | 含义 |
+    | --- | --- |
+    | `all` | 不按任务范围筛选 |
+    | `single` | 指定 `item_id` 创建的单配件任务，最多并行 16 个 |
+    | `batch` | 未指定 `item_id` 的批量任务，不能与其他索引任务并行 |
+    """
+    item_id = int(req.item_id) if req.item_id not in (None, "") else None
+    records, total = await index_rebuild_task_manager.list(
+        page=req.page,
+        per_page=req.per_page,
+        status=req.status,
+        task_scope=req.task_scope,
+        item_id=item_id,
+    )
+    return ReconstructionIndexTaskListRes(
+        total=total,
+        page=req.page,
+        pageSize=req.per_page,
+        records=[ReconstructionIndexRebuildStatusRes(**record) for record in records],
+    )
+
+
+@parts_router.post(
+    '/v2/index/rebuild/tasks/{task_id}/cancel',
+    tags=["算法-向量检索V2"],
+    summary='取消V2索引重建任务',
+    response_model=ReconstructionIndexRebuildStatusRes,
+)
+async def cancel_v2_index_rebuild_task(
+    task_id: Annotated[str, Path(description='需要取消的后台索引任务ID')],
+    req: ReconstructionIndexTaskCancelReq,
+):
+    """请求取消等待中或运行中的任务；返回 `cancelling` 后应继续轮询到 `cancelled`。"""
+    try:
+        task = await index_rebuild_task_manager.cancel(task_id, req.cancel_reason)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"索引重建任务不存在: task_id={task_id}",
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ReconstructionIndexRebuildStatusRes(**task)
+
+
+@parts_router.post(
+    '/v2/index/rebuild/tasks/{task_id}/retry',
+    tags=["算法-向量检索V2"],
+    summary='重试V2索引重建任务',
+    response_model=ReconstructionIndexRebuildRes,
+)
+async def retry_v2_index_rebuild_task(
+    task_id: Annotated[
+        str,
+        Path(description='需要重试的 failed、cancelled 或 interrupted 任务ID'),
+    ],
+):
+    """
+    从来源任务最近完成的配件检查点创建新任务并返回新的 `task_id`。
+
+    重试精确到配件级，不重复处理已完成配件；失败或中断时正在处理的配件会重新处理。
+    """
+    try:
+        task = await index_rebuild_task_manager.retry(
+            task_id,
+            runner=RailwayPartsManager.rebuild_v2_index,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"索引重建任务不存在: task_id={task_id}",
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ReconstructionIndexRebuildRes(
+        message='索引重建重试任务已在后台启动',
+        task_id=task["task_id"],
+        status=task["status"],
+        item_id=task.get("item_id"),
+        limit=task.get("item_limit") or 'all',
+        rebuild_existing=bool(task.get("rebuild_existing", False)),
+    )
 
 
 @parts_router.delete('/v2/index/{item_id}', tags=["算法-向量检索V2"], summary='删除指定配件的V2索引', responses={

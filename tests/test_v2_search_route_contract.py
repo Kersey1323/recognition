@@ -34,6 +34,10 @@ def _import_parts_service():
     fake_reconstruction_api_models_module = ModuleType("csrcqsf.modules.railway_parts.schemas.reconstruction")
     for name in [
         "ReconstructionIndexRebuildRes",
+        "ReconstructionIndexRebuildStatusRes",
+        "ReconstructionIndexTaskCancelReq",
+        "ReconstructionIndexTaskListReq",
+        "ReconstructionIndexTaskListRes",
     ]:
         setattr(fake_reconstruction_api_models_module, name, type(name, (BaseModel,), {}))
 

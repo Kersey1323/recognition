@@ -190,6 +190,41 @@ def test_rebuild_segments_only_createbyself_and_indexes_other_sources_original()
     assert result["success_count"] == 3
 
 
+def test_non_forced_rebuild_indexes_only_pending_images_of_partially_indexed_item():
+    images = [
+        SimpleNamespace(
+            id=9001,
+            image_url="bfr-ai-files/indexed.jpg",
+            image_source="BASEINFO",
+            is_indexed=1,
+        ),
+        SimpleNamespace(
+            id=9002,
+            image_url="bfr-ai-files/pending.jpg",
+            image_source="BASEINFO",
+            is_indexed=2,
+        ),
+    ]
+    scenario = build_scenario(images)
+    scenario.item.has_v2_index = 1
+
+    result = asyncio.run(
+        parts_index_service.rebuild_v2_index(
+            scenario.railway_manager,
+            item_id=101,
+            rebuild_existing=False,
+            runtime=scenario.runtime,
+        )
+    )
+
+    indexed_image_ids = [
+        call.kwargs["image_id"]
+        for call in scenario.manager.index_precomputed_features.await_args_list
+    ]
+    assert indexed_image_ids == [9002]
+    assert result["success_count"] == 1
+
+
 def test_foreground_detection_error_falls_back_to_original_features():
     image = SimpleNamespace(
         id=9001,
