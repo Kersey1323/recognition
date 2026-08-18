@@ -23,6 +23,12 @@ class SearchParameters(BaseModel):
     vechile: str | None = ''
     parent_item_id: int | None = 0
     lower_rate: float = 0.8
+    vehicle_batch: str | None = None
+    item_name: str | None = None
+    train_no: str | None = None
+    car_num: str | None = None
+    subordinate_component: str | None = None
+    search_mode: str = "siglip"
 
 
 class MatchedImage(BaseModel):
@@ -42,6 +48,15 @@ class SearchResultItem(BaseModel):
 
 class SearchResults(BaseModel):
     items: list[SearchResultItem] = []
+
+
+class SearchSnapshot(BaseModel):
+    """滑动窗口中一轮条件检索的完整业务快照。"""
+
+    query_images: list[str] = Field(default_factory=list)
+    parameters: SearchParameters
+    results: SearchResults
+    searched_at: datetime
 
 
 class SearchHistoryItem(BaseModel):
@@ -91,6 +106,15 @@ class SearchHistory(Base):
     correct_source: Mapped[str] = mapped_column(String(50), nullable=True)
     search_results: Mapped[SearchResults] = mapped_column(
         PydanticType(SearchResults), nullable=True)
+    previous_search_snapshot: Mapped[SearchSnapshot | None] = mapped_column(
+        PydanticType(SearchSnapshot), nullable=True
+    )
+    search_revision: Mapped[int] = mapped_column(
+        INT,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
 
     @classmethod
     async def list_search_history(
@@ -250,7 +274,12 @@ class SearchHistory(Base):
 
     @classmethod
     async def delete_history_with_query_images(cls, session: AsyncSession, history_id_list: list[int]):
-        stmt = select(cls.id, cls.query_image, cls.query_images_json).where(cls.id.in_(history_id_list))
+        stmt = select(
+            cls.id,
+            cls.query_image,
+            cls.query_images_json,
+            cls.previous_search_snapshot,
+        ).where(cls.id.in_(history_id_list))
         rows = (await session.execute(stmt)).all()
         await session.execute(delete(cls).where(cls.id.in_(history_id_list)))
         await session.flush()

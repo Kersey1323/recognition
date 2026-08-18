@@ -118,3 +118,10 @@ def test_db_migrate_contains_reconstruction_upload_column_backfills():
     assert '"reconstruction_video_upload_session"' in text
     assert '"storage_mode"' in text
     assert '"remote_upload_id"' in text
+
+
+def test_db_migrate_contains_contextual_search_window_columns():
+    text = Path("csrcqsf/infra/db/main_db.py").read_text(encoding="utf-8")
+
+    assert '"previous_search_snapshot"' in text
+    assert '"search_revision"' in text

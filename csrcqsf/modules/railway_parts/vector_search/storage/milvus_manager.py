@@ -516,11 +516,24 @@ class MilvusManagerV2:
 
     # ==================== 检索功能 ====================
 
+    @staticmethod
+    def _build_item_filter(item_ids: list[int] | None) -> str:
+        if item_ids is None:
+            return ""
+        normalized_ids = sorted({int(item_id) for item_id in item_ids})
+        return f"item_id IN [{','.join(str(item_id) for item_id in normalized_ids)}]"
+
+    @classmethod
+    def _item_filter_kwargs(cls, item_ids: list[int] | None) -> dict[str, str]:
+        item_filter = cls._build_item_filter(item_ids)
+        return {"filter": item_filter} if item_filter else {}
+
     # TODO 使用文本向量取匹配图像；当前使用的是文本完全匹配
     async def search_by_text(
         self,
         text: str,
-        top_k: int = 5
+        top_k: int = 5,
+        item_ids: list[int] | None = None,
     ) -> List[Dict]:
         """
         文本检索（仅使用 SigLIP）
@@ -543,7 +556,8 @@ class MilvusManagerV2:
             data=[text_vector.tolist()],
             anns_field="text_vector",
             limit=top_k * 3,
-            output_fields=self._build_search_output_fields()
+            output_fields=self._build_search_output_fields(),
+            **self._item_filter_kwargs(item_ids),
         )[0]
 
         return self._dedupe_hits_by_image_id(results)[:top_k]
@@ -554,7 +568,8 @@ class MilvusManagerV2:
         top_k: int = 5,
         mode: Literal["siglip", "dinov2", "hybrid"] = "hybrid",
         coarse_top_k: int = 30,
-        alpha: float = 0.6
+        alpha: float = 0.6,
+        item_ids: list[int] | None = None,
     ) -> List[Dict]:
         """
         图像检索
@@ -573,18 +588,23 @@ class MilvusManagerV2:
             检索结果列表
         """
         if mode == "siglip":
-            return await self._search_by_image_siglip(image, top_k)
+            return await self._search_by_image_siglip(image, top_k, item_ids)
         elif mode == "dinov2":
-            return await self._search_by_image_dinov2(image, coarse_top_k, top_k)
+            return await self._search_by_image_dinov2(
+                image, coarse_top_k, top_k, item_ids
+            )
         elif mode == "hybrid":
-            return await self._search_by_image_hybrid(image, coarse_top_k, top_k, alpha)
+            return await self._search_by_image_hybrid(
+                image, coarse_top_k, top_k, alpha, item_ids
+            )
         else:
             raise ValueError(f"Invalid mode: {mode}")
 
     async def _search_by_image_siglip(
         self,
         image: Image.Image,
-        top_k: int
+        top_k: int,
+        item_ids: list[int] | None = None,
     ) -> List[Dict]:
         """SigLIP 图像检索"""
         logger.info(f"Image search with SigLIP (top-{top_k})")
@@ -598,7 +618,8 @@ class MilvusManagerV2:
             data=[image_vector.tolist()],
             anns_field="image_vector",
             limit=top_k * 3,
-            output_fields=self._build_search_output_fields()
+            output_fields=self._build_search_output_fields(),
+            **self._item_filter_kwargs(item_ids),
         )[0]
 
         return self._dedupe_hits_by_image_id(results)[:top_k]
@@ -607,7 +628,8 @@ class MilvusManagerV2:
         self,
         image: Image.Image,
         coarse_top_k: int,
-        fine_top_k: int
+        fine_top_k: int,
+        item_ids: list[int] | None = None,
     ) -> List[Dict]:
         """DINOv2 两阶段图像检索"""
         logger.info(f"Image search with DINOv2 two-stage (coarse: {coarse_top_k}, fine: {fine_top_k})")
@@ -623,7 +645,8 @@ class MilvusManagerV2:
             data=[query_global.tolist()],
             anns_field="global_vector",
             limit=coarse_top_k * 3,
-            output_fields=self._build_search_output_fields(include_patch_tokens_path=True)
+            output_fields=self._build_search_output_fields(include_patch_tokens_path=True),
+            **self._item_filter_kwargs(item_ids),
         )[0]
         coarse_results = self._dedupe_hits_by_image_id(coarse_results)
 
@@ -670,7 +693,8 @@ class MilvusManagerV2:
         image: Image.Image,
         coarse_top_k: int,
         fine_top_k: int,
-        alpha: float
+        alpha: float,
+        item_ids: list[int] | None = None,
     ) -> List[Dict]:
         """混合图像检索（SigLIP + DINOv2 RRF 融合 + Patch 精排）"""
         logger.info(f"Image search with hybrid mode (coarse: {coarse_top_k}, fine: {fine_top_k}, alpha: {alpha})")
@@ -689,7 +713,8 @@ class MilvusManagerV2:
             data=[siglip_vector.tolist()],
             anns_field="image_vector",
             limit=coarse_top_k * 2,
-            output_fields=self._build_search_output_fields()
+            output_fields=self._build_search_output_fields(),
+            **self._item_filter_kwargs(item_ids),
         )[0]
 
         # DINOv2 检索
@@ -698,7 +723,8 @@ class MilvusManagerV2:
             data=[dinov2_global.tolist()],
             anns_field="global_vector",
             limit=coarse_top_k * 2,
-            output_fields=self._build_search_output_fields(include_patch_tokens_path=True)
+            output_fields=self._build_search_output_fields(include_patch_tokens_path=True),
+            **self._item_filter_kwargs(item_ids),
         )[0]
 
         # RRF 融合

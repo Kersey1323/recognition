@@ -454,14 +454,17 @@ class ReconstructionIndexRebuildStatusRes(BaseModel):
     processed_items: int = Field(..., description='已完成处理的配件数，用于前端展示进度')
     completed_item_count: int = Field(0, description='已写入持久化检查点的配件数，重试从该检查点继续')
     success_count: int = Field(..., description='成功同时写入 SigLIP 和 DINOv2 索引的图片数量')
-    fail_count: int = Field(..., description='索引失败的图片数量')
+    fail_count: int = Field(
+        ...,
+        description='失败计数：单图处理失败通常记1，配件级处理异常也会记1',
+    )
     segmented_count: int = Field(
         0,
-        description='CREATEBYSELF 图片经自动分割后成功建立索引的数量',
+        description='CREATEBYSELF 图片成功获得或复用分割图并进入本次索引处理的数量',
     )
     fallback_count: int = Field(
         0,
-        description='CREATEBYSELF 图片因主体未识别、空 Mask 或无效 Mask 而回退原图索引的数量',
+        description='CREATEBYSELF 图片因主体未识别、空 Mask 或无效 Mask 而改走原图索引路径的数量',
     )
     current_item_id: Optional[str] = Field(None, description='当前正在处理的配件ID')
     last_completed_item_id: Optional[str] = Field(None, description='最近完成的配件ID')

@@ -134,14 +134,20 @@ async def delete_v2_search_history(cls, history_id_list: list[int], runtime=None
     for row in rows:
         history_id, query_image = row[0], row[1]
         query_images_json = row[2] if len(row) > 2 else None
+        previous_snapshot = row[3] if len(row) > 3 else None
         delete_paths = []
         if query_image:
             delete_paths.append(query_image)
         for image_path in list(query_images_json or []):
             if image_path:
                 delete_paths.append(image_path)
+        for image_path in list(
+            getattr(previous_snapshot, "query_images", None) or []
+        ):
+            if image_path:
+                delete_paths.append(image_path)
 
-        for image_path in delete_paths:
+        for image_path in dict.fromkeys(delete_paths):
             try:
                 bucket, object_name = parse_minio_path(
                     image_path,

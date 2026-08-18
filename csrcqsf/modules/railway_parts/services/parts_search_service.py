@@ -533,6 +533,19 @@ def _build_search_history_item(cls, row, latest_ticket=None):
         latest_issue_type = getattr(latest_ticket, "issue_type", None)
 
     correct_fields = cls._resolve_correct_result_from_history(row)
+    previous_snapshot = getattr(row, "previous_search_snapshot", None)
+    previous_query_images = []
+    previous_search_parameter = None
+    previous_result = None
+    previous_searched_at = None
+    if previous_snapshot is not None:
+        previous_query_images = [
+            asset_url_from_internal_path(image_path) or image_path
+            for image_path in list(previous_snapshot.query_images or [])
+        ]
+        previous_search_parameter = previous_snapshot.parameters
+        previous_result = previous_snapshot.results
+        previous_searched_at = date_to_str(previous_snapshot.searched_at)
 
     return SearchHistoryListItem(
         history_id=row.id,
@@ -541,6 +554,12 @@ def _build_search_history_item(cls, row, latest_ticket=None):
         query_text=row.query_text,
         query_image=asset_url_from_internal_path(row.query_image) or row.query_image,
         query_images=query_images,
+        search_parameter=getattr(row, "search_parameter", None),
+        previous_query_images=previous_query_images,
+        previous_search_parameter=previous_search_parameter,
+        previous_result=previous_result,
+        previous_searched_at=previous_searched_at,
+        search_revision=int(getattr(row, "search_revision", 0) or 0),
         search_equipment=getattr(row, "search_equipment", None),
         status=cls._normalize_review_status(
             getattr(row, "verify_status", None),

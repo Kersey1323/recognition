@@ -1,6 +1,8 @@
 """Railway-parts vector search and search-history schemas."""
 
 from csrcqsf.modules.railway_parts.schemas._parts_api_models import (
+    ContextualSearchRes,
+    ContextualSearchSnapshotRes,
     SearchHistoryDeleteReq,
     SearchHistoryDeleteRes,
     SearchHistoryDetailReq,
@@ -19,6 +21,8 @@ from csrcqsf.modules.railway_parts.schemas._parts_api_models import (
 )
 
 __all__ = [
+    "ContextualSearchRes",
+    "ContextualSearchSnapshotRes",
     "SearchHistoryDeleteReq",
     "SearchHistoryDeleteRes",
     "SearchHistoryDetailReq",

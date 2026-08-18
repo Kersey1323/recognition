@@ -2,7 +2,7 @@ from typing import Optional
 import datetime
 import decimal
 
-from sqlalchemy import BigInteger, Computed, DECIMAL, Date, DateTime, Double, ForeignKeyConstraint, Index, Integer, SmallInteger, TIMESTAMP, select, text
+from sqlalchemy import BigInteger, Computed, DECIMAL, Date, DateTime, Double, ForeignKeyConstraint, Index, Integer, SmallInteger, String, TIMESTAMP, cast, select, text
 from sqlalchemy.dialects.mysql import CHAR, LONGBLOB, LONGTEXT, TEXT, TINYINT, VARCHAR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -930,7 +930,15 @@ class SgoCodeInquiry(Base):
         has_index 为0时不关注
         """
         offset = (page-1) * per_page
-        stmt = select(cls)
+        # Kingbase V8 兼容模式的 sys.date 使用非 PostgreSQL 标准 OID，asyncpg 无法解码。
+        # 询码接口本身返回字符串日期，因此只在列表查询中转换该列，避免改动甲方表结构。
+        columns = [
+            cast(column, String).label(column.name)
+            if column.name == "submission_date"
+            else column
+            for column in cls.__table__.columns
+        ]
+        stmt = select(*columns)
         if status is not None and status != '' and status != 'all':
             stmt = stmt.where(cls.current_status == status)
         if len(inquiry_id_list) > 0:
@@ -944,7 +952,7 @@ class SgoCodeInquiry(Base):
         if page != -1:
             stmt = stmt.limit(
                 per_page).offset(offset)
-        datas = await session.scalars(stmt)
+        datas = await session.execute(stmt)
         return PageQueryResult(total=count, data=datas.all())
 
     @classmethod

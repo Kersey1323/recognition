@@ -1,5 +1,7 @@
 import importlib
+import asyncio
 import sys
+from unittest.mock import AsyncMock, patch
 
 import dotenv
 import pytest
@@ -131,3 +133,43 @@ def test_kingbase_dialect_uses_patched_asyncpg_connection():
     )
 
     assert connect_args["connection_class"] is KingbaseAsyncpgConnection
+
+
+def test_inquiry_list_casts_submission_date_to_driver_safe_string():
+    from csrcqsf.infra.db.kingbase_dialect import KingbaseAsyncpgDialect
+    from csrcqsf.models.orm.sgo_external import SgoCodeInquiry
+
+    class EmptyRows:
+        @staticmethod
+        def all():
+            return []
+
+    class Session:
+        statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return EmptyRows()
+
+    session = Session()
+    with patch(
+        "csrcqsf.models.orm.sgo_external.async_get_count",
+        AsyncMock(return_value=0),
+    ):
+        result = asyncio.run(
+            SgoCodeInquiry.list_code_inquiry(
+                session,
+                page=1,
+                per_page=10,
+                status="FINISH",
+            )
+        )
+
+    assert result.total == 0
+    compiled = str(
+        session.statement.compile(
+            dialect=KingbaseAsyncpgDialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    assert "CAST(sgo_code_inquiry.submission_date AS VARCHAR) AS submission_date" in compiled

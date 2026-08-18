@@ -253,6 +253,24 @@ class SearchRes(BaseModel):
     message: str | None
 
 
+class ContextualSearchSnapshotRes(BaseModel):
+    query_images: list[str] = Field(default_factory=list)
+    parameters: SearchParameters
+    searched_at: str
+    data: list[SearchItem] = Field(default_factory=list)
+
+
+class ContextualSearchRes(BaseModel):
+    history_id: str
+    previous: ContextualSearchSnapshotRes | None = None
+    current: ContextualSearchSnapshotRes
+    message: str | None = None
+
+    @validator("history_id", pre=True, allow_reuse=True)
+    def normalize_contextual_history_id(cls, value):
+        return str(value)
+
+
 class SearchHistoryListReq(PageReq):
     page: int = Field(description="页码，从1开始", example=1, ge=0)
     per_page: int = Field(description="每页数量", example=10, ge=0, alias='pageSize')
@@ -309,6 +327,12 @@ class SearchHistoryListItem(BaseModel):
     query_text: str | None = None
     query_image: str | None = None
     query_images: list[str] = Field(default_factory=list)
+    search_parameter: SearchParameters | None = None
+    previous_query_images: list[str] = Field(default_factory=list)
+    previous_search_parameter: SearchParameters | None = None
+    previous_result: SearchResults | None = None
+    previous_searched_at: str | None = None
+    search_revision: int = 0
     status: str = "pending"
     result: SearchResults | None
     inquery_id: str | None

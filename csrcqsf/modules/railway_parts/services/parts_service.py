@@ -24,10 +24,11 @@ from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import (
 from csrcqsf.infra.db.mdp_db import sgo_sessionLocal
 from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.models.orm.item import Items, ItemsParent
-from csrcqsf.models.orm.search_history import MatchedImage, SearchHistory, SearchResultItem, SearchResults, SearchReviewTicket
+from csrcqsf.models.orm.search_history import MatchedImage, SearchHistory, SearchParameters, SearchResultItem, SearchResults, SearchReviewTicket, SearchSnapshot
 from csrcqsf.models.orm.sgo import SgoItemImages, SegmentedImage
 from csrcqsf.models.orm.sgo_external import SgoCodeInquiryReturn
 from csrcqsf.modules.railway_parts.repositories.search_history_repository import SearchHistoryRepository
+from csrcqsf.modules.railway_parts.repositories.contextual_search_repository import ContextualSearchRepository
 from csrcqsf.modules.railway_parts.schemas.parts import (
     GetItemDetailRes,
     IndexStatisticsRes,
@@ -49,6 +50,8 @@ from csrcqsf.modules.railway_parts.schemas.review_ticket import (
     SearchReviewTicketUpdateRes,
 )
 from csrcqsf.modules.railway_parts.schemas.search import (
+    ContextualSearchRes,
+    ContextualSearchSnapshotRes,
     SearchHistoryDeleteRes,
     SearchHistoryFeedbackRes,
     SearchHistoryListItem,
@@ -59,7 +62,7 @@ from csrcqsf.modules.railway_parts.schemas.search import (
     SearchItem,
     SearchRes,
 )
-from csrcqsf.modules.railway_parts.services import item_service, parts_index_service, parts_search_service
+from csrcqsf.modules.railway_parts.services import contextual_search_service, item_service, parts_index_service, parts_search_service
 from csrcqsf.modules.railway_parts.services.segmented_image_service import SegmentedImageService
 from csrcqsf.infra.external.model_client import ModelServiceError, get_model_client
 from csrcqsf.modules.sgo.schemas import ImageSourceType, SegmentStatus
@@ -564,6 +567,34 @@ class RailwayPartsManager:
             top_k=top_k,
             search_mode=search_mode,
             search_equipment=search_equipment,
+        )
+
+    @classmethod
+    async def search_v2_contextual(
+        cls,
+        *,
+        history_id: int | None,
+        files: list | None,
+        vehicle_batch: str | None = None,
+        item_name: str | None = None,
+        train_no: str | None = None,
+        car_num: str | None = None,
+        subordinate_component: str | None = None,
+        search_mode: str = "siglip",
+        search_equipment: str = "web",
+    ):
+        return await contextual_search_service.search_v2_contextual(
+            cls,
+            history_id=history_id,
+            files=files,
+            vehicle_batch=vehicle_batch,
+            item_name=item_name,
+            train_no=train_no,
+            car_num=car_num,
+            subordinate_component=subordinate_component,
+            search_mode=search_mode,
+            search_equipment=search_equipment,
+            runtime=_runtime_context(),
         )
 
     @classmethod

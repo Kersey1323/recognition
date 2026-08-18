@@ -598,7 +598,14 @@ def test_verify_v2_search_history_marks_user_misjudged_with_original_top1():
 def test_update_review_ticket_writes_review_resolved_correct_result_from_matched_candidate():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     session = AsyncMock()
-    fake_ticket = SimpleNamespace(id=5001, history_id=1001, review_started_at=None, resolved_at=None, closed_at=None)
+    fake_ticket = SimpleNamespace(
+        id=5001,
+        history_id=1001,
+        review_status="open",
+        review_started_at=None,
+        resolved_at=None,
+        closed_at=None,
+    )
     fake_history = SimpleNamespace(
         id=1001,
         search_results=parts_module.SearchResults(
@@ -623,11 +630,11 @@ def test_update_review_ticket_writes_review_resolved_correct_result_from_matched
     fake_item = SimpleNamespace(id=9, item_code="X9", item_name="技术部确认结果")
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch.object(parts_module.SearchReviewTicket, "get_by_id", AsyncMock(return_value=fake_ticket)), \
-         patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=fake_history)), \
+         patch.object(parts_module.SearchHistoryRepository, "get_ticket_by_id", AsyncMock(return_value=fake_ticket)), \
+         patch.object(parts_module.SearchHistoryRepository, "get_history_by_id", AsyncMock(return_value=fake_history)), \
          patch.object(parts_module.Items, "get_item_by_item_code", AsyncMock(return_value=fake_item)), \
-         patch.object(parts_module.SearchHistory, "update_review_result", AsyncMock()) as update_mock, \
-         patch.object(parts_module.SearchReviewTicket, "update_ticket", AsyncMock()):
+         patch.object(parts_module.SearchHistoryRepository, "update_review_result", AsyncMock()) as update_mock, \
+         patch.object(parts_module.SearchHistoryRepository, "update_ticket", AsyncMock()):
         res = asyncio.run(
             RailwayPartsManager.update_v2_search_review_ticket(
                 ticket_id=5001,
@@ -649,7 +656,14 @@ def test_update_review_ticket_writes_review_resolved_correct_result_from_matched
 def test_update_review_ticket_marks_user_misjudged_with_original_top1():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     session = AsyncMock()
-    fake_ticket = SimpleNamespace(id=5003, history_id=1003, review_started_at=None, resolved_at=None, closed_at=None)
+    fake_ticket = SimpleNamespace(
+        id=5003,
+        history_id=1003,
+        review_status="open",
+        review_started_at=None,
+        resolved_at=None,
+        closed_at=None,
+    )
     fake_history = SimpleNamespace(
         id=1003,
         search_result_item_code="19010036737",
@@ -668,10 +682,10 @@ def test_update_review_ticket_marks_user_misjudged_with_original_top1():
     )
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch.object(parts_module.SearchReviewTicket, "get_by_id", AsyncMock(return_value=fake_ticket)), \
-         patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=fake_history)), \
-         patch.object(parts_module.SearchHistory, "update_review_result", AsyncMock()) as update_mock, \
-         patch.object(parts_module.SearchReviewTicket, "update_ticket", AsyncMock()):
+         patch.object(parts_module.SearchHistoryRepository, "get_ticket_by_id", AsyncMock(return_value=fake_ticket)), \
+         patch.object(parts_module.SearchHistoryRepository, "get_history_by_id", AsyncMock(return_value=fake_history)), \
+         patch.object(parts_module.SearchHistoryRepository, "update_review_result", AsyncMock()) as update_mock, \
+         patch.object(parts_module.SearchHistoryRepository, "update_ticket", AsyncMock()):
         res = asyncio.run(
             RailwayPartsManager.update_v2_search_review_ticket(
                 ticket_id=5003,
@@ -695,18 +709,25 @@ def test_update_review_ticket_marks_user_misjudged_with_original_top1():
 def test_update_review_ticket_uses_first_item_image_when_correct_item_not_in_candidates():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     session = AsyncMock()
-    fake_ticket = SimpleNamespace(id=5002, history_id=1002, review_started_at=None, resolved_at=None, closed_at=None)
+    fake_ticket = SimpleNamespace(
+        id=5002,
+        history_id=1002,
+        review_status="open",
+        review_started_at=None,
+        resolved_at=None,
+        closed_at=None,
+    )
     fake_history = SimpleNamespace(id=1002, search_results=parts_module.SearchResults(items=[]))
     fake_item = SimpleNamespace(id=12, item_code="Y12", item_name="召回外正确结果")
     fake_image = SimpleNamespace(image_url="bfr-ai-files/fallback.jpg")
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch.object(parts_module.SearchReviewTicket, "get_by_id", AsyncMock(return_value=fake_ticket)), \
-         patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=fake_history)), \
+         patch.object(parts_module.SearchHistoryRepository, "get_ticket_by_id", AsyncMock(return_value=fake_ticket)), \
+         patch.object(parts_module.SearchHistoryRepository, "get_history_by_id", AsyncMock(return_value=fake_history)), \
          patch.object(parts_module.Items, "get_item_by_item_code", AsyncMock(return_value=fake_item)), \
          patch.object(parts_module.SgoItemImages, "get_first_image_by_item_id", AsyncMock(return_value=fake_image)), \
-         patch.object(parts_module.SearchHistory, "update_review_result", AsyncMock()) as update_mock, \
-         patch.object(parts_module.SearchReviewTicket, "update_ticket", AsyncMock()):
+         patch.object(parts_module.SearchHistoryRepository, "update_review_result", AsyncMock()) as update_mock, \
+         patch.object(parts_module.SearchHistoryRepository, "update_ticket", AsyncMock()):
         asyncio.run(
             RailwayPartsManager.update_v2_search_review_ticket(
                 ticket_id=5002,
@@ -743,20 +764,34 @@ def test_delete_v2_search_history_deletes_records_and_best_effort_query_images()
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     session = AsyncMock()
     deleted_rows = [
-        (1, "bfr-search-history-files/query-images/20260428/1_demo.png", None),
+        (
+            1,
+            "bfr-search-history-files/query-images/20260428/1_demo.png",
+            None,
+            SimpleNamespace(
+                query_images=[
+                    "bfr-search-history-files/query-images/20260428/1_previous.png"
+                ]
+            ),
+        ),
         (2, None),
     ]
 
     remove_object = MagicMock()
-    parse_minio_path = MagicMock(return_value=("bfr-search-history-files", "query-images/20260428/1_demo.png"))
+    parse_minio_path = MagicMock(
+        side_effect=lambda path, **_: (
+            "bfr-search-history-files",
+            path.split("bfr-search-history-files/", 1)[1],
+        )
+    )
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.SearchHistory, "delete_history_with_query_images", AsyncMock(return_value=deleted_rows)), \
          patch.object(parts_module, "_get_minio_helpers", return_value=(MagicMock(), SimpleNamespace(client=SimpleNamespace(remove_object=remove_object)), parse_minio_path)):
         res = asyncio.run(RailwayPartsManager.delete_v2_search_history([1, 2]))
 
-    remove_object.assert_called_once_with(
-        "bfr-search-history-files",
-        "query-images/20260428/1_demo.png",
-    )
+    assert [call.args for call in remove_object.call_args_list] == [
+        ("bfr-search-history-files", "query-images/20260428/1_demo.png"),
+        ("bfr-search-history-files", "query-images/20260428/1_previous.png"),
+    ]
     assert res.deleted_count == 2

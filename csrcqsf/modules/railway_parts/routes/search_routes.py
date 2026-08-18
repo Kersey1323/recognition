@@ -6,6 +6,7 @@ from fastapi import File, Form, HTTPException, Path, Query, UploadFile
 from anyio.to_thread import run_sync
 
 from csrcqsf.modules.railway_parts.schemas.search import (
+    ContextualSearchRes,
     SearchHistoryDeleteReq,
     SearchHistoryDeleteRes,
     SearchHistoryDetailReq,
@@ -31,6 +32,9 @@ from csrcqsf.modules.railway_parts.services.index_rebuild_task_manager import (
     index_rebuild_task_manager,
 )
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
+from csrcqsf.modules.railway_parts.services.contextual_search_service import (
+    ContextualSearchBusinessError,
+)
 from csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager import (
     MilvusStateManagerV2,
 )
@@ -393,6 +397,47 @@ async def search_v2_by_image(
         search_equipment=search_equipment,
     )
     return result
+
+
+@parts_router.post(
+    '/v2/search/contextual',
+    tags=["算法-向量检索V2"],
+    summary='带业务条件的V2图片检索',
+    response_model=ContextualSearchRes,
+)
+async def search_v2_contextual(
+    history_id: str | None = Form(default=None),
+    file: list[UploadFile] | None = File(default=None),
+    vehicle_batch: str | None = Form(default=None),
+    item_name: str | None = Form(default=None),
+    train_no: str | None = Form(default=None),
+    car_num: str | None = Form(default=None),
+    subordinate_component: str | None = Form(default=None),
+    search_mode: str = Form(default="siglip"),
+    search_equipment: str = Form(default="web"),
+):
+    """首次上传或在同一 pending 历史中滚动最近两次条件检索结果。"""
+    ensure_vector_models_enabled()
+    try:
+        normalized_history_id = (
+            int(history_id) if history_id not in (None, "") else None
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="history_id 必须是有效整数") from exc
+    try:
+        return await RailwayPartsManager.search_v2_contextual(
+            history_id=normalized_history_id,
+            files=list(file or []),
+            vehicle_batch=vehicle_batch,
+            item_name=item_name,
+            train_no=train_no,
+            car_num=car_num,
+            subordinate_component=subordinate_component,
+            search_mode=search_mode,
+            search_equipment=search_equipment,
+        )
+    except ContextualSearchBusinessError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 @parts_router.post('/v2/search/history/list', tags=["算法-向量检索V2"], summary='V2检索历史分页查询', responses={

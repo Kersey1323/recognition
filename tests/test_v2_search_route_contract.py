@@ -31,6 +31,10 @@ def _import_parts_service():
     fake_parts_service_module.RailwayPartsManager = type("RailwayPartsManager", (), {})
     fake_state_manager_module = ModuleType("csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager")
     fake_state_manager_module.MilvusStateManagerV2 = type("MilvusStateManagerV2", (), {})
+    fake_index_rebuild_module = ModuleType(
+        "csrcqsf.modules.railway_parts.services.index_rebuild_task_manager"
+    )
+    fake_index_rebuild_module.index_rebuild_task_manager = object()
     fake_reconstruction_api_models_module = ModuleType("csrcqsf.modules.railway_parts.schemas.reconstruction")
     for name in [
         "ReconstructionIndexRebuildRes",
@@ -45,6 +49,7 @@ def _import_parts_service():
         sys.modules,
         {
             "csrcqsf.modules.railway_parts.services.parts_service": fake_parts_service_module,
+            "csrcqsf.modules.railway_parts.services.index_rebuild_task_manager": fake_index_rebuild_module,
             "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager": fake_state_manager_module,
             "csrcqsf.modules.railway_parts.schemas.reconstruction": fake_reconstruction_api_models_module,
         },

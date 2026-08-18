@@ -302,6 +302,18 @@ async def _ensure_search_history_columns(conn) -> None:
         "correct_source",
         "`correct_source` VARCHAR(50) NULL",
     )
+    await _ensure_column(
+        conn,
+        "search_history",
+        "previous_search_snapshot",
+        "`previous_search_snapshot` JSON NULL",
+    )
+    await _ensure_column(
+        conn,
+        "search_history",
+        "search_revision",
+        "`search_revision` INT NOT NULL DEFAULT 0",
+    )
     await conn.execute(
         text(
             """
