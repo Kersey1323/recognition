@@ -135,7 +135,7 @@ def test_kingbase_dialect_uses_patched_asyncpg_connection():
     assert connect_args["connection_class"] is KingbaseAsyncpgConnection
 
 
-def test_inquiry_list_casts_submission_date_to_driver_safe_string():
+def test_inquiry_list_only_selects_driver_safe_response_columns():
     from csrcqsf.infra.db.kingbase_dialect import KingbaseAsyncpgDialect
     from csrcqsf.models.orm.sgo_external import SgoCodeInquiry
 
@@ -172,4 +172,7 @@ def test_inquiry_list_casts_submission_date_to_driver_safe_string():
             compile_kwargs={"literal_binds": True},
         )
     )
-    assert "CAST(sgo_code_inquiry.submission_date AS VARCHAR) AS submission_date" in compiled
+    selected_columns = compiled.partition("\nFROM ")[0]
+    assert "CAST(sgo_code_inquiry.submission_date AS VARCHAR) AS submission_date" in selected_columns
+    assert "sgo_code_inquiry.create_time" not in selected_columns
+    assert "ORDER BY sgo_code_inquiry.create_time DESC" in compiled

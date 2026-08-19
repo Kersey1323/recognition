@@ -521,7 +521,7 @@ class MilvusManagerV2:
         if item_ids is None:
             return ""
         normalized_ids = sorted({int(item_id) for item_id in item_ids})
-        return f"item_id IN [{','.join(str(item_id) for item_id in normalized_ids)}]"
+        return f"item_id in [{','.join(str(item_id) for item_id in normalized_ids)}]"
 
     @classmethod
     def _item_filter_kwargs(cls, item_ids: list[int] | None) -> dict[str, str]:

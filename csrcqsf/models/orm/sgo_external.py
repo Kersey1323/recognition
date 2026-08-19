@@ -930,13 +930,25 @@ class SgoCodeInquiry(Base):
         has_index 为0时不关注
         """
         offset = (page-1) * per_page
-        # Kingbase V8 兼容模式的 sys.date 使用非 PostgreSQL 标准 OID，asyncpg 无法解码。
-        # 询码接口本身返回字符串日期，因此只在列表查询中转换该列，避免改动甲方表结构。
+        # 甲方 Kingbase 表包含 sys.date/sys.datetime 等非 PostgreSQL 标准类型。
+        # 列表只读取前端实际展示的字段，避免 asyncpg 解码无须返回的私有类型；日期按接口口径返回字符串。
         columns = [
-            cast(column, String).label(column.name)
-            if column.name == "submission_date"
-            else column
-            for column in cls.__table__.columns
+            cls.id,
+            cls.inquiry_num,
+            cls.creater,
+            cls.creater_org_name,
+            cls.item_name,
+            cls.train_no,
+            cls.vehicle,
+            cls.car_num,
+            cls.subordinate_component,
+            cast(cls.submission_date, String).label("submission_date"),
+            cls.supplier_code,
+            cls.supplier_name,
+            cls.nameplate_photos,
+            cls.detailed_photos,
+            cls.remark,
+            cls.current_status,
         ]
         stmt = select(*columns)
         if status is not None and status != '' and status != 'all':

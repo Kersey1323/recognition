@@ -40,7 +40,7 @@ def test_contextual_filter_is_applied_to_text_and_all_image_search_modes():
 
     calls = manager.collection_manager.client.search.call_args_list
     assert len(calls) == 5
-    assert all(call.kwargs["filter"] == "item_id IN [101,102]" for call in calls)
+    assert all(call.kwargs["filter"] == "item_id in [101,102]" for call in calls)
 
 
 def test_regular_search_does_not_send_an_empty_filter_to_milvus():
