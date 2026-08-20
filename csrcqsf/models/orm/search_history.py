@@ -1,5 +1,7 @@
 
 from __future__ import annotations
+
+import json
 from datetime import datetime, timedelta
 from enum import Enum
 from types import SimpleNamespace
@@ -59,6 +61,11 @@ class SearchSnapshot(BaseModel):
     searched_at: datetime
 
 
+class JsonSerializablePydanticType(PydanticType):
+    def process_bind_param(self, value, dialect):
+        return json.loads(value.json()) if value else None
+
+
 class SearchHistoryItem(BaseModel):
     parameters: SearchParameters | None
     inquery_info: ListInqueryItem | None
@@ -107,7 +114,7 @@ class SearchHistory(Base):
     search_results: Mapped[SearchResults] = mapped_column(
         PydanticType(SearchResults), nullable=True)
     previous_search_snapshot: Mapped[SearchSnapshot | None] = mapped_column(
-        PydanticType(SearchSnapshot), nullable=True
+        JsonSerializablePydanticType(SearchSnapshot), nullable=True
     )
     search_revision: Mapped[int] = mapped_column(
         INT,

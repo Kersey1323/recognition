@@ -34,9 +34,7 @@ state/vector_db/
 var/vector_db/
 
 docs/*
-data/videos/*
-data/video/*
-
+data/
 # Gaussian reconstruction sample data and generated outputs
 csrcqsf/biz/reconstruction/gaussians/data/
 csrcqsf/biz/reconstruction/gaussians/output/

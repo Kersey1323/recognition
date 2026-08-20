@@ -1,4 +1,12 @@
-from csrcqsf.models.orm.search_history import SearchHistory, SearchParameters
+import json
+from datetime import datetime
+
+from csrcqsf.models.orm.search_history import (
+    SearchHistory,
+    SearchParameters,
+    SearchResults,
+    SearchSnapshot,
+)
 from csrcqsf.modules.railway_parts.schemas.search import ContextualSearchRes
 
 
@@ -7,6 +15,21 @@ def test_search_history_exposes_previous_snapshot_and_revision_columns():
     assert "search_revision" in SearchHistory.__table__.columns
     assert SearchHistory.__table__.columns["search_revision"].default.arg == 0
     assert str(SearchHistory.__table__.columns["search_revision"].server_default.arg) == "0"
+
+
+def test_previous_search_snapshot_can_be_encoded_by_database_json_type():
+    snapshot = SearchSnapshot(
+        query_images=["query-images/previous.jpg"],
+        parameters=SearchParameters(vehicle_batch="E11_CRH380A"),
+        results=SearchResults(items=[]),
+        searched_at=datetime(2026, 8, 20, 9, 30, 0),
+    )
+
+    column_type = SearchHistory.__table__.columns["previous_search_snapshot"].type
+    bound_value = column_type.process_bind_param(snapshot, dialect=None)
+
+    encoded = json.loads(json.dumps(bound_value))
+    assert encoded["searched_at"] == "2026-08-20T09:30:00"
 
 
 def test_search_parameters_support_contextual_fields_and_default_to_siglip():
