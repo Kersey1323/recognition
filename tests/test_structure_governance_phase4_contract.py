@@ -34,8 +34,6 @@ def test_vector_search_runtime_modules_exist():
         "csrcqsf/modules/railway_parts/vector_search/repositories/db_connector.py",
         "csrcqsf/modules/railway_parts/vector_search/repositories/image_loader.py",
         "csrcqsf/modules/railway_parts/vector_search/indexing/indexer.py",
-        "csrcqsf/modules/railway_parts/vector_search/extractors/dinov2_extractor.py",
-        "csrcqsf/modules/railway_parts/vector_search/preprocessing/sam3_preprocessor.py",
         "csrcqsf/modules/railway_parts/vector_search/storage/milvus_manager.py",
         "csrcqsf/modules/railway_parts/vector_search/storage/milvus_state_manager.py",
         "csrcqsf/modules/railway_parts/vector_search/utils/logger.py",
@@ -47,13 +45,9 @@ def test_vector_search_runtime_modules_exist():
 
 def test_phase_four_root_level_scripts_and_tests_exist():
     expected_paths = [
-        "scripts/vector_db/build_index.py",
         "scripts/vector_db/init_collections.py",
         "scripts/vector_db/diagnose_db.py",
-        "tests/vector_db/test_dinov2_search.py",
-        "tests/vector_db/test_hybrid_search.py",
         "tests/vector_db/test_milvus_manager.py",
-        "tests/vector_db/test_siglip_search.py",
         "tests/vector_db/README.md",
     ]
 

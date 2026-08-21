@@ -842,34 +842,3 @@ class IndexStatisticsRes(BaseModel):
 
 class IndexStatisticsReq(BaseModel):
     pass
-
-
-class AutoSegmentReq(BaseModel):
-    item_id: str = Field(description='配件ID')
-    rebuild: bool = Field(default=False, description='是否重建 (删除现有分割记录)')
-
-
-class AutoSegmentRes(BaseModel):
-    item_id: str = ''
-    total_baseinfo_images: int = Field(default=0, description='BASEINFO图片总数')
-    segmented_count: int = Field(default=0, description='成功分割数量')
-    indexed_count: int = Field(default=0, description='成功建立索引数量')
-    skipped_count: int = Field(default=0, description='跳过数量')
-    failed_count: int = Field(default=0, description='失败数量')
-    message: str = ''
-
-
-class SegmentedImageItem(BaseModel):
-    id: str = ''
-    source_image_url: str = ''
-    segmented_image_url: str = ''
-    status: str = ''
-    mask_area: int = 0
-    bbox: list[int] = []
-    is_indexed: bool = False
-    error_message: str = ''
-
-
-class ListSegmentedImagesRes(BaseModel):
-    item_id: str = ''
-    records: list[SegmentedImageItem] = []

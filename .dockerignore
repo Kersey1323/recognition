@@ -4,8 +4,11 @@
 .ruff_cache/
 .venv*/
 .vscode/
+.claude/
 __pycache__/
+**/__pycache__/
 *.pyc
+**/*.pyc
 *.pyo
 *.pyd
 .env
@@ -15,6 +18,13 @@ logs/
 temp/
 data/
 state/
+docs/
+tests/
+scripts/
+tools/
+test_support/
+dist/
+csrcqsf.egg-info/
 
 models/
 resnet_models/

@@ -1,15 +1,6 @@
 from pathlib import Path
 
 
-def test_phase_nineteen_target_modules_exist():
-    expected_paths = [
-        "csrcqsf/modules/railway_parts/services/auto_processor_service.py",
-    ]
-
-    for relative_path in expected_paths:
-        assert Path(relative_path).exists(), relative_path
-
-
 def test_phase_nineteen_target_service_modules_stop_reverse_importing_legacy_orms():
     expectations = {
         "csrcqsf/modules/sgo/services.py": (
@@ -40,12 +31,8 @@ def test_phase_nineteen_target_service_modules_stop_reverse_importing_legacy_orm
             assert fragment not in text, f"{relative_path} still imports {fragment}"
 
 
-def test_phase_nineteen_auto_processor_old_path_is_removed():
+def test_phase_nineteen_obsolete_auto_processors_are_removed():
     assert not Path("csrcqsf/biz/railwayparts/auto_processor.py").exists()
-
-
-def test_phase_nineteen_auto_processor_new_path_no_longer_reverse_imports_legacy_biz_module():
-    text = Path("csrcqsf/modules/railway_parts/services/auto_processor_service.py").read_text(
-        encoding="utf-8"
-    )
-    assert "csrcqsf.biz.railwayparts.auto_processor" not in text
+    assert not Path(
+        "csrcqsf/modules/railway_parts/services/auto_processor_service.py"
+    ).exists()

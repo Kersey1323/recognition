@@ -49,9 +49,7 @@ def test_phase_seventeen_runtime_layers_use_target_modules_instead_of_legacy_run
             "from csrcqsf.modules.sgo.repositories import SgoItemImages",
         ),
         "csrcqsf/modules/railway_parts/routes/parts_routes.py": (
-            "from csrcqsf.modules.railway_parts.services.auto_processor_service import AutoPartProcessor",
             "from csrcqsf.modules.sgo.services import SGOBiz",
-            "from csrcqsf.core.runtime import ensure_segment_model_enabled",
         ),
         "csrcqsf/modules/railway_parts/routes/search_routes.py": (
             "from csrcqsf.core.runtime import ensure_vector_models_enabled",

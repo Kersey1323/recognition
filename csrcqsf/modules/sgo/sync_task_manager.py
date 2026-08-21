@@ -71,6 +71,7 @@ class SgoSyncTaskManager:
             "estimated_remaining_seconds": None,
             "estimated_remaining": None,
             "failed_item_ids": [],
+            "failure_details": [],
             "error_message": None,
             "time_created": now,
             "time_updated": now,
@@ -100,6 +101,7 @@ class SgoSyncTaskManager:
             "synced_image_count",
             "estimated_remaining_seconds",
             "failed_item_ids",
+            "failure_details",
         ):
             if field in progress:
                 state[field] = progress[field]
@@ -155,15 +157,41 @@ class SgoSyncTaskManager:
                 "skipped_count",
                 "synced_image_count",
                 "failed_item_ids",
+                "failure_details",
             ):
                 if field in result:
                     state[field] = result[field]
+
+            fail_count = int(state.get("fail_count") or 0)
+            processed_items = int(state.get("processed_items") or 0)
+            # 已存在记录属于正常处理结果；只有所有已处理记录都失败时任务才失败。
+            all_failed = (
+                fail_count > 0
+                and processed_items > 0
+                and fail_count >= processed_items
+            )
+            error_message = None
+            if fail_count:
+                first_failure = next(iter(state.get("failure_details") or []), None)
+                first_error = ""
+                if first_failure:
+                    first_error = (
+                        f"；首个错误 [{first_failure['stage']}] "
+                        f"{first_failure['error_type']}: {first_failure['error_message']}"
+                    )
+                if all_failed:
+                    error_message = f"全部 {fail_count} 个配件同步失败{first_error}"
+                else:
+                    error_message = f"{fail_count} 个配件同步失败{first_error}"
+
             state.update(
-                status="success",
+                # 所有配件均失败时，任务业务结果也是失败，不能因协程正常收尾而误报成功。
+                status="failed" if all_failed else "success",
                 progress=100,
                 current_item_id=None,
                 estimated_remaining_seconds=0,
                 estimated_remaining="已完成",
+                error_message=error_message,
                 time_updated=datetime.now().isoformat(timespec="seconds"),
             )
 

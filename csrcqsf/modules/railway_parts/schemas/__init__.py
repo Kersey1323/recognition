@@ -1,8 +1,6 @@
 """Aggregated railway-parts schema exports."""
 
 from .parts import (
-    AutoSegmentReq,
-    AutoSegmentRes,
     CreateItemImagesReq,
     CreateItemImagesRes,
     CreateItemImageRecord,
@@ -23,8 +21,6 @@ from .parts import (
     ListItemImagesReq,
     ListItemImagesRes,
     ListItemReq,
-    ListSegmentedImagesRes,
-    SegmentedImageItem,
     UpdateItemReq,
     UpdateItemSizeStr,
 )
@@ -87,8 +83,6 @@ from .search import (
 )
 
 __all__ = [
-    "AutoSegmentReq",
-    "AutoSegmentRes",
     "CreateItemImagesReq",
     "CreateItemImagesRes",
     "CreateItemImageRecord",
@@ -109,7 +103,6 @@ __all__ = [
     "ListItemImagesReq",
     "ListItemImagesRes",
     "ListItemReq",
-    "ListSegmentedImagesRes",
     "ReconstructionIndexRebuildRes",
     "ReconstructionIndexRebuildStatusRes",
     "ReconstructionIndexTaskCancelReq",
@@ -160,7 +153,6 @@ __all__ = [
     "SearchReviewTicketUpdateReq",
     "SearchReviewTicketUpdateRes",
     "SearchTextReq",
-    "SegmentedImageItem",
     "UpdateItemReq",
     "UpdateItemSizeStr",
     "V2IndexDeleteRes",

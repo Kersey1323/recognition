@@ -48,6 +48,19 @@ class SgoSyncTaskStartRes(BaseModel):
     status: str = Field(..., description="任务状态")
 
 
+class SgoSyncFailureDetail(BaseModel):
+    item_id: str = Field(..., description="同步失败的配件 ID")
+    stage: str = Field(
+        ...,
+        description=(
+            "失败阶段：source_validation 源数据校验，base_images 基础图，"
+            "inquiry_images 询码图"
+        ),
+    )
+    error_type: str = Field(..., description="异常类型")
+    error_message: str = Field(..., description="具体异常原因")
+
+
 class SgoSyncTaskStatusRes(BaseModel):
     task_id: str
     task_type: str
@@ -64,6 +77,10 @@ class SgoSyncTaskStatusRes(BaseModel):
     estimated_remaining_seconds: int | None = None
     estimated_remaining: str | None = None
     failed_item_ids: list[str] = Field(default_factory=list)
+    failure_details: list[SgoSyncFailureDetail] = Field(
+        default_factory=list,
+        description="逐配件失败详情，可用于线上定位数据库、鉴权、下载或对象存储异常",
+    )
     error_message: str | None = None
     time_created: str | None = None
     time_updated: str | None = None

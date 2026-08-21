@@ -3,8 +3,6 @@
 from fastapi import File, Form, Request, UploadFile
 
 from csrcqsf.modules.railway_parts.schemas.parts import (
-    AutoSegmentReq,
-    AutoSegmentRes,
     CreateItemImagesReq,
     CreateItemImagesRes,
     CreateItemReq,
@@ -22,15 +20,11 @@ from csrcqsf.modules.railway_parts.schemas.parts import (
     ListItemImagesReq,
     ListItemImagesRes,
     ListItemReq,
-    ListSegmentedImagesRes,
-    SegmentedImageItem,
     UpdateItemReq,
     UpdateItemSizeStr,
 )
-from csrcqsf.modules.railway_parts.services.auto_processor_service import AutoPartProcessor
 from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
-from csrcqsf.core.runtime import ensure_segment_model_enabled
 
 from .router import parts_router
 
@@ -182,60 +176,6 @@ async def get_item_image_detail(req: GetItemDetailReq):
 })
 async def indexstatistics(req: IndexStatisticsReq):
     return await RailwayPartsManager.statistics()
-
-
-@parts_router.post('/auto_segment', tags=["算法-图像分割"], deprecated=True,summary='自动分割并建立索引 (SAM + DINOv2)', responses={
-    200: {'model': AutoSegmentRes}
-})
-async def auto_segment(req: AutoSegmentReq):
-    """
-    自动分割并建立高精度索引
-
-    算法流程：
-    1. 获取配件的 BASEINFO 类型图片
-    2. 使用 SAM (Segment Anything Model) 自动分割出配件主体
-    3. 分割后的图片上传到 MinIO
-    4. 分割记录保存到数据库 (segmented_image_info 表)
-    5. 使用 DINOv2 提取高精度特征（1024维向量）
-    6. 建立 Milvus 向量索引
-
-    参数：
-    - item_id: 配件ID
-    - rebuild: 是否重建已有索引
-
-    业务逻辑：AutoPartProcessor.auto_segment_by_item_id() in biz/railwayparts/auto_processor.py
-    核心算法：SAM分割 + DINOv2特征提取 + Milvus索引
-    """
-    ensure_segment_model_enabled()
-    result = await AutoPartProcessor.auto_segment_by_item_id(
-        item_id=int(req.item_id),
-        rebuild=req.rebuild
-    )
-
-    return AutoSegmentRes(
-        item_id=result.item_id,
-        total_baseinfo_images=result.total_baseinfo_images,
-        segmented_count=result.segmented_count,
-        indexed_count=result.indexed_count,
-        skipped_count=result.skipped_count,
-        failed_count=result.failed_count,
-        message=result.message
-    )
-
-
-@parts_router.get('/segmented_images/{item_id}', tags=["业务-图片管理"],deprecated=True, summary='获取配件的分割记录', responses={
-    200: {'model': ListSegmentedImagesRes}
-})
-async def list_segmented_images(item_id: str):
-    """获取配件的分割记录列表"""
-    records = await AutoPartProcessor.list_segmented_images(int(item_id))
-
-    return ListSegmentedImagesRes(
-        item_id=item_id,
-        records=[
-            SegmentedImageItem(**rec) for rec in records
-        ]
-    )
 
 
 @parts_router.post('/item/suggest', tags=["业务-配件管理"], summary='物料编码联想', responses={

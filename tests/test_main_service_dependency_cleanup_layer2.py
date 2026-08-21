@@ -37,16 +37,35 @@ def test_legacy_milvus_compat_module_no_longer_imports_local_model_stack_at_impo
         assert fragment not in text, fragment
 
 
-def test_auto_processor_service_defers_segment_anything_import():
-    text = Path(
+def test_obsolete_local_sam_auto_processor_is_removed():
+    assert not Path(
         "csrcqsf/modules/railway_parts/services/auto_processor_service.py"
-    ).read_text(encoding="utf-8")
+    ).exists()
 
-    lines = text.splitlines()
-    assert not any(
-        line.strip() == "from segment_anything import SamAutomaticMaskGenerator"
-        for line in lines[:30]
-    )
+    routes = Path(
+        "csrcqsf/modules/railway_parts/routes/parts_routes.py"
+    ).read_text(encoding="utf-8")
+    assert "auto_processor_service" not in routes
+    assert "'/auto_segment'" not in routes
+    assert "'/segmented_images/{item_id}'" not in routes
+
+
+def test_main_service_source_does_not_import_segment_anything():
+    source_root = Path("csrcqsf")
+    offenders = [
+        str(path)
+        for path in source_root.rglob("*.py")
+        if "segment_anything" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
+
+
+def test_vector_collection_config_does_not_contain_local_gpu_model_settings():
+    text = Path(
+        "csrcqsf/modules/railway_parts/vector_search/config/vector_db.ini"
+    ).read_text(encoding="utf-8")
+    for fragment in ("device =", "model_path =", "[sam3]"):
+        assert fragment not in text
 
 
 def test_main_dockerfile_no_longer_installs_local_torch_runtime():
@@ -88,6 +107,31 @@ def test_main_dockerfile_uses_cpu_python_base_for_business_service():
 
     for fragment in forbidden_fragments:
         assert fragment not in text, fragment
+
+
+def test_main_dockerfile_keeps_build_tools_out_of_runtime_image():
+    text = Path("docker/Dockerfile").read_text(encoding="utf-8")
+
+    required_fragments = (
+        "FROM python:3.10-slim AS builder",
+        "FROM python:3.10-slim AS runtime",
+        "COPY --from=builder /opt/venv /opt/venv",
+        "COPY csrcqsf /app/csrcqsf",
+        "COPY globals_vars.py main.py /app/",
+    )
+    for fragment in required_fragments:
+        assert fragment in text, fragment
+
+    runtime_stage = text.split("FROM python:3.10-slim AS runtime", 1)[1]
+    for fragment in (" git ", " curl ", "libgl1", "libglib2.0-0", " pip install ", "COPY . /app"):
+        assert fragment not in runtime_stage, fragment
+
+
+def test_docker_context_excludes_non_runtime_project_artifacts():
+    text = Path(".dockerignore").read_text(encoding="utf-8")
+
+    for entry in ("docs/", "tests/", "scripts/", "tools/", ".claude/", "dist/"):
+        assert entry in text.splitlines(), entry
 
 
 def test_pyproject_keeps_main_service_runtime_dependencies_needed_by_cpu_business():

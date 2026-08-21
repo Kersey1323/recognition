@@ -166,13 +166,7 @@ python main.py
 
 ## 常用验证命令
 
-### 验证向量库配置
-
-```bash
-PYTHONPATH=. .venv/bin/python scripts/testing/test_vector_db_config.py
-```
-
-### 验证主业务外部配置
+### 验证主业务外部服务与向量配置
 
 ```bash
 PYTHONPATH=. .venv/bin/python scripts/testing/debug_model_paths.py

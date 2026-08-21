@@ -87,14 +87,6 @@ def main():
         )
         results.append(("配件特征列表", success))
     
-    # 4. 分割记录
-    if item_id:
-        success, _ = test_api(
-            "GET", f"/railway/parts/segmented_images/{item_id}",
-            description="获取分割记录"
-        )
-        results.append(("分割记录", success))
-    
     # 5. 检索历史 (已删除旧版本接口)
     # success, _ = test_api(
     #     "POST", "/railway/parts/search/history/v2",

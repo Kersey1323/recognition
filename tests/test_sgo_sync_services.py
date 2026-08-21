@@ -38,9 +38,18 @@ def test_sync_images_continues_after_single_item_failure_and_reports_progress():
         "skipped_count": 0,
         "synced_image_count": 6,
         "failed_item_ids": ["102"],
+        "failure_details": [
+            {
+                "item_id": "102",
+                "stage": "base_images",
+                "error_type": "RuntimeError",
+                "error_message": "source image failed",
+            }
+        ],
     }
     assert [item["progress"] for item in progress] == [33, 66, 100]
     assert progress[-1]["estimated_remaining_seconds"] == 0
+    assert progress[-1]["failure_details"] == result["failure_details"]
 
 
 def test_sync_images_deduplicates_requested_item_ids():
@@ -79,6 +88,7 @@ def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
 
     source_rows = [
         SimpleNamespace(id="invalid", maktx="bad", MATNR="bad"),
+        SimpleNamespace(id="103", maktx=None, MATNR="missing-name"),
         SimpleNamespace(id="102", maktx="part", MATNR="code"),
     ]
     with patch.object(
@@ -91,8 +101,8 @@ def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
         side_effect=FakeSession,
     ), patch.object(
         Items,
-        "list_all_item_ids",
-        AsyncMock(return_value=[101]),
+        "list_all_item_id_codes",
+        AsyncMock(return_value=[(101, "existing")]),
     ), patch.object(
         SgoMaterielMasterplate,
         "list_sgo_items",
@@ -100,10 +110,70 @@ def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
     ):
         result = asyncio.run(SGOBiz.sync_parts_items())
 
-    assert result["processed_items"] == 2
+    assert result["processed_items"] == 3
     assert result["created_count"] == 1
-    assert result["fail_count"] == 1
-    assert result["failed_item_ids"] == ["invalid"]
+    assert result["fail_count"] == 2
+    assert result["failed_item_ids"] == ["103", "invalid"]
+    assert result["failure_details"] == [
+        {
+            "item_id": "103",
+            "stage": "source_validation",
+            "error_type": "InvalidSourceData",
+            "error_message": "配件名称为空",
+        },
+        {
+            "item_id": "invalid",
+            "stage": "source_validation",
+            "error_type": "InvalidSourceData",
+            "error_message": "配件 ID 不是有效整数",
+        }
+    ]
+
+
+def test_sync_parts_items_skips_existing_and_batch_duplicate_item_codes():
+    class FakeSession:
+        added_items = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        def add_all(self, items):
+            type(self).added_items = list(items)
+
+        async def commit(self):
+            return None
+
+    source_rows = [
+        SimpleNamespace(id="102", maktx="existing", MATNR="existing-code"),
+        SimpleNamespace(id="103", maktx="older", MATNR=" new-code "),
+        SimpleNamespace(id="104", maktx="newer", MATNR="new-code"),
+    ]
+    with patch.object(
+        sgo_services,
+        "SessionLocal",
+        side_effect=FakeSession,
+    ), patch.object(
+        sgo_services,
+        "sgo_sessionLocal",
+        side_effect=FakeSession,
+    ), patch.object(
+        Items,
+        "list_all_item_id_codes",
+        AsyncMock(return_value=[(101, " Existing-Code ")]),
+    ), patch.object(
+        SgoMaterielMasterplate,
+        "list_sgo_items",
+        AsyncMock(return_value=source_rows),
+    ):
+        result = asyncio.run(SGOBiz.sync_parts_items())
+
+    assert result["created_count"] == 1
+    assert result["skipped_count"] == 2
+    assert FakeSession.added_items[0].id == 104
+    assert FakeSession.added_items[0].item_code == "new-code"
 
 
 def test_sync_inquiry_history_maps_item_codes_and_reports_progress():

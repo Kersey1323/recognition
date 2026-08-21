@@ -66,6 +66,7 @@ INQUIRY_HISTORY_COLUMNS = (
     "inquiry_time",
     "source",
 )
+MAX_SYNC_FAILURE_DETAILS = 20
 
 
 def _clean_text(value):
@@ -75,6 +76,11 @@ def _clean_text(value):
         return value
     value = value.strip()
     return value or None
+
+
+def _item_code_key(value) -> str:
+    cleaned = _clean_text(value)
+    return str(cleaned).casefold() if cleaned is not None else ""
 
 
 def _normalize_vehicle_batch(vehicle: str | None) -> str | None:
@@ -208,15 +214,43 @@ class SGOBiz:
     ) -> dict:
         started_at = time.perf_counter()
         async with SessionLocal() as session:
-            part_ids = set(await Items.list_all_item_ids(session))
+            item_id_codes = await Items.list_all_item_id_codes(session)
+            part_ids = {int(item_id) for item_id, _ in item_id_codes}
+            part_codes = {
+                _item_code_key(item_code): int(item_id)
+                for item_id, item_code in item_id_codes
+                if _item_code_key(item_code)
+            }
 
         need_insert: list[Items] = []
         skipped_count = 0
         fail_count = 0
         failed_item_ids: list[str] = []
+        failure_details: list[dict[str, str]] = []
+
+        def record_invalid_source(item_id: str, reason: str) -> None:
+            nonlocal fail_count
+            fail_count += 1
+            failed_item_ids.append(item_id)
+            if len(failure_details) < MAX_SYNC_FAILURE_DETAILS:
+                failure_details.append(
+                    {
+                        "item_id": item_id,
+                        "stage": "source_validation",
+                        "error_type": "InvalidSourceData",
+                        "error_message": reason,
+                    }
+                )
+
         async with sgo_sessionLocal() as session:
             data_list = await SgoMaterielMasterplate.list_sgo_items(session=session)
             source_parts = list(data_list)
+            # SGO 可能为同一物料编码保留多个模板 ID。主库编码全局唯一，优先保留
+            # 已有关联数据的主库记录；新编码按 Snowflake ID 倒序只接收最新模板。
+            source_parts.sort(
+                key=lambda row: int(row.id) if str(row.id).isdigit() else -1,
+                reverse=True,
+            )
             total_items = len(source_parts)
             if progress_callback is not None:
                 progress_callback(
@@ -233,20 +267,26 @@ class SGOBiz:
                 try:
                     source_item_id = int(data.id)
                 except (TypeError, ValueError):
-                    fail_count += 1
-                    failed_item_ids.append(str(data.id))
+                    record_invalid_source(str(data.id), "配件 ID 不是有效整数")
                 else:
+                    item_code = str(data.MATNR).strip() if data.MATNR is not None else ""
+                    item_code_key = _item_code_key(item_code)
                     if source_item_id in part_ids:
                         skipped_count += 1
-                    elif data.maktx is None or data.MATNR is None:
-                        fail_count += 1
-                        failed_item_ids.append(str(data.id))
+                    elif item_code_key in part_codes:
+                        skipped_count += 1
+                    elif not item_code_key:
+                        record_invalid_source(str(data.id), "物料编码为空")
+                    elif data.maktx is None:
+                        record_invalid_source(str(data.id), "配件名称为空")
                     else:
                         new_part = Items()
                         new_part.id = source_item_id
                         new_part.item_name = data.maktx
-                        new_part.item_code = data.MATNR
+                        new_part.item_code = item_code
                         need_insert.append(new_part)
+                        part_ids.add(source_item_id)
+                        part_codes[item_code_key] = source_item_id
 
                 if progress_callback is not None and (
                     index == total_items or index % report_interval == 0
@@ -265,6 +305,7 @@ class SGOBiz:
                             "current_item_id": data.id,
                             "estimated_remaining_seconds": remaining,
                             "failed_item_ids": list(failed_item_ids),
+                            "failure_details": list(failure_details),
                         }
                     )
                     # 大批量比对期间定期让出事件循环，保证状态轮询和其他接口可响应。
@@ -284,6 +325,7 @@ class SGOBiz:
             "skipped_count": skipped_count,
             "synced_image_count": 0,
             "failed_item_ids": failed_item_ids,
+            "failure_details": failure_details,
         }
 
     @classmethod
@@ -344,6 +386,7 @@ class SGOBiz:
         fail_count = 0
         synced_image_count = 0
         failed_item_ids: list[str] = []
+        failure_details: list[dict[str, str]] = []
         started_at = time.perf_counter()
 
         if not normalized_ids:
@@ -356,6 +399,7 @@ class SGOBiz:
                 "skipped_count": 0,
                 "synced_image_count": 0,
                 "failed_item_ids": [],
+                "failure_details": [],
             }
 
         if not cls.token:
@@ -363,14 +407,24 @@ class SGOBiz:
 
         for index, item_id in enumerate(normalized_ids, start=1):
             item_synced_count = 0
+            failure_stage = "base_images"
             try:
                 # 每个配件独立完成基础图和询码图同步，单条失败不会中断后续配件。
                 item_synced_count += await cls.get_baseimage_id_from_db([item_id])
+                failure_stage = "inquiry_images"
                 item_synced_count += await cls.get_inquery_code_pic_from_db([item_id])
                 success_count += 1
             except Exception as exc:
                 fail_count += 1
                 failed_item_ids.append(item_id)
+                failure_details.append(
+                    {
+                        "item_id": item_id,
+                        "stage": failure_stage,
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc) or repr(exc),
+                    }
+                )
                 logger.exception(f"同步配件图片失败: item_id={item_id}, error={exc}")
             finally:
                 synced_image_count += item_synced_count
@@ -390,6 +444,7 @@ class SGOBiz:
                         "current_item_id": item_id,
                         "estimated_remaining_seconds": remaining,
                         "failed_item_ids": list(failed_item_ids),
+                        "failure_details": list(failure_details),
                     }
                 )
 
@@ -402,6 +457,7 @@ class SGOBiz:
             "skipped_count": 0,
             "synced_image_count": synced_image_count,
             "failed_item_ids": failed_item_ids,
+            "failure_details": failure_details,
         }
 
     @classmethod

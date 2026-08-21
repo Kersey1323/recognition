@@ -3,18 +3,14 @@
 """
 from dataclasses import dataclass
 from configparser import ConfigParser
-from typing import Optional
 
 
 @dataclass
 class SigLIPConfig:
-    """SigLIP 模型配置"""
-    model_name: str
-    model_path: str
+    """SigLIP collection 配置。模型推理由独立模型服务负责。"""
     vector_dim: int
     collection_name: str
     batch_size: int
-    device: str
 
     @classmethod
     def from_config(cls, config_path: str) -> "SigLIPConfig":
@@ -31,24 +27,18 @@ class SigLIPConfig:
         parser.read(config_path, encoding='utf-8')
 
         return cls(
-            model_name=parser.get('siglip', 'model_name'),
-            model_path=parser.get('siglip', 'model_path'),
             vector_dim=parser.getint('siglip', 'vector_dim'),
             collection_name=parser.get('siglip', 'collection_name'),
             batch_size=parser.getint('siglip', 'batch_size'),
-            device=parser.get('siglip', 'device')
         )
 
 
 @dataclass
 class DINOv2Config:
-    """DINOv2 模型配置"""
-    model_name: str
-    model_path: str
+    """DINOv2 collection 配置。模型推理由独立模型服务负责。"""
     vector_dim: int
     collection_name: str
     patch_tokens_dir: str
-    device: str
 
     @classmethod
     def from_config(cls, config_path: str) -> "DINOv2Config":
@@ -65,12 +55,9 @@ class DINOv2Config:
         parser.read(config_path, encoding='utf-8')
 
         return cls(
-            model_name=parser.get('dinov2', 'model_name'),
-            model_path=parser.get('dinov2', 'model_path'),
             vector_dim=parser.getint('dinov2', 'vector_dim'),
             collection_name=parser.get('dinov2', 'collection_name'),
             patch_tokens_dir=parser.get('dinov2', 'patch_tokens_dir'),
-            device=parser.get('dinov2', 'device')
         )
 
 

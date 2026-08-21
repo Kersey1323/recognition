@@ -27,22 +27,14 @@ def _import_parts_route_subset():
     fake_parts_service_module = ModuleType("csrcqsf.modules.railway_parts.services.parts_service")
     fake_parts_service_module.RailwayPartsManager = type("RailwayPartsManager", (), {})
 
-    fake_auto_processor_module = ModuleType("csrcqsf.modules.railway_parts.services.auto_processor_service")
-    fake_auto_processor_module.AutoPartProcessor = type("AutoPartProcessor", (), {})
-
     fake_sgo_services_module = ModuleType("csrcqsf.modules.sgo.services")
     fake_sgo_services_module.SGOBiz = type("SGOBiz", (), {})
-
-    fake_runtime_module = ModuleType("csrcqsf.core.runtime")
-    fake_runtime_module.ensure_segment_model_enabled = lambda: None
 
     with patch.dict(
         sys.modules,
         {
             "csrcqsf.modules.railway_parts.services.parts_service": fake_parts_service_module,
-            "csrcqsf.modules.railway_parts.services.auto_processor_service": fake_auto_processor_module,
             "csrcqsf.modules.sgo.services": fake_sgo_services_module,
-            "csrcqsf.core.runtime": fake_runtime_module,
         },
     ):
         router_module = importlib.import_module("csrcqsf.modules.railway_parts.routes.router")

@@ -14,12 +14,8 @@ def _legacy_vector_db_import(suffix: str) -> str:
 
 def test_phase_nine_root_vector_db_scripts_and_tests_remain_available():
     expected_paths = [
-        "scripts/vector_db/build_index.py",
         "scripts/vector_db/init_collections.py",
         "scripts/vector_db/diagnose_db.py",
-        "tests/vector_db/test_dinov2_search.py",
-        "tests/vector_db/test_siglip_search.py",
-        "tests/vector_db/test_hybrid_search.py",
         "tests/vector_db/test_milvus_manager.py",
         "tests/vector_db/README.md",
     ]
@@ -50,8 +46,6 @@ def test_phase_nine_governance_tests_and_docs_no_longer_reference_legacy_vector_
         "tests/test_v2_milvus_state_manager.py",
         "tests/test_collection_manager_image_variant.py",
         "tests/test_v2_collection_manager_helpers.py",
-        "tests/test_sam3_prompt_optimization.py",
-        "tests/test_sam3_preprocessor_visual.py",
         "tests/test_milvus_v2_full.py",
         "tests/test_item_image_upload_manager.py",
         "tests/vector_db/README.md",

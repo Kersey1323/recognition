@@ -7,7 +7,7 @@ echo "=========================================="
 
 # 1. 停止服务
 echo ""
-echo "[1/4] 停止服务..."
+echo "[1/3] 停止服务..."
 pkill -f "uvicorn.*csrcqsf.core.app:app" && echo "✓ 服务已停止" || echo "⚠ 没有找到运行中的服务"
 
 # 等待进程完全停止
@@ -15,24 +15,14 @@ sleep 2
 
 # 2. 清理 Python 缓存
 echo ""
-echo "[2/4] 清理 Python 缓存..."
+echo "[2/3] 清理 Python 缓存..."
 find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 find . -type f -name "*.pyc" -delete 2>/dev/null || true
 echo "✓ Python 缓存已清理"
 
-# 3. 清理 CUDA 缓存（可选，需要 Python 环境）
+# 3. 提示用户启动服务
 echo ""
-echo "[3/4] 清理 CUDA 缓存..."
-if [ -f ".venv/bin/python" ]; then
-    .venv/bin/python scripts/maintenance/clear_cuda_cache.py
-    echo "✓ CUDA 缓存已清理"
-else
-    echo "⚠ 未找到虚拟环境，跳过 CUDA 缓存清理"
-fi
-
-# 4. 提示用户启动服务
-echo ""
-echo "[4/4] 准备启动服务"
+echo "[3/3] 准备启动服务"
 echo "=========================================="
 echo "清理完成！"
 echo ""

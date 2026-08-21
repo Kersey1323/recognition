@@ -50,6 +50,7 @@ def test_images_sync_route_and_status_use_same_task_manager():
         "estimated_remaining_seconds": 9,
         "estimated_remaining": "约9秒",
         "failed_item_ids": [],
+        "failure_details": [],
         "error_message": None,
         "time_created": "2026-08-17T10:00:00",
         "time_updated": "2026-08-17T10:00:01",
@@ -74,6 +75,7 @@ def test_images_sync_route_and_status_use_same_task_manager():
     assert started.task_id == "images-task-1"
     assert status.progress == 25
     assert status.synced_image_count == 3
+    assert status.failure_details == []
 
 
 def test_inquiry_history_sync_route_submits_background_task_without_awaiting_runner():

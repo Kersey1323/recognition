@@ -176,3 +176,85 @@ def test_inquiry_list_only_selects_driver_safe_response_columns():
     assert "CAST(sgo_code_inquiry.submission_date AS VARCHAR) AS submission_date" in selected_columns
     assert "sgo_code_inquiry.create_time" not in selected_columns
     assert "ORDER BY sgo_code_inquiry.create_time DESC" in compiled
+
+
+def test_indexed_inquiry_lookup_does_not_select_kingbase_datetime_columns():
+    from csrcqsf.infra.db.kingbase_dialect import KingbaseAsyncpgDialect
+    from csrcqsf.models.orm.sgo_external import SgoCodeInquiryReturn
+
+    class Scalars:
+        def __iter__(self):
+            return iter(())
+
+    class Session:
+        statement = None
+
+        async def scalars(self, statement):
+            self.statement = statement
+            return Scalars()
+
+    session = Session()
+    result = asyncio.run(
+        SgoCodeInquiryReturn.get_return_by_code_id_list(
+            session,
+            ["19010043782"],
+        )
+    )
+
+    assert list(result) == []
+    compiled = str(
+        session.statement.compile(
+            dialect=KingbaseAsyncpgDialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    selected_columns = compiled.partition("\nFROM ")[0]
+    assert "sgo_code_inquiry_return.id" in selected_columns
+    assert "sgo_code_inquiry_return.inquiry_id" in selected_columns
+    assert "sgo_code_inquiry_return.update_time" not in selected_columns
+    assert "sgo_code_inquiry_return.create_time" not in selected_columns
+
+
+def test_base_image_lookup_only_selects_fields_needed_for_download():
+    from csrcqsf.infra.db.kingbase_dialect import KingbaseAsyncpgDialect
+    from csrcqsf.models.orm.sgo_external import SgoMaterielFileImg
+
+    class Rows:
+        @staticmethod
+        def all():
+            return []
+
+        def __iter__(self):
+            return iter(())
+
+    class Session:
+        statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return Rows()
+
+        async def scalars(self, statement):
+            self.statement = statement
+            return Rows()
+
+    session = Session()
+    result = asyncio.run(
+        SgoMaterielFileImg.list_image_file(
+            session,
+            ["2039605188472086528"],
+        )
+    )
+
+    assert list(result) == []
+    compiled = str(
+        session.statement.compile(
+            dialect=KingbaseAsyncpgDialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    selected_columns = compiled.partition("\nFROM ")[0]
+    assert "sgo_materiel_file_img.masterplate_id" in selected_columns
+    assert "sgo_materiel_file_img.file_src" in selected_columns
+    assert "sgo_materiel_file_img.create_time" not in selected_columns
+    assert "sgo_materiel_file_img.creater" not in selected_columns

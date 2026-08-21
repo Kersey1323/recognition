@@ -449,6 +449,12 @@ class Items(Base):
         return await session.scalars(stmt)
 
     @classmethod
+    async def list_all_item_id_codes(cls, session: AsyncSession):
+        stmt = select(cls.id, cls.item_code)
+        result = await session.execute(stmt)
+        return result.all()
+
+    @classmethod
     def normalize_source_video_filter_mode(cls, has_source_video: int | None) -> str | None:
         if has_source_video == 0:
             return "missing"

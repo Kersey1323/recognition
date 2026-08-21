@@ -5,7 +5,6 @@ from .router import parts_router
 from . import asset_proxy_routes, parts_routes, reconstruction_routes, review_ticket_routes, search_routes
 
 RailwayPartsManager = parts_routes.RailwayPartsManager
-AutoPartProcessor = parts_routes.AutoPartProcessor
 SGOBiz = parts_routes.SGOBiz
 MilvusStateManagerV2 = search_routes.MilvusStateManagerV2
 ReconstructionManager = reconstruction_routes.ReconstructionManager
@@ -20,8 +19,6 @@ create_item_image = parts_routes.create_item_image
 delete_item_image = parts_routes.delete_item_image
 get_item_image_detail = parts_routes.get_item_image_detail
 indexstatistics = parts_routes.indexstatistics
-auto_segment = parts_routes.auto_segment
-list_segmented_images = parts_routes.list_segmented_images
 suggest_items = parts_routes.suggest_items
 
 drop_v2_collections = search_routes.drop_v2_collections
@@ -78,7 +75,6 @@ __all__ = [
     "review_ticket_routes",
     "reconstruction_routes",
     "RailwayPartsManager",
-    "AutoPartProcessor",
     "SGOBiz",
     "MilvusStateManagerV2",
     "ReconstructionManager",
@@ -92,8 +88,6 @@ __all__ = [
     "delete_item_image",
     "get_item_image_detail",
     "indexstatistics",
-    "auto_segment",
-    "list_segmented_images",
     "suggest_items",
     "drop_v2_collections",
     "init_v2_collections",

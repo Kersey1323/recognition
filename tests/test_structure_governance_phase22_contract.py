@@ -56,7 +56,6 @@ def test_phase_twenty_two_tests_and_scripts_use_final_module_paths():
         "tests/test_reconstruction_statistics.py",
         "tests/test_reconstruction_task_finalization.py",
         "tests/test_reconstruction_upload_session.py",
-        "tests/test_sam3_preprocessor_visual.py",
         "tests/test_search_history_storage_config.py",
         "tests/test_segmented_image_model.py",
         "tests/test_v2_index_rebuild_route.py",

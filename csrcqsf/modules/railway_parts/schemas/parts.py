@@ -1,8 +1,6 @@
 """Railway-parts item and image related request/response schemas."""
 
 from csrcqsf.modules.railway_parts.schemas._parts_api_models import (
-    AutoSegmentReq,
-    AutoSegmentRes,
     CreateItemImagesReq,
     CreateItemImagesRes,
     CreateItemImageRecord,
@@ -25,15 +23,11 @@ from csrcqsf.modules.railway_parts.schemas._parts_api_models import (
     ListItemImagesReq,
     ListItemImagesRes,
     ListItemReq,
-    ListSegmentedImagesRes,
-    SegmentedImageItem,
     UpdateItemReq,
     UpdateItemSizeStr,
 )
 
 __all__ = [
-    "AutoSegmentReq",
-    "AutoSegmentRes",
     "CreateItemImagesReq",
     "CreateItemImagesRes",
     "CreateItemImageRecord",
@@ -56,8 +50,6 @@ __all__ = [
     "ListItemImagesReq",
     "ListItemImagesRes",
     "ListItemReq",
-    "ListSegmentedImagesRes",
-    "SegmentedImageItem",
     "UpdateItemReq",
     "UpdateItemSizeStr",
 ]

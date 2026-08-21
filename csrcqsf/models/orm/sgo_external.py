@@ -4,9 +4,9 @@ import decimal
 
 from sqlalchemy import BigInteger, Computed, DECIMAL, Date, DateTime, Double, ForeignKeyConstraint, Index, Integer, SmallInteger, String, TIMESTAMP, cast, select, text
 from sqlalchemy.dialects.mysql import CHAR, LONGBLOB, LONGTEXT, TEXT, TINYINT, VARCHAR
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, load_only, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncSession
-from bfrcommon.db import PageQueryResult, get_abbr_fn, get_count, async_get_count
+from bfrcommon.db import PageQueryResult, async_get_count
 
 
 class Base(DeclarativeBase):
@@ -1075,7 +1075,13 @@ class SgoCodeInquiryReturn(Base):
         if code_list.__len__() == 0:
             return []
 
-        stmt = select(cls).where(cls.item_code.in_(code_list))
+        # 已索引筛选只需要回复记录关联的询码 ID，避免读取 Kingbase 私有
+        # sys.datetime 类型的 update_time/create_time 导致 asyncpg 解码失败。
+        stmt = (
+            select(cls)
+            .options(load_only(cls.inquiry_id))
+            .where(cls.item_code.in_(code_list))
+        )
         return await session.scalars(stmt)
 
     @classmethod
@@ -1420,8 +1426,13 @@ class SgoMaterielFileImg(Base):
 
     @classmethod
     async def list_image_file(cls, session: AsyncSession, item_id_list: list[str]):
-        stmt = select(cls).where(cls.masterplate_id.in_(item_id_list))
-        return await session.scalars(stmt)
+        # 基础图同步只需要物料 ID 和文件地址，避免读取甲方 Kingbase 私有
+        # sys.datetime 类型的 create_time 导致 asyncpg 在下载前解码失败。
+        stmt = select(cls.masterplate_id, cls.file_src).where(
+            cls.masterplate_id.in_(item_id_list)
+        )
+        result = await session.execute(stmt)
+        return result.all()
 
 
 class SgoMaterielFileUploadSpeedInfo(Base):

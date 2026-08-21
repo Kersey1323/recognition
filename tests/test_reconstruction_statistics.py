@@ -253,8 +253,6 @@ def test_reconstruction_statistics_route_returns_manager_payload():
     fake_parts_service_module.RailwayPartsManager = type("RailwayPartsManager", (), {})
     fake_reconstruction_service_module = ModuleType("csrcqsf.modules.railway_parts.services.reconstruction_service")
     fake_reconstruction_service_module.ReconstructionManager = type("ReconstructionManager", (), {})
-    fake_auto_processor_module = ModuleType("csrcqsf.modules.railway_parts.services.auto_processor_service")
-    fake_auto_processor_module.AutoPartProcessor = type("AutoPartProcessor", (), {})
     fake_state_manager_module = ModuleType("csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager")
     fake_state_manager_module.MilvusStateManagerV2 = type("MilvusStateManagerV2", (), {})
     fake_sgo_module = ModuleType("csrcqsf.modules.sgo.services")
@@ -277,7 +275,6 @@ def test_reconstruction_statistics_route_returns_manager_payload():
         {
             "csrcqsf.modules.railway_parts.services.parts_service": fake_parts_service_module,
             "csrcqsf.modules.railway_parts.services.reconstruction_service": fake_reconstruction_service_module,
-            "csrcqsf.modules.railway_parts.services.auto_processor_service": fake_auto_processor_module,
             "csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager": fake_state_manager_module,
             "csrcqsf.modules.sgo.services": fake_sgo_module,
         },
