@@ -13,7 +13,7 @@ from csrcqsf.core.settings import (
     model_service_url,
 )
 from csrcqsf.infra.external.error_response import format_remote_error
-from globals_vars import logger
+from csrcqsf.core.logging_config import logger
 
 
 def _image_to_base64(image) -> str:

@@ -52,7 +52,7 @@ def test_phase_twenty_one_image_schemas_are_module_local():
 
 def test_phase_twenty_one_repo_entrypoints_no_longer_import_legacy_root_or_data_paths():
     target_paths = [
-        "main.py",
+        "csrcqsf/__main__.py",
         "tests/test_api_prefix.py",
         "tests/test_current_db.py",
         "tests/test_search_history_storage_config.py",
@@ -85,6 +85,5 @@ def test_phase_twenty_one_repo_entrypoints_no_longer_import_legacy_root_or_data_
         for fragment in forbidden_fragments:
             assert fragment not in text, f"{relative_path} still imports {fragment}"
 
-    main_text = Path("main.py").read_text(encoding="utf-8")
+    main_text = Path("csrcqsf/__main__.py").read_text(encoding="utf-8")
     assert "from csrcqsf.core.app import app" in main_text
-

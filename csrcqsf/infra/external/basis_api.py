@@ -10,7 +10,7 @@ from bfrcommon.file import file_ext
 from bfrcommon.snowflake import get_id
 from csrcqsf.core.settings import ai_settings, minio_bucket
 from csrcqsf.infra.storage.minio import minio_instance
-from globals_vars import logger
+from csrcqsf.core.logging_config import logger
 
 
 class GrpcClient:

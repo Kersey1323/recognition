@@ -44,8 +44,8 @@ https://github.com/Tencent-Hunyuan/Hunyuan3D-2
 
 ```text
 recognition/
-├── main.py                           # 启动入口
 ├── csrcqsf/
+│   ├── __main__.py                   # python -m csrcqsf 包启动入口
 │   ├── core/                         # 应用入口、配置、运行时、调度
 │   ├── infra/                        # 数据库、MinIO、Milvus、外部服务客户端
 │   ├── modules/
@@ -117,8 +117,13 @@ cp .env.example .env
 ```bash
 cd /home/ubuntu/project-train/recognition
 source .venv/bin/activate
-python main.py
+RECOGNITION_ENV_FILE=.env python -m csrcqsf
 ```
+
+服务只在明确设置 `RECOGNITION_ENV_FILE` 时加载环境文件；生产容器直接通过
+`--env-file` 注入配置并执行 `python -m csrcqsf`。控制台保留彩色业务日志、
+源码位置、启动耗时、异常堆栈和 Uvicorn 访问日志，文件日志写入
+`APP_LOG_DIR/app` 并按天轮转、保留 30 天、压缩为 ZIP。
 
 默认访问地址：
 

@@ -23,8 +23,8 @@ def _parse_env_file(path: Path) -> dict[str, str]:
 
 def test_main_get_app_port_reads_env(monkeypatch):
     monkeypatch.setenv("APP_PORT", "7001")
-    sys.modules.pop("main", None)
-    main = importlib.import_module("main")
+    sys.modules.pop("csrcqsf.__main__", None)
+    main = importlib.import_module("csrcqsf.__main__")
 
     assert main.get_app_port() == 7001
 
@@ -83,10 +83,13 @@ def test_env_deployment_uses_host_network_runtime_paths():
     assert "MODEL_DIR" not in values
     assert "SAM3_MODEL_PATH" not in values
     assert "SAM_MODEL_PATH" not in values
-    assert values["TEMP_DIR"] == "temp"
+    assert values["APP_LOG_DIR"] == "/app/logs"
+    assert values["TEMP_DIR"] == "/app/temp"
+    assert values["STATE_DIR"] == "/app/state"
     assert values["MINIO_SEARCH_HISTORY_BUCKET"] == "bfr-search-history-files"
-    assert values["DINOV2_PATCH_TOKENS_DIR"] == "state/vector_db/patch_tokens"
-    assert values["INDEXING_CHECKPOINT_FILE"] == "state/vector_db/checkpoint.json"
+    assert values["DINOV2_PATCH_TOKENS_DIR"] == "/app/state/vector_db/patch_tokens"
+    assert values["INDEXING_CHECKPOINT_FILE"] == "/app/state/vector_db/checkpoint.json"
+    assert values["INDEXING_LOG_DIR"] == "/app/logs/vector_db"
 
 
 def test_env_deployment_exposes_main_mysql_vars():

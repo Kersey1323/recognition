@@ -3,24 +3,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Any, Dict
 
-from dotenv import load_dotenv
-
-PROJECT_ROOT = Path(__file__).resolve().parents[5]
-load_dotenv(PROJECT_ROOT / ".env")
-
-
-def _resolve_path(path: str, base_dir: Path = PROJECT_ROOT) -> str:
-    """Resolve a relative path against the repository root."""
-    if not path:
-        return path
-
-    path_obj = Path(path)
-    if path_obj.is_absolute():
-        return str(path_obj)
-    return str(base_dir / path_obj)
+from csrcqsf.core.runtime_paths import resolve_runtime_paths
 
 
 class VectorDBConfig:
@@ -28,6 +13,7 @@ class VectorDBConfig:
 
     def __init__(self):
         """从环境变量加载配置。"""
+        runtime_paths = resolve_runtime_paths()
 
         # ============================================
         # MinIO配置
@@ -55,19 +41,13 @@ class VectorDBConfig:
         # DINOv2 集合配置（模型推理已迁移至独立服务）
         # ============================================
         self.dinov2_collection_name = os.getenv("DINOV2_COLLECTION_NAME", "PARTS_DINOV2_LARGE_1024D_V1")
-        self.dinov2_patch_tokens_dir = _resolve_path(
-            os.getenv("DINOV2_PATCH_TOKENS_DIR", "state/vector_db/patch_tokens")
-        )
+        self.dinov2_patch_tokens_dir = str(runtime_paths.patch_tokens_dir)
 
         # ============================================
-        # 索引配置（相对于项目根目录）
+        # 索引状态与日志统一写入可持久化运行时目录，避免源码只读挂载后写入失败。
         # ============================================
-        self.indexing_checkpoint_file = _resolve_path(
-            os.getenv("INDEXING_CHECKPOINT_FILE", "state/vector_db/checkpoint.json")
-        )
-        self.indexing_log_dir = _resolve_path(
-            os.getenv("INDEXING_LOG_DIR", "logs/vector_db")
-        )
+        self.indexing_checkpoint_file = str(runtime_paths.indexing_checkpoint_file)
+        self.indexing_log_dir = str(runtime_paths.indexing_log_dir)
         
         # ============================================
         # 本地配置

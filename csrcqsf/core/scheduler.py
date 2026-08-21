@@ -4,7 +4,7 @@ import os
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from globals_vars import logger
+from csrcqsf.core.logging_config import logger
 from apscheduler.job import Job as apsjob
 from datetime import datetime
 from csrcqsf.core.settings import (

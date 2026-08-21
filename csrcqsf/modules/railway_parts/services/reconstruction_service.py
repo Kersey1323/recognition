@@ -14,7 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
-from globals_vars import logger
+from csrcqsf.core.logging_config import logger
 
 try:
     from minio.datatypes import Part

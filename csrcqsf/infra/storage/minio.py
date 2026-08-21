@@ -13,7 +13,7 @@ from csrcqsf.core.settings import (
     minio_secure,
 )
 import traceback
-from globals_vars import logger
+from csrcqsf.core.logging_config import logger
 
 minio_instance = Bucket(
     minio_endpoint,

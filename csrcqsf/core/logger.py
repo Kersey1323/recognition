@@ -1,7 +1,7 @@
 """
 日志工具函数模块
 
-注意：日志配置已统一到 globals_vars.py 中
+注意：日志配置已统一到 csrcqsf.core.logging_config 中
 本模块仅提供日志相关的工具函数
 """
 from contextlib import contextmanager
@@ -13,11 +13,11 @@ import os
 import json
 import re
 
-# 从 globals_vars 导入统一的 logger 和路径配置
-from globals_vars import logger, WORK_DIRS
+from csrcqsf.core.logging_config import logger
+from csrcqsf.core.runtime_paths import get_runtime_paths
 
 # 日志文件路径
-log_path = str(WORK_DIRS.logs_app)
+log_path = str(get_runtime_paths().app_log_dir)
 
 
 def get_logger_file_path(filename: str) -> str:

@@ -13,7 +13,7 @@ from typing import AsyncIterator, Callable, Literal
 
 from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
-from globals_vars import logger
+from csrcqsf.core.logging_config import logger
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from urllib3 import PoolManager

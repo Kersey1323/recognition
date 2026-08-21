@@ -11,7 +11,7 @@ from csrcqsf.infra.external.model_client import get_model_client
 from csrcqsf.infra.storage.minio import minio_instance
 from csrcqsf.modules.image.schemas import OCRResult, Point, PointAndText
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
-from globals_vars import logger
+from csrcqsf.core.logging_config import logger
 
 
 class SegmentBiz:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import or_, select
 
-from globals_vars import logger
+from csrcqsf.core.logging_config import logger
 from csrcqsf.modules.railway_parts.integrations.reconstruction_client import (
     ReconstructionServiceClient,
     ReconstructionServiceClientError,

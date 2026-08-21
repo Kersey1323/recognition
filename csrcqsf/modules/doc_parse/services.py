@@ -11,7 +11,7 @@ from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.infra.external.basis_api import grpc_client
 from csrcqsf.infra.storage.minio import minio_instance
 from csrcqsf.models.orm.files import Files, FileTables
-from globals_vars import logger
+from csrcqsf.core.logging_config import logger
 
 
 class DocBiz:

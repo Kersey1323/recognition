@@ -15,7 +15,7 @@ from bfrcommon.middlewares.response import DefaultResponse, catch_exceptions_mid
 from bfrcommon.middlewares.auth import add_process_time_header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from globals_vars import logger
+from csrcqsf.core.logging_config import logger
 from csrcqsf.core.runtime import ensure_segment_model_enabled, segment_model_enabled
 from csrcqsf.core.startup_logging import run_startup_step
 from csrcqsf.modules.doc_parse.routes import parts_docs_router

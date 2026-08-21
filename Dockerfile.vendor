@@ -38,12 +38,14 @@ RUN uv venv "${VIRTUAL_ENV}"
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --active --no-dev --no-install-project
 
-COPY . /app
+COPY csrcqsf/ /app/csrcqsf/
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --active --no-dev
-
-RUN mkdir -p /app/temp /app/logs /app/state/vector_db /app/state/reconstruction
+RUN mkdir -p \
+    /app/logs/app \
+    /app/logs/vector_db \
+    /app/temp \
+    /app/state/vector_db/patch_tokens \
+    /app/state/reconstruction
 
 EXPOSE 65432
 
@@ -52,4 +54,4 @@ VOLUME ["/app/logs", "/app/temp", "/app/state"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:65432/health')"
 
-CMD ["python", "main.py"]
+CMD ["python", "-m", "csrcqsf"]

@@ -2,12 +2,15 @@ from urllib.parse import quote_plus
 import os
 
 from bfrcommon.settings import Settings
-from dotenv import load_dotenv
+
+from csrcqsf.core.environment import load_explicit_env_file
+from csrcqsf.core.runtime_paths import get_runtime_paths
 
 _EXPLICIT_ENV_KEYS = frozenset(os.environ.keys())
 
-# 加载环境变量文件，但“是否显式配置”只认进程启动前已给出的环境变量
-load_dotenv()
+# 本地环境文件必须显式指定；生产环境始终以进程环境变量为准。
+load_explicit_env_file()
+runtime_paths = get_runtime_paths(refresh=True)
 
 
 def _first_non_empty_env(*names: str, default: str = "") -> str:
@@ -129,10 +132,7 @@ minio_endpoint = os.getenv("MINIO_ENDPOINT", "192.168.100.2:9000")
 minio_access_key = os.getenv("MINIO_ACCESS_KEY", "root")
 minio_secret_key = os.getenv("MINIO_SECRET_KEY", "REMOVED_CREDENTIAL")
 minio_secure = _env_bool("MINIO_SECURE", False)
-temp_dir = os.getenv(
-    "TEMP_DIR",
-    os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp"),
-)
+temp_dir = str(runtime_paths.temp_dir)
 main_db_database = _first_non_empty_env(
     "MAIN_DB_DATABASE",
     default="coronavirusdb",

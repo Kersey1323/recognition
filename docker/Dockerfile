@@ -17,12 +17,6 @@ RUN uv venv "${VIRTUAL_ENV}"
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --active --no-dev --no-install-project
 
-COPY csrcqsf /app/csrcqsf
-
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --active --no-dev
-
-
 FROM python:3.10-slim AS runtime
 
 ARG APT_MIRROR=mirrors.aliyun.com
@@ -48,9 +42,13 @@ RUN python -m pip uninstall -y pip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/venv /opt/venv
-COPY csrcqsf /app/csrcqsf
-COPY globals_vars.py main.py /app/
+COPY csrcqsf/ /app/csrcqsf/
 
-RUN mkdir -p /app/temp /app/logs /app/state/vector_db /app/state/reconstruction
+RUN mkdir -p \
+    /app/logs/app \
+    /app/logs/vector_db \
+    /app/temp \
+    /app/state/vector_db/patch_tokens \
+    /app/state/reconstruction
 
-CMD ["python", "main.py"]
+CMD ["python", "-m", "csrcqsf"]

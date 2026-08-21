@@ -5,16 +5,14 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
-from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).resolve().parents[5]
-DEFAULT_LOG_DIR = PROJECT_ROOT / "logs" / "vector_db"
+from importlib import import_module
 
 
 def setup_logger(name: str, log_dir: str | None = None) -> logging.Logger:
     """Create a module logger with console and file handlers."""
     if log_dir is None:
-        log_dir = str(DEFAULT_LOG_DIR)
+        runtime_paths = import_module("csrcqsf.core.runtime_paths")
+        log_dir = str(runtime_paths.resolve_runtime_paths().indexing_log_dir)
 
     os.makedirs(log_dir, exist_ok=True)
 

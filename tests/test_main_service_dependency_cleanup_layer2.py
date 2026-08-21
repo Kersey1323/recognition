@@ -91,7 +91,7 @@ def test_main_dockerfile_uses_cpu_python_base_for_business_service():
         "FROM python:3.10-slim",
         "ARG APT_MIRROR",
         "ARG PIP_INDEX_URL",
-        'CMD ["python", "main.py"]',
+        'CMD ["python", "-m", "csrcqsf"]',
     )
     forbidden_fragments = (
         "nvidia/cuda",
@@ -116,8 +116,7 @@ def test_main_dockerfile_keeps_build_tools_out_of_runtime_image():
         "FROM python:3.10-slim AS builder",
         "FROM python:3.10-slim AS runtime",
         "COPY --from=builder /opt/venv /opt/venv",
-        "COPY csrcqsf /app/csrcqsf",
-        "COPY globals_vars.py main.py /app/",
+        "COPY csrcqsf/ /app/csrcqsf/",
     )
     for fragment in required_fragments:
         assert fragment in text, fragment

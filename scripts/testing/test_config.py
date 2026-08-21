@@ -20,7 +20,8 @@ from csrcqsf.core.settings import (  # noqa: E402
     sgo_database_type,
     temp_dir,
 )
-from globals_vars import logger  # noqa: E402
+from csrcqsf.core.logging_config import logger  # noqa: E402
+from csrcqsf.core.runtime_paths import get_runtime_paths  # noqa: E402
 
 
 def _masked(value: str) -> str:
@@ -71,7 +72,7 @@ def test_logging_system():
     logger.info("主业务配置测试脚本日志输出检查")
     logger.warning("主业务配置测试脚本告警输出检查")
 
-    log_dir = PROJECT_ROOT / "logs"
+    log_dir = get_runtime_paths().app_log_dir
     print("\n【检查日志目录】")
     if log_dir.exists():
         log_files = list(log_dir.glob("*.log"))
