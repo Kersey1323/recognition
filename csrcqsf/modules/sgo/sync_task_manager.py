@@ -191,6 +191,11 @@ class SgoSyncTaskManager:
                 values["current_item_id"] = str(current) if current is not None else None
             values["heartbeat_at"] = datetime.now()
             await self._repository.update(task_id, **values)
+            if "new_failure_details" in progress:
+                await self._repository.append_failures(
+                    task_id,
+                    list(progress["new_failure_details"]),
+                )
             if "failure_details" in progress:
                 await self._repository.replace_failures(
                     task_id,
@@ -203,7 +208,8 @@ class SgoSyncTaskManager:
                 progress_callback=persist_progress,
             )
             failures = list(result.get("failure_details") or [])
-            await self._repository.replace_failures(task_id, failures)
+            if not result.get("failures_persisted_incrementally"):
+                await self._repository.replace_failures(task_id, failures)
             fail_count = int(result.get("fail_count", 0) or 0)
             processed_items = int(result.get("processed_items", 0) or 0)
             all_failed = (

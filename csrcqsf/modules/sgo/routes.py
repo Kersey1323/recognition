@@ -1,5 +1,7 @@
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator
 
 from bfrcommon.api_models import PageReq, PageRes
 from csrcqsf.infra.db.main_db import SessionLocal
@@ -54,7 +56,24 @@ class SyncItemsReq(BaseModel):
 
 
 class SyncItemsImages(BaseModel):
-    items_id_list: list[str] = []
+    sync_scope: Literal["selected", "all"] = Field(
+        default="selected",
+        description="selected 同步指定配件；all 同步主库全部配件",
+    )
+    items_id_list: list[str] = Field(
+        default_factory=list,
+        description="selected 模式下需要同步的配件 ID",
+    )
+
+    @root_validator
+    def validate_scope(cls, values):
+        scope = values.get("sync_scope")
+        item_ids = values.get("items_id_list") or []
+        if scope == "selected" and not item_ids:
+            raise ValueError("selected 模式必须提供 items_id_list")
+        if scope == "all" and item_ids:
+            raise ValueError("all 模式不允许提供 items_id_list")
+        return values
 
 
 class SyncInquiryHistoryReq(BaseModel):
@@ -91,6 +110,7 @@ async def sgo_parts_image_sync(req: SyncItemsImages):
             "images",
             SGOBiz.sync_images,
             item_id_list=req.items_id_list,
+            sync_scope=req.sync_scope,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

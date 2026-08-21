@@ -125,6 +125,16 @@ class SgoSyncTaskRepository:
             )
             await session.commit()
 
+    async def append_failures(self, task_id: str, failures: list[dict]) -> None:
+        if not failures:
+            return
+        async with SessionLocal() as session:
+            session.add_all(
+                SgoSyncTaskFailure(task_id=task_id, **failure)
+                for failure in failures
+            )
+            await session.commit()
+
     async def list_failures(
         self,
         task_id: str,

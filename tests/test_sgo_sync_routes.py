@@ -3,6 +3,8 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
+from pydantic import ValidationError
+import pytest
 
 from csrcqsf.modules.sgo import routes
 
@@ -79,11 +81,50 @@ def test_images_sync_route_and_status_use_same_task_manager():
         "images",
         runner,
         item_id_list=["101", "102"],
+        sync_scope="selected",
     )
     assert started.task_id == "images-task-1"
     assert status.progress == 25
     assert status.synced_image_count == 3
     assert status.failure_details == []
+
+
+def test_images_sync_route_submits_all_scope_without_expanding_item_ids():
+    manager = MagicMock()
+    manager.start = AsyncMock(
+        return_value={
+            "task_id": "images-all-task",
+            "status": "pending",
+            "task_type": "images",
+        }
+    )
+
+    with patch.object(routes, "sgo_sync_task_manager", manager), patch.object(
+        routes.SGOBiz,
+        "sync_images",
+        AsyncMock(),
+    ) as runner:
+        result = asyncio.run(
+            routes.sgo_parts_image_sync(
+                routes.SyncItemsImages(sync_scope="all", items_id_list=[])
+            )
+        )
+
+    manager.start.assert_awaited_once_with(
+        "images",
+        runner,
+        item_id_list=[],
+        sync_scope="all",
+    )
+    assert result.task_id == "images-all-task"
+
+
+def test_images_sync_request_rejects_ambiguous_scope_parameters():
+    with pytest.raises(ValidationError, match="selected 模式必须提供"):
+        routes.SyncItemsImages(sync_scope="selected", items_id_list=[])
+
+    with pytest.raises(ValidationError, match="all 模式不允许提供"):
+        routes.SyncItemsImages(sync_scope="all", items_id_list=["101"])
 
 
 def test_inquiry_history_sync_route_submits_background_task_without_awaiting_runner():

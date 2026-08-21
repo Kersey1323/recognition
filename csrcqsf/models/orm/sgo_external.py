@@ -978,6 +978,29 @@ class SgoCodeInquiry(Base):
         stmt = select(cls).where(cls.id.in_(inquery_id_list))
         return await session.scalars(stmt)
 
+    @classmethod
+    async def list_image_files_by_item_codes(
+        cls,
+        session: AsyncSession,
+        item_code_list: list[str],
+    ):
+        if not item_code_list:
+            return []
+        # 图片同步只读取照片字段与物料编码，避免 Kingbase 私有时间类型解码失败。
+        stmt = (
+            select(
+                cls.detailed_photos,
+                cls.nameplate_photos,
+                SgoCodeInquiryReturn.item_code,
+            )
+            .join(SgoCodeInquiryReturn, cls.id == SgoCodeInquiryReturn.inquiry_id)
+            .where(SgoCodeInquiryReturn.item_code.is_not(None))
+            .where(SgoCodeInquiryReturn.item_code != "")
+            .where(SgoCodeInquiryReturn.item_code.in_(item_code_list))
+        )
+        result = await session.execute(stmt)
+        return result.all()
+
 
 class SgoCodeInquiryChange(Base):
     __tablename__ = 'sgo_code_inquiry_change'

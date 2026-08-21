@@ -25,6 +25,21 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _bounded_env_int(
+    name: str,
+    *,
+    default: int,
+    minimum: int,
+    maximum: int | None = None,
+) -> int:
+    raw_value = os.getenv(name)
+    value = default if raw_value is None else int(raw_value.strip())
+    value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
 def env_is_explicit(name: str) -> bool:
     value = os.getenv(name)
     return name in _EXPLICIT_ENV_KEYS and value is not None and value.strip() != ""
@@ -289,4 +304,27 @@ reconstruction_server_url = _first_non_empty_env(
 )
 reconstruction_server_timeout_sec = float(
     _first_non_empty_env("RECONSTRUCTION_SERVER_TIMEOUT_SEC", default="10")
+)
+sgo_image_item_batch_size = _bounded_env_int(
+    "SGO_IMAGE_ITEM_BATCH_SIZE", default=300, minimum=1, maximum=5000
+)
+sgo_image_zip_batch_size = _bounded_env_int(
+    "SGO_IMAGE_ZIP_BATCH_SIZE", default=1, minimum=1, maximum=200
+)
+sgo_image_upload_concurrency = _bounded_env_int(
+    "SGO_IMAGE_UPLOAD_CONCURRENCY", default=4, minimum=1, maximum=32
+)
+sgo_image_download_concurrency = _bounded_env_int(
+    "SGO_IMAGE_DOWNLOAD_CONCURRENCY", default=4, minimum=1, maximum=16
+)
+sgo_image_download_timeout_seconds = _bounded_env_int(
+    "SGO_IMAGE_DOWNLOAD_TIMEOUT_SECONDS", default=120, minimum=1, maximum=1800
+)
+sgo_image_download_retries = _bounded_env_int(
+    "SGO_IMAGE_DOWNLOAD_RETRIES", default=3, minimum=1, maximum=10
+)
+sgo_image_zip_max_bytes = _bounded_env_int(
+    "SGO_IMAGE_ZIP_MAX_BYTES",
+    default=256 * 1024 * 1024,
+    minimum=1024 * 1024,
 )

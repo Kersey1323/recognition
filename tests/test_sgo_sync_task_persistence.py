@@ -1,5 +1,6 @@
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 def test_sgo_sync_startup_recovery_classification():
@@ -93,3 +94,46 @@ def test_main_db_loads_sgo_sync_task_models():
     from csrcqsf.infra.db.main_db import MAIN_DB_MODEL_MODULES
 
     assert "csrcqsf.models.orm.sgo_sync_task" in MAIN_DB_MODEL_MODULES
+
+
+def test_sgo_sync_repository_appends_failure_rows_in_one_transaction():
+    from csrcqsf.modules.sgo import sync_task_repository as repository_module
+
+    class Session:
+        def __init__(self):
+            self.records = []
+            self.committed = False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        def add_all(self, records):
+            self.records.extend(records)
+
+        async def commit(self):
+            self.committed = True
+
+    session = Session()
+    failures = [
+        {
+            "item_id": "101",
+            "stage": "sgo_download",
+            "error_type": "TimeoutError",
+            "error_message": "timeout",
+        }
+    ]
+    with patch.object(repository_module, "SessionLocal", return_value=session):
+        asyncio.run(
+            repository_module.SgoSyncTaskRepository().append_failures(
+                "task-1",
+                failures,
+            )
+        )
+
+    assert session.committed is True
+    assert len(session.records) == 1
+    assert session.records[0].task_id == "task-1"
+    assert session.records[0].item_id == "101"

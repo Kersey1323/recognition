@@ -455,6 +455,40 @@ class Items(Base):
         return result.all()
 
     @classmethod
+    async def count_all_items(cls, session: AsyncSession) -> int:
+        return int(
+            await session.scalar(select(func.count()).select_from(cls)) or 0
+        )
+
+    @classmethod
+    async def list_item_id_codes_by_ids(
+        cls,
+        session: AsyncSession,
+        item_id_list: list[int],
+    ):
+        if not item_id_list:
+            return []
+        result = await session.execute(
+            select(cls.id, cls.item_code).where(cls.id.in_(item_id_list))
+        )
+        return result.all()
+
+    @classmethod
+    async def list_item_id_codes_after(
+        cls,
+        session: AsyncSession,
+        last_id: int,
+        limit: int,
+    ):
+        result = await session.execute(
+            select(cls.id, cls.item_code)
+            .where(cls.id > last_id)
+            .order_by(cls.id.asc())
+            .limit(limit)
+        )
+        return result.all()
+
+    @classmethod
     def normalize_source_video_filter_mode(cls, has_source_video: int | None) -> str | None:
         if has_source_video == 0:
             return "missing"

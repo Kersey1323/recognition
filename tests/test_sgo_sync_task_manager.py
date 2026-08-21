@@ -64,6 +64,9 @@ class FakeSgoSyncTaskRepository:
     async def replace_failures(self, task_id, failures):
         self.failures[task_id] = deepcopy(failures)
 
+    async def append_failures(self, task_id, failures):
+        self.failures.setdefault(task_id, []).extend(deepcopy(failures))
+
     async def list(self, **_filters):
         records = sorted(
             self.records.values(),
@@ -138,6 +141,53 @@ def test_sgo_sync_task_manager_persists_progress_and_completion():
         assert completed["status"] == "success"
         assert completed["created_count"] == 2
         assert completed["progress"] == 100
+
+    asyncio.run(scenario())
+
+
+def test_sgo_sync_task_manager_appends_incremental_failures_without_replacing_them():
+    async def scenario():
+        repository = FakeSgoSyncTaskRepository()
+        manager = SgoSyncTaskManager(repository=repository)
+        failures = [
+            {
+                "item_id": "101",
+                "stage": "sgo_download",
+                "error_type": "TimeoutError",
+                "error_message": "download timeout",
+            },
+            {
+                "item_id": "102",
+                "stage": "minio_upload",
+                "error_type": "RuntimeError",
+                "error_message": "upload failed",
+            },
+        ]
+
+        async def runner(**kwargs):
+            await kwargs["progress_callback"](
+                {"processed_items": 1, "new_failure_details": [failures[0]]}
+            )
+            await kwargs["progress_callback"](
+                {"processed_items": 2, "new_failure_details": [failures[1]]}
+            )
+            return {
+                "total_items": 3,
+                "processed_items": 3,
+                "success_count": 1,
+                "fail_count": 2,
+                "created_count": 0,
+                "skipped_count": 0,
+                "synced_image_count": 0,
+                "failure_details": [failures[0]],
+                "failures_persisted_incrementally": True,
+            }
+
+        started = await manager.start("images", runner, sync_scope="all", item_id_list=[])
+        completed = await wait_terminal(manager, started["task_id"])
+
+        assert completed["status"] == "success"
+        assert repository.failures[started["task_id"]] == failures
 
     asyncio.run(scenario())
 
