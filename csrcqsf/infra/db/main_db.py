@@ -72,6 +72,7 @@ MAIN_DB_MODEL_MODULES = (
     "csrcqsf.models.orm.reconstruction_upload",
     "csrcqsf.models.orm.search_history",
     "csrcqsf.models.orm.sgo",
+    "csrcqsf.models.orm.sgo_sync_task",
     "csrcqsf.models.orm.item_inquiry_history",
 )
 

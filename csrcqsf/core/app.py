@@ -26,6 +26,7 @@ from csrcqsf.modules.railway_parts.routes import asset_proxy_router, parts_route
 from csrcqsf.modules.sgo.routes import sgo_router
 from csrcqsf.infra.db.main_db import db_migrate
 from csrcqsf.models.orm.index_rebuild_task import recover_index_rebuild_tasks
+from csrcqsf.models.orm.sgo_sync_task import recover_sgo_sync_tasks
 from csrcqsf.infra.storage.minio import create_minio_buckets
 from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.core.scheduler import register_main_async_loop
@@ -82,6 +83,11 @@ async def lifespan(app: FastAPI):
         await run_startup_step(
             "索引重建任务状态恢复",
             recover_index_rebuild_tasks,
+            logger=logger,
+        )
+        await run_startup_step(
+            "SGO 同步任务状态恢复",
+            recover_sgo_sync_tasks,
             logger=logger,
         )
     else:

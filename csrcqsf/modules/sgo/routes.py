@@ -8,6 +8,12 @@ from csrcqsf.modules.sgo.photo_parser import extract_photo_raw_urls
 from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.modules.sgo.schemas import (
     ListInqueryItem,
+    SgoSyncFailureListReq,
+    SgoSyncFailureListRes,
+    SgoSyncFailureRecord,
+    SgoSyncTaskCancelReq,
+    SgoSyncTaskListReq,
+    SgoSyncTaskListRes,
     SgoSyncTaskStartRes,
     SgoSyncTaskStatusRes,
 )
@@ -63,7 +69,7 @@ class SyncInquiryHistoryReq(BaseModel):
 })
 async def sgo_parts_sync(_: SyncItemsReq):
     try:
-        task = sgo_sync_task_manager.start("parts", SGOBiz.sync_parts_items)
+        task = await sgo_sync_task_manager.start("parts", SGOBiz.sync_parts_items)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return SgoSyncTaskStartRes(
@@ -81,7 +87,7 @@ async def sgo_parts_sync(_: SyncItemsReq):
 })
 async def sgo_parts_image_sync(req: SyncItemsImages):
     try:
-        task = sgo_sync_task_manager.start(
+        task = await sgo_sync_task_manager.start(
             "images",
             SGOBiz.sync_images,
             item_id_list=req.items_id_list,
@@ -103,7 +109,7 @@ async def sgo_parts_image_sync(req: SyncItemsImages):
 )
 async def sgo_inquiry_history_sync(req: SyncInquiryHistoryReq):
     try:
-        task = sgo_sync_task_manager.start(
+        task = await sgo_sync_task_manager.start(
             "inquiry-history",
             SGOBiz.sync_inquiry_history,
             limit=req.limit,
@@ -125,10 +131,103 @@ async def sgo_inquiry_history_sync(req: SyncInquiryHistoryReq):
     summary='查询 SGO 同步任务进度',
 )
 async def sgo_sync_status(task_id: str):
-    task = sgo_sync_task_manager.get(task_id)
+    task = await sgo_sync_task_manager.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"SGO 同步任务不存在: task_id={task_id}")
     return SgoSyncTaskStatusRes(**task)
+
+
+@sgo_router.post(
+    '/sgo/sync/tasks/list',
+    tags=["业务-SGO集成"],
+    summary='分页查询持久化 SGO 同步任务',
+    response_model=SgoSyncTaskListRes,
+)
+async def list_sgo_sync_tasks(req: SgoSyncTaskListReq):
+    records, total = await sgo_sync_task_manager.list(
+        page=req.page,
+        per_page=req.per_page,
+        status=req.status,
+        task_type=req.task_type,
+    )
+    return SgoSyncTaskListRes(
+        total=total,
+        page=req.page,
+        pageSize=req.per_page,
+        records=[SgoSyncTaskStatusRes(**record) for record in records],
+    )
+
+
+@sgo_router.get(
+    '/sgo/sync/tasks/{task_id}',
+    tags=["业务-SGO集成"],
+    summary='查询持久化 SGO 同步任务详情',
+    response_model=SgoSyncTaskStatusRes,
+)
+async def get_sgo_sync_task(task_id: str):
+    task = await sgo_sync_task_manager.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"SGO 同步任务不存在: task_id={task_id}")
+    return SgoSyncTaskStatusRes(**task)
+
+
+@sgo_router.post(
+    '/sgo/sync/tasks/{task_id}/cancel',
+    tags=["业务-SGO集成"],
+    summary='取消 SGO 同步任务',
+    response_model=SgoSyncTaskStatusRes,
+)
+async def cancel_sgo_sync_task(task_id: str, req: SgoSyncTaskCancelReq):
+    try:
+        task = await sgo_sync_task_manager.cancel(task_id, req.cancel_reason)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"SGO 同步任务不存在: task_id={task_id}") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return SgoSyncTaskStatusRes(**task)
+
+
+@sgo_router.post(
+    '/sgo/sync/tasks/{task_id}/retry',
+    tags=["业务-SGO集成"],
+    summary='按原参数重试 SGO 同步任务',
+    response_model=SgoSyncTaskStartRes,
+)
+async def retry_sgo_sync_task(task_id: str):
+    try:
+        task = await sgo_sync_task_manager.retry(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"SGO 同步任务不存在: task_id={task_id}") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return SgoSyncTaskStartRes(
+        message="SGO 同步重试任务已在后台启动",
+        task_id=task["task_id"],
+        task_type=task["task_type"],
+        status=task["status"],
+    )
+
+
+@sgo_router.post(
+    '/sgo/sync/tasks/{task_id}/failures/list',
+    tags=["业务-SGO集成"],
+    summary='分页查询 SGO 同步失败明细',
+    response_model=SgoSyncFailureListRes,
+)
+async def list_sgo_sync_task_failures(task_id: str, req: SgoSyncFailureListReq):
+    if await sgo_sync_task_manager.get(task_id) is None:
+        raise HTTPException(status_code=404, detail=f"SGO 同步任务不存在: task_id={task_id}")
+    records, total = await sgo_sync_task_manager.list_failures(
+        task_id,
+        page=req.page,
+        per_page=req.per_page,
+    )
+    return SgoSyncFailureListRes(
+        total=total,
+        page=req.page,
+        pageSize=req.per_page,
+        records=[SgoSyncFailureRecord(**record) for record in records],
+    )
 
 
 @sgo_router.post('/sgo/inquery/list', tags=["业务-SGO集成"], summary='获取询码记录列表', responses={

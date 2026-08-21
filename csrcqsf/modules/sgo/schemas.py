@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -43,9 +45,12 @@ class SegmentStatus(str, Enum):
 
 class SgoSyncTaskStartRes(BaseModel):
     message: str = Field(..., description="任务提交结果")
-    task_id: str = Field(..., description="进程内同步任务 ID")
-    task_type: str = Field(..., description="任务类型：parts/images")
-    status: str = Field(..., description="任务状态")
+    task_id: str = Field(..., description="持久化同步任务 ID")
+    task_type: str = Field(
+        ...,
+        description="任务类型：parts 配件、images 图片、inquiry-history 询码历史",
+    )
+    status: str = Field(..., description="任务提交时状态，通常为 pending")
 
 
 class SgoSyncFailureDetail(BaseModel):
@@ -62,25 +67,96 @@ class SgoSyncFailureDetail(BaseModel):
 
 
 class SgoSyncTaskStatusRes(BaseModel):
-    task_id: str
-    task_type: str
-    status: str = Field(..., description="pending/running/success/failed/cancelled")
-    progress: int = Field(..., ge=0, le=100)
-    total_items: int
-    processed_items: int
-    success_count: int
-    fail_count: int
-    created_count: int
-    skipped_count: int
-    synced_image_count: int
-    current_item_id: str | None = None
-    estimated_remaining_seconds: int | None = None
-    estimated_remaining: str | None = None
-    failed_item_ids: list[str] = Field(default_factory=list)
+    task_id: str = Field(..., description="当前任务 ID")
+    root_task_id: str = Field(..., description="整条重试链首次任务 ID")
+    retry_from_task_id: str | None = Field(None, description="直接来源任务 ID")
+    task_type: str = Field(
+        ...,
+        description="parts 配件、images 图片、inquiry-history 询码历史",
+    )
+    task_params_json: dict = Field(default_factory=dict, description="创建任务时的原始参数")
+    status: str = Field(
+        ...,
+        description=(
+            "pending/running/cancelling/success/failed/cancelled/interrupted"
+        ),
+    )
+    progress: int = Field(..., ge=0, le=100, description="任务进度百分比")
+    total_items: int = Field(..., description="本次任务处理总数")
+    processed_items: int = Field(..., description="已处理数量")
+    success_count: int = Field(..., description="成功同步数量")
+    fail_count: int = Field(..., description="无法同步数量")
+    created_count: int = Field(..., description="主库新增数量")
+    skipped_count: int = Field(..., description="已存在并跳过数量")
+    synced_image_count: int = Field(..., description="成功同步图片数量")
+    current_item_id: str | None = Field(None, description="当前处理的配件 ID")
+    estimated_remaining_seconds: int | None = Field(None, description="预计剩余秒数")
+    estimated_remaining: str | None = Field(None, description="可直接展示的预计剩余时间")
+    failed_item_ids: list[str] = Field(
+        default_factory=list,
+        description="兼容字段，仅返回前 20 条失败记录的配件 ID",
+    )
     failure_details: list[SgoSyncFailureDetail] = Field(
         default_factory=list,
-        description="逐配件失败详情，可用于线上定位数据库、鉴权、下载或对象存储异常",
+        description="兼容字段，仅返回前 20 条；完整失败明细请调用分页接口",
     )
-    error_message: str | None = None
-    time_created: str | None = None
-    time_updated: str | None = None
+    error_message: str | None = Field(None, description="任务异常或业务失败摘要")
+    cancel_reason: str | None = Field(None, description="任务取消原因")
+    heartbeat_at: str | None = Field(None, description="最近一次进度持久化时间")
+    started_at: str | None = Field(None, description="开始时间")
+    completed_at: str | None = Field(None, description="结束时间")
+    time_created: str | None = Field(None, description="任务创建时间")
+    time_updated: str | None = Field(None, description="任务更新时间")
+
+
+class SgoSyncTaskListReq(BaseModel):
+    page: int = Field(1, ge=1, description="页码，从 1 开始")
+    per_page: int = Field(20, ge=1, le=100, alias="pageSize", description="每页数量")
+    status: Literal[
+        "all",
+        "active",
+        "pending",
+        "running",
+        "cancelling",
+        "success",
+        "failed",
+        "cancelled",
+        "interrupted",
+    ] = Field("all", description="任务状态筛选，active 表示所有活动状态")
+    task_type: Literal["all", "parts", "images", "inquiry-history"] = Field(
+        "all",
+        description="任务类型筛选",
+    )
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class SgoSyncTaskListRes(BaseModel):
+    total: int = Field(..., description="任务总数")
+    page: int = Field(..., description="当前页码")
+    pageSize: int = Field(..., description="每页数量")
+    records: list[SgoSyncTaskStatusRes] = Field(default_factory=list)
+
+
+class SgoSyncTaskCancelReq(BaseModel):
+    cancel_reason: str | None = Field(None, max_length=500, description="可选取消原因")
+
+
+class SgoSyncFailureListReq(BaseModel):
+    page: int = Field(1, ge=1, description="页码，从 1 开始")
+    per_page: int = Field(20, ge=1, le=100, alias="pageSize", description="每页数量")
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class SgoSyncFailureRecord(SgoSyncFailureDetail):
+    time_created: datetime | None = Field(None, description="失败记录时间")
+
+
+class SgoSyncFailureListRes(BaseModel):
+    total: int = Field(..., description="失败记录总数")
+    page: int = Field(..., description="当前页码")
+    pageSize: int = Field(..., description="每页数量")
+    records: list[SgoSyncFailureRecord] = Field(default_factory=list)

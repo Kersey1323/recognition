@@ -521,6 +521,9 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
     fake_index_task_module = ModuleType("csrcqsf.models.orm.index_rebuild_task")
     fake_index_task_module.recover_index_rebuild_tasks = AsyncMock()
 
+    fake_sgo_task_module = ModuleType("csrcqsf.models.orm.sgo_sync_task")
+    fake_sgo_task_module.recover_sgo_sync_tasks = AsyncMock()
+
     fake_minio_module = ModuleType("csrcqsf.infra.storage.minio")
     fake_minio_module.create_minio_buckets = AsyncMock()
 
@@ -556,6 +559,7 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
             "csrcqsf.modules.image.services": fake_image_services_module,
             "csrcqsf.infra.db.main_db": fake_pg_module,
             "csrcqsf.models.orm.index_rebuild_task": fake_index_task_module,
+            "csrcqsf.models.orm.sgo_sync_task": fake_sgo_task_module,
             "csrcqsf.infra.storage.minio": fake_minio_module,
             "csrcqsf.modules.sgo.services": fake_sgo_services_module,
             "csrcqsf.core.scheduler": fake_scheduler_module,
@@ -638,6 +642,12 @@ def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured
     fake_pg_module = ModuleType("csrcqsf.infra.db.main_db")
     fake_pg_module.db_migrate = AsyncMock()
 
+    fake_index_task_module = ModuleType("csrcqsf.models.orm.index_rebuild_task")
+    fake_index_task_module.recover_index_rebuild_tasks = AsyncMock()
+
+    fake_sgo_task_module = ModuleType("csrcqsf.models.orm.sgo_sync_task")
+    fake_sgo_task_module.recover_sgo_sync_tasks = AsyncMock()
+
     fake_minio_module = ModuleType("csrcqsf.infra.storage.minio")
     fake_minio_module.create_minio_buckets = AsyncMock()
 
@@ -671,6 +681,8 @@ def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured
             "globals_vars": fake_logger_module,
             "csrcqsf.modules.image.services": fake_image_services_module,
             "csrcqsf.infra.db.main_db": fake_pg_module,
+            "csrcqsf.models.orm.index_rebuild_task": fake_index_task_module,
+            "csrcqsf.models.orm.sgo_sync_task": fake_sgo_task_module,
             "csrcqsf.infra.storage.minio": fake_minio_module,
             "csrcqsf.modules.sgo.services": fake_sgo_services_module,
             "csrcqsf.core.scheduler": fake_scheduler_module,
@@ -686,6 +698,8 @@ def test_app_lifespan_skips_db_and_minio_init_when_env_not_explicitly_configured
         asyncio.run(_run())
 
     fake_pg_module.db_migrate.assert_not_awaited()
+    fake_index_task_module.recover_index_rebuild_tasks.assert_not_awaited()
+    fake_sgo_task_module.recover_sgo_sync_tasks.assert_not_awaited()
     fake_minio_module.create_minio_buckets.assert_not_awaited()
     fake_scheduler_module.register_main_async_loop.assert_called_once()
 

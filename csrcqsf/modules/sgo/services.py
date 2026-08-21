@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import inspect
 import json
 import os
 import time
@@ -67,6 +68,14 @@ INQUIRY_HISTORY_COLUMNS = (
     "source",
 )
 MAX_SYNC_FAILURE_DETAILS = 20
+
+
+async def _notify_progress(progress_callback, payload: dict) -> None:
+    if progress_callback is None:
+        return
+    result = progress_callback(payload)
+    if inspect.isawaitable(result):
+        await result
 
 
 def _clean_text(value):
@@ -253,7 +262,8 @@ class SGOBiz:
             )
             total_items = len(source_parts)
             if progress_callback is not None:
-                progress_callback(
+                await _notify_progress(
+                    progress_callback,
                     {
                         "progress": 0,
                         "total_items": total_items,
@@ -293,7 +303,8 @@ class SGOBiz:
                 ):
                     elapsed = time.perf_counter() - started_at
                     remaining = int(elapsed / index * (total_items - index)) if index else None
-                    progress_callback(
+                    await _notify_progress(
+                        progress_callback,
                         {
                             "progress": int(index * 100 / total_items) if total_items else 100,
                             "total_items": total_items,
@@ -432,7 +443,8 @@ class SGOBiz:
             if progress_callback is not None:
                 elapsed = time.perf_counter() - started_at
                 remaining = int(elapsed / index * (total_items - index)) if index else None
-                progress_callback(
+                await _notify_progress(
+                    progress_callback,
                     {
                         "progress": int(index * 100 / total_items) if total_items else 100,
                         "total_items": total_items,
@@ -471,7 +483,8 @@ class SGOBiz:
         source_rows = await cls._list_sgo_inquiry_history_source_rows(limit=limit)
         total_items = len(source_rows)
         if progress_callback is not None:
-            progress_callback(
+            await _notify_progress(
+                progress_callback,
                 {
                     "progress": 0,
                     "total_items": total_items,
@@ -504,7 +517,8 @@ class SGOBiz:
         )
 
         if progress_callback is not None:
-            progress_callback(
+            await _notify_progress(
+                progress_callback,
                 {
                     "progress": 100,
                     "total_items": total_items,

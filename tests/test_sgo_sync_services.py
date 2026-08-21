@@ -73,6 +73,11 @@ def test_sync_images_empty_request_does_not_fetch_token():
 
 
 def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
+    progress = []
+
+    async def capture_progress(payload):
+        progress.append(payload)
+
     class FakeSession:
         async def __aenter__(self):
             return self
@@ -108,7 +113,9 @@ def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
         "list_sgo_items",
         AsyncMock(return_value=source_rows),
     ):
-        result = asyncio.run(SGOBiz.sync_parts_items())
+        result = asyncio.run(
+            SGOBiz.sync_parts_items(progress_callback=capture_progress)
+        )
 
     assert result["processed_items"] == 3
     assert result["created_count"] == 1
@@ -128,6 +135,7 @@ def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
             "error_message": "配件 ID 不是有效整数",
         }
     ]
+    assert progress[-1]["progress"] == 100
 
 
 def test_sync_parts_items_skips_existing_and_batch_duplicate_item_codes():
@@ -178,6 +186,9 @@ def test_sync_parts_items_skips_existing_and_batch_duplicate_item_codes():
 
 def test_sync_inquiry_history_maps_item_codes_and_reports_progress():
     progress = []
+
+    async def capture_progress(payload):
+        progress.append(payload)
     source_rows = [
         {
             "inquiry_id": "inq-1",
@@ -232,7 +243,7 @@ def test_sync_inquiry_history_maps_item_codes_and_reports_progress():
             SGOBiz.sync_inquiry_history(
                 limit=2,
                 batch_size=50,
-                progress_callback=progress.append,
+                progress_callback=capture_progress,
             )
         )
 
