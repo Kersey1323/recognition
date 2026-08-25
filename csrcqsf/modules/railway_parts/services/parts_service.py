@@ -24,6 +24,7 @@ from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import (
 from csrcqsf.infra.db.mdp_db import sgo_sessionLocal
 from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.models.orm.item import Items, ItemsParent
+from csrcqsf.models.orm.item_inquiry_history import ItemInquiryHistory
 from csrcqsf.models.orm.search_history import MatchedImage, SearchHistory, SearchParameters, SearchResultItem, SearchResults, SearchReviewTicket, SearchSnapshot
 from csrcqsf.models.orm.sgo import SgoItemImages, SegmentedImage
 from csrcqsf.models.orm.sgo_external import SgoCodeInquiryReturn

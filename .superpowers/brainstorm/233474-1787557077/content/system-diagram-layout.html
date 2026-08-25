@@ -1,0 +1,86 @@
+<style>
+  .diagram-options{display:grid;grid-template-columns:1fr;gap:28px;margin-top:24px}
+  .diagram-option{border:2px solid #dfe5ee;background:#fff;padding:18px;cursor:pointer;box-shadow:0 8px 24px rgba(20,32,52,.08)}
+  .diagram-option:hover{border-color:#2f6fed}.diagram-option.selected{border-color:#2f6fed;box-shadow:0 0 0 3px rgba(47,111,237,.13)}
+  .option-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.option-title h3{margin:0}
+  .badge{font-size:12px;font-weight:700;padding:5px 9px;background:#e8f0ff;color:#245ec7;border-radius:4px}.badge.alt{background:#fff0d7;color:#9b6400}
+  .dash{background:#eef2f6;border:1px solid #d7dee9;padding:14px;aspect-ratio:16/8.3;overflow:hidden}
+  .dash-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.dash-head strong{font-size:17px;color:#17243d}.dash-head span{font-size:11px;color:#718096}
+  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}.metric{background:#fff;border-left:4px solid #2f6fed;padding:8px 10px}.metric:nth-child(2){border-color:#00a58c}.metric:nth-child(3){border-color:#e79a00}.metric:nth-child(4){border-color:#e85d4a}.metric b{display:block;font-size:18px;color:#17243d}.metric small{color:#7b8495}
+  .dash-main{display:grid;grid-template-columns:200px 1fr 220px;gap:10px;min-height:265px}.panel{background:#fff;border:1px solid #dde3ec;padding:10px}.panel h4{font-size:12px;margin:0 0 8px;color:#334155}
+  .store{display:flex;align-items:center;gap:8px;padding:7px;background:#f7f9fc;margin-bottom:6px}.store-icon{width:28px;height:28px;background:#e8f0ff;color:#2f6fed;display:flex;align-items:center;justify-content:center;font-weight:800;border-radius:4px}.store:nth-child(3) .store-icon{background:#e5f7f3;color:#008b77}.store:nth-child(4) .store-icon{background:#fff0d7;color:#a66b00}.store b{display:block;font-size:11px}.store small{font-size:9px;color:#7b8495}
+  .part-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.part-title b{font-size:13px}.part-title span{font-size:10px;color:#2f6fed}
+  .pipeline{display:grid;grid-template-columns:1fr 34px 1fr 34px 1fr;align-items:center;gap:4px}.media-box{border:1px solid #dfe5ee;background:#f8fafc;padding:5px;text-align:center}.media-box img{width:100%;height:105px;object-fit:cover;background:#111}.media-box.segment img{object-fit:contain}.media-box b{display:block;font-size:10px;margin-top:4px}.arrow{text-align:center;color:#95a3b8;font-size:22px}.vector{height:105px;display:flex;flex-direction:column;justify-content:center;gap:7px}.bar{height:7px;background:#e6ebf2;overflow:hidden}.bar i{display:block;height:100%;background:#2f6fed}.bar:nth-child(2) i{background:#00a58c}.bar:nth-child(3) i{background:#e79a00}.vector small{font-size:9px;color:#6f7a8d}
+  .relation{padding:8px;background:#f7f9fc;margin-bottom:7px}.relation small{display:block;color:#7b8495;font-size:9px}.relation b{font-size:12px}.relation.link{border-left:3px solid #e79a00}.relation.link b{color:#9b6400}
+  .views{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.view{background:#fff;border:1px solid #dde3ec;padding:6px;display:flex;gap:8px;align-items:center}.view img{width:74px;height:58px;object-fit:cover;object-position:top;border:1px solid #e2e7ef}.view b{display:block;font-size:11px}.view small{font-size:9px;color:#7b8495}
+  .flow{background:#f3f5f8;border:1px solid #d7dee9;padding:18px;aspect-ratio:16/8.3;overflow:hidden}.flow-head{margin-bottom:22px}.flow-head strong{font-size:17px;color:#17243d}.flow-head p{margin:3px 0 0;color:#718096;font-size:11px}
+  .flow-row{display:grid;grid-template-columns:1.05fr 34px 1.05fr 34px 1.15fr 34px 1fr;align-items:stretch}.flow-stage{background:#fff;border-top:5px solid #2f6fed;padding:12px;min-height:200px}.flow-stage.process{border-color:#00a58c}.flow-stage.storage{border-color:#e79a00}.flow-stage.app{border-color:#e85d4a}.flow-stage h4{margin:0 0 12px;font-size:13px}.flow-item{padding:7px;background:#f7f9fc;margin-bottom:7px;font-size:10px}.flow-item b{display:block}.flow-arrow{display:flex;align-items:center;justify-content:center;color:#95a3b8;font-size:24px}
+  .example-strip{margin-top:14px;background:#17243d;color:#fff;padding:10px;display:grid;grid-template-columns:110px 1fr 1fr 1fr;gap:10px;align-items:center}.example-strip img{width:100px;height:65px;object-fit:contain;background:#fff}.example-strip b{display:block;font-size:11px}.example-strip small{color:#bdc7d8;font-size:9px}
+  .layout-note{margin-top:12px;color:#687386;font-size:13px}
+</style>
+
+<h2>系统图采用哪种布局？</h2>
+<p class="subtitle">两种方案都展示数据库、对象存储、向量索引、配件实例加工链路和业务关系。</p>
+
+<div class="diagram-options">
+  <div class="diagram-option" data-choice="dashboard" onclick="toggleSelect(this)">
+    <div class="option-title"><h3>A · 数据分析驾驶舱</h3><span class="badge">推荐</span></div>
+    <div class="dash">
+      <div class="dash-head"><strong>配件识别数据分析平台</strong><span>配件数据基础 · 识别特征 · 关系资产</span></div>
+      <div class="metrics">
+        <div class="metric"><b>81,640</b><small>配件主数据</small></div>
+        <div class="metric"><b>14,616</b><small>图片特征</small></div>
+        <div class="metric"><b>14,619</b><small>文字特征</small></div>
+        <div class="metric"><b>3</b><small>核心数据存储</small></div>
+      </div>
+      <div class="dash-main">
+        <div class="panel">
+          <h4>数据基础设施</h4>
+          <div class="store"><span class="store-icon">DB</span><div><b>业务数据库</b><small>配件 / 车型 / 供应商</small></div></div>
+          <div class="store"><span class="store-icon">OS</span><div><b>对象存储 MinIO</b><small>原图 / 分割图 / 三维模型</small></div></div>
+          <div class="store"><span class="store-icon">V</span><div><b>向量数据库 Milvus</b><small>图片特征 / 文字特征</small></div></div>
+        </div>
+        <div class="panel">
+          <div class="part-title"><b>配件实例 · 饰柜蒸发风扇</b><span>编码 35000064619</span></div>
+          <div class="pipeline">
+            <div class="media-box"><img src="source-photo.png"><b>采集原图</b></div>
+            <div class="arrow">→</div>
+            <div class="media-box segment"><img src="segmented-photo.png"><b>自动分割图</b></div>
+            <div class="arrow">→</div>
+            <div class="media-box vector"><small>SigLIP2 图片特征</small><div class="bar"><i style="width:88%"></i></div><small>DINOv2 全局特征</small><div class="bar"><i style="width:76%"></i></div><small>文字索引：饰柜蒸发风扇</small><div class="bar"><i style="width:92%"></i></div></div>
+          </div>
+        </div>
+        <div class="panel">
+          <h4>业务关系</h4>
+          <div class="relation"><small>适用车型</small><b>SFE02</b></div>
+          <div class="relation"><small>供应商</small><b>供应商A</b></div>
+          <div class="relation link"><small>供应商关系</small><b>属于</b></div>
+          <div class="relation"><small>资产状态</small><b>图片 12 · 已索引 12</b></div>
+        </div>
+      </div>
+      <div class="views">
+        <div class="view"><img src="detail-album.png"><div><b>配件图集 / 照片</b><small>多视角采集图片资产</small></div></div>
+        <div class="view"><img src="detail-index.png"><div><b>索引数据</b><small>文字索引与分割后图片索引</small></div></div>
+      </div>
+    </div>
+    <p class="layout-note">重点像“系统产品截图”，数据资产和配件实例同时可见，适合汇报系统建设成果。</p>
+  </div>
+
+  <div class="diagram-option" data-choice="lineage" onclick="toggleSelect(this)">
+    <div class="option-title"><h3>B · 数据血缘全景</h3><span class="badge alt">流程导向</span></div>
+    <div class="flow">
+      <div class="flow-head"><strong>配件识别系统数据全景</strong><p>从源数据采集到数据库、索引和识别应用的完整链路</p></div>
+      <div class="flow-row">
+        <div class="flow-stage"><h4>业务数据源</h4><div class="flow-item"><b>配件主数据</b>编码 · 名称 · 规格</div><div class="flow-item"><b>关系数据</b>SFE02 · 供应商A · 属于</div><div class="flow-item"><b>多媒体采集</b>图片 · 视频 · 三维资产</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-stage process"><h4>智能加工</h4><div class="flow-item"><b>自动分割</b>YOLO-World + SAM2</div><div class="flow-item"><b>特征提取</b>SigLIP2 + DINOv2</div><div class="flow-item"><b>文字处理</b>标签与铭牌 OCR</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-stage storage"><h4>数据基础设施</h4><div class="flow-item"><b>业务数据库</b>主数据与业务关系</div><div class="flow-item"><b>MinIO</b>原图 / 分割图 / 模型</div><div class="flow-item"><b>Milvus</b>图片与文字向量索引</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-stage app"><h4>业务应用</h4><div class="flow-item"><b>配件检索</b>编码与属性查询</div><div class="flow-item"><b>图像识别</b>以图搜件</div><div class="flow-item"><b>铭牌校验</b>OCR 信息核验</div></div>
+      </div>
+      <div class="example-strip"><img src="segmented-photo.png"><div><b>饰柜蒸发风扇</b><small>35000064619</small></div><div><b>关系资产</b><small>SFE02 · 供应商A · 属于</small></div><div><b>索引资产</b><small>图片特征 + 文字特征</small></div></div>
+    </div>
+    <p class="layout-note">重点像“系统架构与数据流图”，技术链路更清楚，但系统界面感弱一些。</p>
+  </div>
+</div>

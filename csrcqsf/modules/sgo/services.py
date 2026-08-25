@@ -15,7 +15,7 @@ from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
 from csrcqsf.core.logging_config import logger
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import String, cast, select, text
 from urllib3 import PoolManager
 from urllib3.util import create_urllib3_context
 
@@ -922,7 +922,9 @@ class SGOBiz:
                 SgoCodeInquiry.remark.label("remark"),
                 SgoCodeInquiryReturn.item_name.label("return_item_name"),
                 SgoCodeInquiryReturn.item_code.label("return_item_code"),
-                SgoCodeInquiry.create_time.label("inquiry_time"),
+                # 甲方 Kingbase 的 sys.datetime 无法由 asyncpg 直接解码；同步历史只需
+                # 保留时间文本写入主库，排序仍使用源字段以维持原有同步顺序。
+                cast(SgoCodeInquiry.create_time, String).label("inquiry_time"),
             )
             .join(SgoCodeInquiryReturn, SgoCodeInquiry.id == SgoCodeInquiryReturn.inquiry_id)
             .where(SgoCodeInquiryReturn.item_code.is_not(None))

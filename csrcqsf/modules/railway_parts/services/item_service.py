@@ -22,6 +22,7 @@ def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) ->
             "sgo_sessionLocal": parts_service_module.sgo_sessionLocal,
             "Items": parts_service_module.Items,
             "ItemsParent": parts_service_module.ItemsParent,
+            "ItemInquiryHistory": parts_service_module.ItemInquiryHistory,
             "SgoCodeInquiryReturn": parts_service_module.SgoCodeInquiryReturn,
             "SgoItemImages": parts_service_module.SgoItemImages,
             "SegmentedImage": parts_service_module.SegmentedImage,
@@ -309,18 +310,30 @@ async def list_item(cls, req, runtime=None):
             has_source_video=req.has_source_video,
         )
 
+        page_item_ids = [item.id for item in items.data]
+        inquiry_rows = await runtime.ItemInquiryHistory.list_summary_by_item_ids(
+            session,
+            page_item_ids,
+        )
+        inquiry_summary = {
+            int(item_id): (inquiry_nums, int(inquiry_count))
+            for item_id, inquiry_nums, inquiry_count in inquiry_rows
+        }
+
         state_manager = runtime._get_milvus_state_manager_v2_cls()()
         index_dict = await runtime.run_sync(
             state_manager.list_item_index,
-            [item.id for item in items.data],
+            page_item_ids,
         )
-        images = await cls.list_item_images([item.id for item in items.data])
+        images = await cls.list_item_images(page_item_ids)
         images_dict: dict[int, list] = {}
         for image in images:
             images_dict.setdefault(image.item_id, []).append(image)
 
         res = runtime.LisItemRes(total=items.total)
         for item in items.data:
+            inquiry_nums, inquiry_count = inquiry_summary.get(item.id, ([], 0))
+            item_images = images_dict.get(item.id, [])
             item_desc = runtime.ListItem(
                 item_name=item.item_name,
                 item_code=item.item_code,
@@ -333,11 +346,13 @@ async def list_item(cls, req, runtime=None):
                 has_index=1 if item.has_v2_index == 1 else 0,
                 has_source_video=1 if item.source_video_path else 0,
                 images_total_indexed_num=item.v2_indexed_image_num,
+                images_url=[image.image_url for image in item_images],
+                inquiry_nums=inquiry_nums,
+                inquiry_count=inquiry_count,
                 id=str(item.id),
                 created_at=runtime.date_to_str(item.time_created),
             )
-            if item.id in images_dict:
-                item_desc.images_total_num = len(images_dict[item.id])
+            item_desc.images_total_num = len(item_images)
 
             index = index_dict.get(item.id)
             if index is not None:

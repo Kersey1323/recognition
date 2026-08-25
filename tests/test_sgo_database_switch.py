@@ -258,3 +258,43 @@ def test_base_image_lookup_only_selects_fields_needed_for_download():
     assert "sgo_materiel_file_img.file_src" in selected_columns
     assert "sgo_materiel_file_img.create_time" not in selected_columns
     assert "sgo_materiel_file_img.creater" not in selected_columns
+
+
+def test_inquiry_history_sync_casts_kingbase_datetime_before_returning_rows():
+    from csrcqsf.infra.db.kingbase_dialect import KingbaseAsyncpgDialect
+    from csrcqsf.modules.sgo.services import SGOBiz
+
+    class Rows:
+        def __iter__(self):
+            return iter(())
+
+    class Session:
+        statement = None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return Rows()
+
+    session = Session()
+    with patch(
+        "csrcqsf.modules.sgo.services.sgo_sessionLocal",
+        return_value=session,
+    ):
+        result = asyncio.run(SGOBiz._list_sgo_inquiry_history_source_rows())
+
+    assert result == []
+    compiled = str(
+        session.statement.compile(
+            dialect=KingbaseAsyncpgDialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    selected_columns = compiled.partition("\nFROM ")[0]
+    assert "CAST(sgo_code_inquiry.create_time AS VARCHAR) AS inquiry_time" in selected_columns
+    assert "ORDER BY sgo_code_inquiry.create_time ASC" in compiled

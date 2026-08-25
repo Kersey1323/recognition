@@ -55,6 +55,49 @@ def test_list_item_serializes_v2_status_fields():
     assert data["has_source_video"] == 1
 
 
+def test_list_item_serializes_inquiry_summary_fields():
+    item = ListItem(
+        item_name="橡胶套",
+        ply_url=None,
+        item_code="40000543491",
+        height=None,
+        length=None,
+        width=None,
+        weight=None,
+        video_path=None,
+        created_at="2025-10-24 15:40:16",
+        images_url=["bfr-ai-files/items/101/a.jpg"],
+        inquiry_nums=["CX20260802001", "CX20260729001"],
+        inquiry_count=2,
+        id="1979095297377554432",
+    )
+
+    data = dump_model(item)
+    assert data["images_url"] == ["bfr-ai-files/items/101/a.jpg"]
+    assert data["inquiry_nums"] == ["CX20260802001", "CX20260729001"]
+    assert data["inquiry_count"] == 2
+
+
+def test_list_item_defaults_to_empty_inquiry_summary():
+    item = ListItem(
+        item_name="橡胶套",
+        ply_url=None,
+        item_code="40000543491",
+        height=None,
+        length=None,
+        width=None,
+        weight=None,
+        video_path=None,
+        created_at="2025-10-24 15:40:16",
+        id="1979095297377554432",
+    )
+
+    data = dump_model(item)
+    assert data["images_url"] == []
+    assert data["inquiry_nums"] == []
+    assert data["inquiry_count"] == 0
+
+
 def test_items_build_v2_index_updates_maps_bool_and_counts():
     values = Items.build_v2_index_updates(
         has_v2_index=True,

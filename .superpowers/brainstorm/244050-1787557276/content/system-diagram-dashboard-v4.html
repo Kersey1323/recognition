@@ -1,0 +1,85 @@
+<style>
+  .review-note{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.review-note p{margin:0;color:#697386}.review-note span{padding:6px 10px;background:#fff1d7;color:#9a6500;font-size:12px;font-weight:700;border-radius:4px}
+  .executive-board{background:#e9eef4;border:1px solid #cfd8e5;box-shadow:0 18px 50px rgba(18,31,52,.16);padding:18px;aspect-ratio:16/9;min-height:720px;color:#18243a;overflow:hidden}
+  .board-shell{height:100%;display:grid;grid-template-columns:150px 1fr;background:#f5f7fa;border:1px solid #d8e0ea}
+  .side{background:#17243d;color:#fff;padding:22px 14px;display:flex;flex-direction:column}.brand-mark{width:42px;height:42px;border:2px solid #5bd6c5;display:grid;place-items:center;font-weight:900;color:#5bd6c5;margin-bottom:12px}.brand{font-size:14px;font-weight:800;line-height:1.45}.brand small{display:block;font-size:9px;color:#95a5bc;font-weight:400;margin-top:4px}
+  .side-nav{margin-top:42px;display:grid;gap:9px}.side-nav div{padding:10px 9px;font-size:10px;color:#9fadc1;border-left:3px solid transparent}.side-nav .active{background:#223555;color:#fff;border-color:#5bd6c5}.side-foot{margin-top:auto;color:#71839c;font-size:8px;line-height:1.7}
+  .workspace{padding:20px 22px;overflow:hidden}.topline{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}.topline h2{font-size:23px;margin:0;color:#17243d;letter-spacing:0}.topline p{font-size:10px;color:#738096;margin:5px 0 0}.status{display:flex;gap:7px}.status span{font-size:9px;padding:6px 8px;background:#e6f6f2;color:#008b77;border:1px solid #bce9df;border-radius:4px}.status span:last-child{background:#fff1d9;color:#9a6500;border-color:#f5ddaa}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}.kpi{background:#fff;border:1px solid #dde4ed;padding:11px 13px;position:relative;min-height:64px}.kpi:after{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:#2f6fed}.kpi:nth-child(2):after{background:#00a58c}.kpi:nth-child(3):after{background:#e79a00}.kpi:nth-child(4):after{background:#e85d4a}.kpi b{font-size:22px;display:block}.kpi small{font-size:9px;color:#758196}.kpi em{position:absolute;right:10px;top:10px;font-style:normal;font-size:8px;color:#99a4b5}
+  .foundation{background:#17243d;color:#fff;padding:10px 12px;margin-bottom:12px}.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.section-head b{font-size:11px}.section-head small{font-size:8px;color:#9eacc0}.stores{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.store{background:#223555;border:1px solid #344967;padding:8px;display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:center}.store-icon{width:28px;height:28px;display:grid;place-items:center;background:#2e4770;color:#7cb1ff;font-size:8px;font-weight:800;border-radius:4px}.store:nth-child(2) .store-icon{background:#1d4a48;color:#63dbc8}.store:nth-child(3) .store-icon{background:#544420;color:#ffd26b}.store:nth-child(4) .store-icon{background:#58352f;color:#ff9587}.store b{font-size:9px;display:block}.store small{font-size:7px;color:#aeb9ca}
+  .core-grid{display:grid;grid-template-columns:1.65fr .78fr;gap:12px;margin-bottom:12px}.case-panel,.relation-panel{background:#fff;border:1px solid #dce3ed;padding:12px}.case-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}.case-head b{font-size:12px}.case-head span{font-size:8px;color:#2f6fed;background:#edf3ff;padding:4px 7px;border-radius:3px}.case-content{display:grid;grid-template-columns:1fr 34px 1fr 34px 1.15fr;align-items:center;gap:4px}.photo{background:#f6f8fb;border:1px solid #dfe5ee;padding:5px;text-align:center}.photo img{width:100%;height:128px;object-fit:cover;background:#111}.photo.segment img{object-fit:contain}.photo b{display:block;font-size:8px;margin-top:4px}.flow-arrow{text-align:center;color:#9aa8bb;font-size:21px}.feature-stack{height:128px;border:1px solid #dfe5ee;background:#f7f9fc;padding:8px;display:flex;flex-direction:column;justify-content:center;gap:7px}.model-row{display:grid;grid-template-columns:57px 1fr 25px;gap:6px;align-items:center}.model-row span,.model-row small{font-size:7px}.track{height:5px;background:#dfe5ed}.track i{display:block;height:100%;background:#2f6fed}.model-row:nth-child(2) i{background:#00a58c}.model-row:nth-child(3) i{background:#e79a00}.feature-tag{font-size:7px;padding:4px;background:#edf3ff;color:#2f6fed;text-align:center}
+  .relation-panel h3{font-size:12px;margin:0 0 9px}.part-profile{display:flex;gap:8px;align-items:center;padding-bottom:8px;border-bottom:1px solid #e5eaf1;margin-bottom:8px}.part-profile img{width:46px;height:46px;object-fit:contain;background:#f4f6f9}.part-profile b{font-size:10px;display:block}.part-profile small{font-size:7px;color:#7e8999}.relation-map{position:relative;padding-left:18px}.relation-map:before{content:"";position:absolute;left:5px;top:8px;bottom:10px;width:1px;background:#cdd6e2}.node{position:relative;padding:6px 8px;background:#f7f9fc;margin-bottom:6px}.node:before{content:"";position:absolute;left:-16px;top:50%;width:10px;height:1px;background:#cdd6e2}.node:after{content:"";position:absolute;left:-18px;top:calc(50% - 2px);width:5px;height:5px;background:#2f6fed;border-radius:50%}.node:nth-child(2):after{background:#00a58c}.node:nth-child(3):after{background:#e79a00}.node small{font-size:7px;color:#7b8798;display:block}.node b{font-size:9px}.relation-label{font-size:7px;color:#9a6500;background:#fff1d9;padding:2px 5px;margin-left:5px;border-radius:3px}
+  .evidence{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:10px}.evidence-card{background:#fff;border:1px solid #dce3ed;padding:7px;display:grid;grid-template-columns:72px 1fr;gap:8px;align-items:center}.evidence-card img{width:72px;height:53px;object-fit:cover;object-position:top;border:1px solid #e0e6ee}.evidence-card b{font-size:9px;display:block}.evidence-card small{font-size:7px;color:#7d899a}.value-card{background:#fff;border:1px solid #dce3ed;padding:8px}.value-card b{font-size:9px;display:block;margin-bottom:7px}.value-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}.value-item{text-align:center;padding:6px 3px;background:#f5f7fa}.value-item strong{display:block;font-size:8px;color:#263751}.value-item small{font-size:6px;color:#7d899a}
+  .approve{margin-top:18px;padding:12px 14px;background:#edf3ff;border-left:4px solid #2f6fed;color:#31415d;font-size:13px}
+</style>
+<style>
+  .side{padding:20px 12px}.brand{font-size:16px}.brand small{font-size:11px}.side-nav{margin-top:34px;gap:7px}.side-nav div{padding:9px 8px;font-size:12px}.side-foot{font-size:10px}
+  .workspace{padding:17px 20px}.topline{margin-bottom:11px}.topline h2{font-size:28px}.topline p{font-size:13px}.status span{font-size:11px;padding:5px 7px}
+  .kpis{margin-bottom:10px}.kpi{padding:9px 12px;min-height:62px}.kpi b{font-size:27px;line-height:1.05}.kpi small{font-size:11px}.kpi em{font-size:9px}
+  .foundation{padding:9px 11px;margin-bottom:10px}.section-head{margin-bottom:6px}.section-head b{font-size:14px}.section-head small{font-size:10px}.store{padding:7px}.store b{font-size:11px}.store small{font-size:9px;line-height:1.25}
+  .core-grid{margin-bottom:10px}.case-panel,.relation-panel{padding:10px}.case-head{margin-bottom:7px}.case-head b{font-size:15px}.case-head span{font-size:10px}.photo b{font-size:10px}.model-row span,.model-row small{font-size:9px}.feature-tag{font-size:9px}.relation-panel h3{font-size:15px}.part-profile b{font-size:12px}.part-profile small{font-size:9px}.node small{font-size:9px}.node b{font-size:11px}.relation-label{font-size:9px}
+  .evidence-card b,.value-card b{font-size:11px}.evidence-card small{font-size:9px}.value-item strong{font-size:10px}.value-item small{font-size:8px}
+</style>
+
+<div class="review-note"><div><h2>领导汇报版 · 精修预览</h2><p>强化系统规模、数据底座、智能加工和业务价值，弱化普通后台页面感。</p></div><span>16:9 汇报画面</span></div>
+
+<div class="executive-board" data-choice="executive-dashboard" onclick="toggleSelect(this)">
+  <div class="board-shell">
+    <aside class="side">
+      <div class="brand-mark">RI</div>
+      <div class="brand">配件智能识别<small>DATA INTELLIGENCE</small></div>
+      <div class="side-nav"><div class="active">系统总览</div><div>数据资产</div><div>特征索引</div><div>业务关系</div><div>模型服务</div></div>
+      <div class="side-foot">Recognition Platform<br>System Overview</div>
+    </aside>
+    <main class="workspace">
+      <div class="topline"><div><h2>配件识别数据分析平台</h2><p>统一汇聚配件主数据、多媒体资产、业务关系与智能识别特征</p></div><div class="status"><span>● 数据服务正常</span><span>2026 · 建设成果</span></div></div>
+      <div class="kpis">
+        <div class="kpi"><em>MASTER DATA</em><b>81,640</b><small>配件主数据</small></div>
+        <div class="kpi"><em>IMAGE INDEX</em><b>14,616</b><small>图片特征索引</small></div>
+        <div class="kpi"><em>TEXT INDEX</em><b>14,619</b><small>文字特征索引</small></div>
+        <div class="kpi"><em>DATA STORES</em><b>4 类</b><small>核心数据基础设施</small></div>
+      </div>
+      <section class="foundation">
+        <div class="section-head"><b>数据资源底座</b><small>结构化数据 · 非结构化资产 · 向量特征统一管理</small></div>
+        <div class="stores">
+          <div class="store"><span class="store-icon">MYSQL</span><div><b>主业务数据库</b><small>配件、任务、检索记录</small></div></div>
+          <div class="store"><span class="store-icon">KDB</span><div><b>sgo业务数据库</b><small>车型、供应商、询码关系</small></div></div>
+          <div class="store"><span class="store-icon">MINIO</span><div><b>对象存储</b><small>原图、分割图、视频、模型</small></div></div>
+          <div class="store"><span class="store-icon">MILVUS</span><div><b>向量索引数据库</b><small>图片特征与文字特征</small></div></div>
+        </div>
+      </section>
+      <div class="core-grid">
+        <section class="case-panel">
+          <div class="case-head"><b>配件数据加工实例 · 饰柜蒸发风扇</b><span>编码 35000064619</span></div>
+          <div class="case-content">
+            <div class="photo"><img src="/files/source-photo-v2.png"><b>01 · 现场采集原图</b></div>
+            <div class="flow-arrow">→</div>
+            <div class="photo segment"><img src="/files/segmented-photo-v2.png"><b>02 · 自动分割抠图</b></div>
+            <div class="flow-arrow">→</div>
+            <div class="feature-stack">
+              <div class="model-row"><span>SigLIP2</span><div class="track"><i style="width:91%"></i></div><small>图像</small></div>
+              <div class="model-row"><span>DINOv2</span><div class="track"><i style="width:84%"></i></div><small>全局</small></div>
+              <div class="model-row"><span>Patch Token</span><div class="track"><i style="width:77%"></i></div><small>局部</small></div>
+              <div class="feature-tag">03 · 图片特征 + 文字索引写入 Milvus</div>
+            </div>
+          </div>
+        </section>
+        <section class="relation-panel">
+          <h3>配件业务关系画像</h3>
+          <div class="part-profile"><img src="/files/segmented-photo-v2.png"><div><b>饰柜蒸发风扇</b><small>35000064619</small></div></div>
+          <div class="relation-map">
+            <div class="node"><small>适用车型</small><b>SFE02</b></div>
+            <div class="node"><small>供应商</small><b>供应商A</b></div>
+            <div class="node"><small>供应商关系</small><b>供应商A <span class="relation-label">属于</span> 该配件</b></div>
+          </div>
+        </section>
+      </div>
+      <div class="evidence">
+        <div class="evidence-card"><img src="/files/detail-album.png"><div><b>多视角图片资产</b><small>图集、照片统一归档</small></div></div>
+        <div class="evidence-card"><img src="/files/detail-index.png"><div><b>特征索引资产</b><small>文字与图片索引可视化</small></div></div>
+        <div class="value-card"><b>业务支撑能力</b><div class="value-grid"><div class="value-item"><strong>配件检索</strong><small>统一查询</small></div><div class="value-item"><strong>图像识别</strong><small>以图搜件</small></div><div class="value-item"><strong>铭牌校验</strong><small>OCR核验</small></div><div class="value-item"><strong>三维管理</strong><small>模型资产</small></div></div></div>
+      </div>
+    </main>
+  </div>
+</div>
+<div class="approve">点击画面表示认可当前信息结构；如需调整，请重点反馈标题、数据指标、颜色或模块位置。</div>

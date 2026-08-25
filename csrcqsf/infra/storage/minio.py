@@ -70,12 +70,17 @@ def parse_minio_path(path: str, default_bucket: str | None = None) -> tuple[str,
     - s3://bucket/object
     - http://host:port/bucket/object
     - https://host:port/bucket/object
+    - /recognition_oss/bucket/object（Nginx internal 代理路径）
     - bucket/object，其中 bucket 必须是项目已知 bucket
     """
     if path is None or path.strip() == "":
         raise ValueError("MinIO path 不能为空")
 
     raw_path = path.strip()
+    internal_proxy_prefix = "/recognition_oss/"
+    if raw_path.startswith(internal_proxy_prefix):
+        # 业务接口返回的内部代理地址仍指向 MinIO，读取对象前需还原为 bucket/object。
+        raw_path = raw_path[len(internal_proxy_prefix):]
     known_buckets = {
         bucket for bucket in [
             minio_bucket,

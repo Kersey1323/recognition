@@ -64,6 +64,9 @@ class ListItem(BaseModel):
     features_num: int = 0
     images_total_num: int = Field(description='图片总数', default=0)
     images_total_indexed_num: int = Field(description='图片已索引的总数', default=0)
+    images_url: list[str] = Field(default_factory=list, description='该配件的全部图片地址')
+    inquiry_nums: list[str] = Field(default_factory=list, description='该配件的全部询码流水号，按时间从新到旧排列')
+    inquiry_count: int = Field(default=0, description='该配件关联的询码记录总数')
     id: str
 
 

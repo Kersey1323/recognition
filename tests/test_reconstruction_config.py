@@ -19,6 +19,17 @@ def test_parse_minio_path_recognizes_reconstruction_file_bucket():
     assert object_name == "results/1935558010375340032/task-id/point_cloud.ply"
 
 
+def test_parse_minio_path_recognizes_internal_accel_redirect_path():
+    from csrcqsf.infra.storage.minio import parse_minio_path
+
+    bucket, object_name = parse_minio_path(
+        "/recognition_oss/bfr-ai-files/2087047322658672640.jpg"
+    )
+
+    assert bucket == "bfr-ai-files"
+    assert object_name == "2087047322658672640.jpg"
+
+
 def test_settings_no_longer_exposes_local_model_path_fields(monkeypatch):
     monkeypatch.setenv("MODEL_DIR", "/tmp/models-root")
     monkeypatch.setenv("SAM_MODEL_PATH", "legacy-sam/model.pth")

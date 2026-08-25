@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BIGINT, DateTime, Index, String, Text, UniqueConstraint
+from sqlalchemy import BIGINT, DateTime, Index, String, Text, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from csrcqsf.infra.db.main_db import Base
@@ -47,3 +47,31 @@ class ItemInquiryHistory(Base):
     inquiry_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="sgo")
 
+    @classmethod
+    async def list_summary_by_item_ids(cls, session, item_id_list: list[int]):
+        if not item_id_list:
+            return []
+
+        # 当前页关联的询码记录一次取回并按时间倒序聚合，供列表展示全部询码流水号。
+        # 同一流水号只展示一次，空流水号不计入询码数量。
+        stmt = (
+            select(cls.item_id, cls.inquiry_num, cls.inquiry_time, cls.id)
+            .where(cls.item_id.in_(list(dict.fromkeys(item_id_list))))
+            .order_by(cls.item_id, cls.inquiry_time.desc(), cls.id.desc())
+        )
+        rows = (await session.execute(stmt)).all()
+        inquiry_nums_by_item: dict[int, list[str]] = {}
+        seen_nums_by_item: dict[int, set[str]] = {}
+        for item_id, inquiry_num, _inquiry_time, _history_id in rows:
+            if not inquiry_num:
+                continue
+            inquiry_nums = inquiry_nums_by_item.setdefault(item_id, [])
+            seen_nums = seen_nums_by_item.setdefault(item_id, set())
+            if inquiry_num in seen_nums:
+                continue
+            seen_nums.add(inquiry_num)
+            inquiry_nums.append(inquiry_num)
+        return [
+            (item_id, inquiry_nums, len(inquiry_nums))
+            for item_id, inquiry_nums in inquiry_nums_by_item.items()
+        ]

@@ -88,6 +88,7 @@ def test_list_item_uses_v2_flags_for_filter_and_response():
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.Items, "list_items", AsyncMock(return_value=page_result)) as list_mock, \
+         patch.object(parts_module.ItemInquiryHistory, "list_summary_by_item_ids", AsyncMock(return_value=[])), \
          patch.object(parts_module.RailwayPartsManager, "list_item_images", AsyncMock(return_value=[])), \
          patch.object(parts_module, "run_sync", AsyncMock(return_value={})) as run_sync_mock, \
          patch.object(parts_module, "MilvusStateManagerV2") as state_cls:
@@ -126,3 +127,51 @@ def test_list_item_passes_item_code_as_exact_filter():
 
     kwargs = list_mock.await_args.kwargs
     assert kwargs["item_code_list"] == ["12312321"]
+
+
+def test_list_item_adds_batched_images_and_all_inquiry_numbers_for_current_page():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    page_result = SimpleNamespace(
+        total=1,
+        data=[
+            SimpleNamespace(
+                id=101,
+                item_name="橡胶套",
+                item_code="40000543491",
+                obj_url=None,
+                height=None,
+                long=None,
+                width=None,
+                weight=None,
+                source_video_path=None,
+                has_v2_index=0,
+                v2_indexed_image_num=0,
+                time_created=datetime(2025, 10, 24, 15, 40, 16),
+            )
+        ],
+    )
+    inquiry_rows = [(101, ["CX20260802001", "CX20260729001"], 2)]
+    image_rows = [
+        SimpleNamespace(item_id=101, image_url="bfr-ai-files/items/101/a.jpg"),
+        SimpleNamespace(item_id=101, image_url="bfr-ai-files/items/101/b.jpg"),
+    ]
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "list_items", AsyncMock(return_value=page_result)), \
+         patch.object(parts_module.RailwayPartsManager, "list_item_images", AsyncMock(return_value=image_rows)), \
+         patch.object(parts_module.ItemInquiryHistory, "list_summary_by_item_ids", AsyncMock(return_value=inquiry_rows)) as inquiry_mock, \
+         patch.object(parts_module, "run_sync", AsyncMock(return_value={})):
+        res = asyncio.run(
+            parts_module.RailwayPartsManager.list_item(
+                ListItemReq(page=1, pageSize=20)
+            )
+        )
+
+    inquiry_mock.assert_awaited_once_with(session, [101])
+    assert res.items[0].images_url == [
+        "bfr-ai-files/items/101/a.jpg",
+        "bfr-ai-files/items/101/b.jpg",
+    ]
+    assert res.items[0].inquiry_nums == ["CX20260802001", "CX20260729001"]
+    assert res.items[0].inquiry_count == 2
