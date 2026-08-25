@@ -543,10 +543,10 @@ async def submit_video_task(
     dedup_threshold: int = 25,
     min_frames: int = 30,
     max_frames: int = 150,
-    mask_dilate: int = 15,
+    mask_dilate: int = 0,
     fill_interior_holes: bool = False,
     camera: str = "OPENCV",
-    colmap_gpu: bool = False,
+    colmap_gpu: bool = True,
 ) -> dict:
     """
     提交视频重建任务
