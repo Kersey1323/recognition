@@ -137,6 +137,32 @@ def _item_code_key(value) -> str:
     return str(cleaned).casefold() if cleaned is not None else ""
 
 
+def _summarize_sgo_auth_response(response) -> str:
+    if response is None:
+        return "http_status=unavailable"
+
+    status = getattr(response, "status", "unknown")
+    headers = getattr(response, "headers", None) or {}
+    content_type = headers.get("Content-Type", "unknown")
+    data = getattr(response, "data", b"") or b""
+    details = [
+        f"http_status={status}",
+        f"content_type={content_type}",
+        f"body_bytes={len(data)}",
+    ]
+    try:
+        payload = json.loads(data.decode("utf-8", errors="replace"))
+    except Exception:
+        payload = None
+    if isinstance(payload, dict):
+        for key in ("code", "status", "message", "msg", "error"):
+            value = payload.get(key)
+            if isinstance(value, (str, int, float, bool)) and str(value).strip():
+                safe_value = " ".join(str(value).split())[:300]
+                details.append(f"response_{key}={safe_value}")
+    return ", ".join(details)
+
+
 def _normalize_vehicle_batch(vehicle: str | None) -> str | None:
     vehicle = _clean_text(vehicle)
     if vehicle is None:
@@ -195,6 +221,7 @@ class TokenResponse(BaseModel):
 
 class SGOBiz:
     token = ""
+    _token_error_detail = ""
     _api_url = os.getenv("SGO_API_URL", "https://sgo.csrcqsf.com")
     _tenant_id = os.getenv("SGO_TENANT_ID", "1463844437338755072")
     _username = os.getenv("SGO_USERNAME", "wrps")
@@ -240,6 +267,7 @@ class SGOBiz:
     @classmethod
     def get_token(cls):
         url = f"{cls._api_url}/uc/sfsso/authByAccount?tenantId={cls._tenant_id}"
+        response = None
         with PoolManager(ssl_context=ctx) as pool:
             try:
                 response = pool.request(
@@ -252,9 +280,32 @@ class SGOBiz:
                     },
                     timeout=10,
                 )
-                cls.token = TokenResponse.parse_raw(response.data).token
+                if not 200 <= response.status < 300:
+                    raise SgoImageDownloadError(
+                        f"SGO 认证服务返回 HTTP {response.status}"
+                    )
+                token = TokenResponse.parse_raw(response.data).token.strip()
+                if not token:
+                    raise SgoImageDownloadError("SGO 认证响应中的 token 为空")
+                cls.token = token
+                cls._token_error_detail = ""
+                logger.info(
+                    f"SGO token 获取成功: endpoint={url}, token_length={len(token)}"
+                )
+                return True
             except Exception as exc:
-                logger.error(f"获取sgo token出错:{exc}")
+                cls.token = ""
+                cls._token_error_detail = (
+                    f"endpoint={url}; "
+                    f"username_configured={bool(cls._username)}, "
+                    f"password_configured={bool(cls._password)}, "
+                    f"encryption_configured={bool(cls._encryption)}, "
+                    f"tenant_id_configured={bool(cls._tenant_id)}; "
+                    f"{_summarize_sgo_auth_response(response)}; "
+                    f"exception={type(exc).__name__}: {exc}"
+                )
+                logger.exception(f"获取 SGO token 失败: {cls._token_error_detail}")
+                return False
 
     @classmethod
     async def list_parts_sgo_image(cls, item_id: int):
@@ -1054,8 +1105,12 @@ class SGOBiz:
 
     @classmethod
     def download_images_from_sgo(cls, files_name: list[str]):
+        # 关闭启动时的图片同步不应阻断手动同步；首次下载时按需建立认证会话。
         if not cls.token:
-            raise SgoImageDownloadError("没有成功获取 SGO token")
+            cls.get_token()
+        if not cls.token:
+            detail = cls._token_error_detail or "认证函数未返回 token，且没有错误详情"
+            raise SgoImageDownloadError(f"SGO token 获取失败: {detail}")
 
         zip_file_name = f"{get_id()}.zip"
         api_url = (
@@ -1082,7 +1137,10 @@ class SGOBiz:
                         cls.token = ""
                         cls.get_token()
                         if not cls.token:
-                            raise SgoImageDownloadError("SGO token 刷新失败")
+                            detail = cls._token_error_detail or "认证函数未返回 token"
+                            raise SgoImageDownloadError(
+                                f"SGO token 刷新失败: {detail}"
+                            )
                         continue
                     if response.status >= 500:
                         raise SgoImageRetryableError(

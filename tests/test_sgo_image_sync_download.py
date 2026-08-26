@@ -13,15 +13,18 @@ from csrcqsf.modules.sgo.schemas import ImageSourceType
 from csrcqsf.modules.sgo.services import (
     ImageSyncCandidate,
     SGOBiz,
+    SgoImageDownloadError,
     SgoImageZipError,
     SgoZipTooLargeError,
 )
 
 
 class FakeResponse:
-    def __init__(self, status, chunks=()):
+    def __init__(self, status, chunks=(), data=b"", headers=None):
         self.status = status
         self._chunks = list(chunks)
+        self.data = data
+        self.headers = headers or {}
         self.released = False
 
     def stream(self, _amount):
@@ -54,6 +57,70 @@ def build_zip(file_count):
         for index in range(file_count):
             archive.writestr(f"image-{index}.jpg", f"image-{index}".encode())
     return buffer.getvalue()
+
+
+def test_get_token_records_safe_http_failure_details():
+    response = FakeResponse(
+        401,
+        data=b'{"code":401,"message":"account rejected"}',
+        headers={"Content-Type": "application/json"},
+    )
+    pool = FakePool([response])
+
+    with patch.object(sgo_services, "PoolManager", return_value=pool):
+        SGOBiz.token = ""
+        SGOBiz._token_error_detail = ""
+        result = SGOBiz.get_token()
+
+    assert result is False
+    assert SGOBiz.token == ""
+    assert "http_status=401" in SGOBiz._token_error_detail
+    assert "account rejected" in SGOBiz._token_error_detail
+    assert "username_configured=True" in SGOBiz._token_error_detail
+    assert SGOBiz._password not in SGOBiz._token_error_detail
+    assert SGOBiz._encryption not in SGOBiz._token_error_detail
+
+
+def test_download_images_fetches_missing_token_on_demand():
+    response = FakeResponse(200, [b"zip-data"])
+    pool = FakePool([response])
+
+    def fetch_token():
+        SGOBiz.token = "new-token"
+        SGOBiz._token_error_detail = ""
+        return True
+
+    with patch.object(sgo_services, "PoolManager", return_value=pool), patch.object(
+        SGOBiz,
+        "get_token",
+        side_effect=fetch_token,
+    ) as get_token:
+        SGOBiz.token = ""
+        result = SGOBiz.download_images_from_sgo(["file-1"])
+
+    assert result == b"zip-data"
+    get_token.assert_called_once()
+
+
+def test_download_images_exposes_token_failure_details():
+    def fail_to_fetch_token():
+        SGOBiz._token_error_detail = (
+            "endpoint=https://sgo.example/auth; http_status=503; "
+            "exception=ReadTimeoutError"
+        )
+        return False
+
+    with patch.object(
+        SGOBiz,
+        "get_token",
+        side_effect=fail_to_fetch_token,
+    ):
+        SGOBiz.token = ""
+        with pytest.raises(
+            SgoImageDownloadError,
+            match="http_status=503.*ReadTimeoutError",
+        ):
+            SGOBiz.download_images_from_sgo(["file-1"])
 
 
 def test_download_images_retries_server_error_and_refreshes_token_on_401():
