@@ -28,6 +28,7 @@ get_reconstruction_task_failure_message: Any = None
 _get_minio_helpers: Any = None
 
 ReconstructionRecordType = Any
+_REMOTE_RECOVERY_STATES = frozenset({"RECOVERY_QUEUED", "RECOVERING"})
 
 
 def bind_runtime_dependencies(reconstruction_service_module: ModuleType | None = None) -> None:
@@ -244,11 +245,13 @@ def _response_time_updated(cls, record) -> str | None:
     return record.time_updated.isoformat() if record.time_updated else None
 
 async def _apply_remote_status_to_record(cls, *, session, record, remote_status: dict) -> bool:
+    remote_state = str(remote_status.get("status") or "PENDING").upper()
+    is_recovery_state = remote_state in _REMOTE_RECOVERY_STATES
     remote_mapped_status = map_celery_state_to_reconstruction_status(
-        str(remote_status.get("status") or "PENDING")
+        remote_state
     )
     terminal_snapshot = cls._build_terminal_snapshot_from_record(record)
-    if terminal_snapshot is not None and remote_mapped_status in (
+    if not is_recovery_state and terminal_snapshot is not None and remote_mapped_status in (
         ReconstructionStatus.PENDING,
         ReconstructionStatus.TRAINING,
     ):
@@ -271,6 +274,17 @@ async def _apply_remote_status_to_record(cls, *, session, record, remote_status:
     result_changed = False
     completed_at = None
 
+    recovery_terminal_state_cleared = False
+    if is_recovery_state:
+        # 明确的人工恢复状态可以重开终态；普通 PENDING/PROGRESS 仍不能让历史终态倒退。
+        recovery_terminal_state_cleared = any(
+            getattr(record, field, None) is not None
+            for field in ("error_message", "completed_at", "elapsed_sec")
+        )
+        record.error_message = None
+        record.completed_at = None
+        record.elapsed_sec = None
+
     if status == ReconstructionStatus.SUCCESS:
         result_changed = await cls._persist_success_result(
             session=session,
@@ -285,7 +299,7 @@ async def _apply_remote_status_to_record(cls, *, session, record, remote_status:
     elif status in (ReconstructionStatus.FAILED, ReconstructionStatus.CANCELLED):
         completed_at = getattr(record, "completed_at", None) or datetime.now()
 
-    db_changed = result_changed or cls._needs_status_update(
+    db_changed = result_changed or recovery_terminal_state_cleared or cls._needs_status_update(
         record,
         status=status,
         progress=progress,

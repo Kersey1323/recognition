@@ -81,6 +81,8 @@ def map_celery_state_to_reconstruction_status(state: str) -> str:
         "PENDING": ReconstructionStatus.PENDING,
         "STARTED": ReconstructionStatus.TRAINING,
         "PROGRESS": ReconstructionStatus.TRAINING,
+        "RECOVERY_QUEUED": ReconstructionStatus.TRAINING,
+        "RECOVERING": ReconstructionStatus.TRAINING,
         "SUCCESS": ReconstructionStatus.SUCCESS,
         "FAILURE": ReconstructionStatus.FAILED,
         "REVOKED": ReconstructionStatus.CANCELLED,

@@ -309,6 +309,12 @@ reconstruction_server_url = _first_non_empty_env(
 reconstruction_server_timeout_sec = float(
     _first_non_empty_env("RECONSTRUCTION_SERVER_TIMEOUT_SEC", default="10")
 )
+reconstruction_server_download_timeout_sec = float(
+    _first_non_empty_env(
+        "RECONSTRUCTION_SERVER_DOWNLOAD_TIMEOUT_SEC",
+        default="300",
+    )
+)
 sgo_image_item_batch_size = _bounded_env_int(
     "SGO_IMAGE_ITEM_BATCH_SIZE", default=300, minimum=1, maximum=5000
 )

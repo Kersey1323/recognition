@@ -2,7 +2,14 @@
 
 from .asset_proxy_routes import asset_proxy_router
 from .router import parts_router
-from . import asset_proxy_routes, parts_routes, reconstruction_routes, review_ticket_routes, search_routes
+from . import (
+    asset_proxy_routes,
+    parts_routes,
+    reconstruction_operations_routes,
+    reconstruction_routes,
+    review_ticket_routes,
+    search_routes,
+)
 
 RailwayPartsManager = parts_routes.RailwayPartsManager
 SGOBiz = parts_routes.SGOBiz
@@ -74,6 +81,7 @@ __all__ = [
     "search_routes",
     "review_ticket_routes",
     "reconstruction_routes",
+    "reconstruction_operations_routes",
     "RailwayPartsManager",
     "SGOBiz",
     "MilvusStateManagerV2",

@@ -1,7 +1,8 @@
 """Routes for reconstruction source videos, tasks, and results."""
 
-from fastapi import File, Form, UploadFile
+from fastapi import File, Form, HTTPException, UploadFile
 
+from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.modules.railway_parts.schemas.reconstruction import (
     ReconstructionAllTasksReq,
     ReconstructionAllTasksRes,
@@ -32,6 +33,10 @@ from csrcqsf.modules.railway_parts.schemas.reconstruction import (
     ReconstructionVideoUploadUrlsRes,
 )
 from csrcqsf.modules.railway_parts.services.reconstruction_service import ReconstructionManager
+from csrcqsf.modules.railway_parts.services.reconstruction_operations_service import (
+    ReconstructionOperationsError,
+    ReconstructionOperationsService,
+)
 from csrcqsf.core.runtime import ensure_gpu_reconstruction_enabled
 
 from .router import parts_router
@@ -237,6 +242,12 @@ async def get_reconstruct_v2_status(task_id: str):
     - current_stage: 当前阶段描述
     - result: 结果文件URL（完成后）
     """
+    # 状态查询只能穿透到主服务已经登记的任务，避免任意 task_id 访问内部重构服务。
+    async with SessionLocal() as session:
+        try:
+            await ReconstructionOperationsService(session).get_owned_record(task_id)
+        except ReconstructionOperationsError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     result = await ReconstructionManager.get_task_status(task_id)
     return ReconstructionStatusRes(**result)
 

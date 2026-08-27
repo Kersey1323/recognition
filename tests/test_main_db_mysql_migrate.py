@@ -52,6 +52,7 @@ def test_load_main_db_models_imports_all_main_db_model_modules():
         "csrcqsf.models.orm.index_rebuild_task",
         "csrcqsf.models.orm.item",
         "csrcqsf.models.orm.reconstruction",
+        "csrcqsf.models.orm.reconstruction_operation_audit",
         "csrcqsf.models.orm.reconstruction_upload",
         "csrcqsf.models.orm.search_history",
         "csrcqsf.models.orm.sgo",

@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from bfrcommon.middlewares.response import catch_exceptions_middleware
 from starlette.requests import Request
 
@@ -544,6 +545,57 @@ def test_get_task_status_keeps_terminal_success_when_celery_backend_falls_back_t
     assert result["current_stage"] == "完成"
     assert result["time_updated"] == completed_at.isoformat()
     update_status.assert_not_awaited()
+
+
+@pytest.mark.parametrize("remote_state", ["RECOVERY_QUEUED", "RECOVERING"])
+def test_get_task_status_reopens_failed_snapshot_for_explicit_recovery_state(remote_state):
+    session = AsyncMock()
+    record = SimpleNamespace(
+        task_id="task-id",
+        item_id=2023080809420000001,
+        status=ReconstructionStatus.FAILED,
+        progress=55,
+        current_stage="失败",
+        error_message="COLMAP match database is incomplete",
+        ply_url=None,
+        obj_url=None,
+        glb_url=None,
+        total_frames=None,
+        filtered_frames=None,
+        colmap_points=None,
+        completed_at=datetime(2026, 8, 27, 11, 27, 47),
+        elapsed_sec=356.0,
+        time_created=datetime(2026, 8, 27, 11, 21, 52),
+        time_updated=datetime(2026, 8, 27, 13, 42, 0),
+    )
+    fake_client = SimpleNamespace(
+        get_task_status=AsyncMock(
+            return_value={
+                "task_id": "task-id",
+                "status": remote_state,
+                "progress": 55,
+                "current_stage": "等待人工恢复: colmap",
+                "error_message": None,
+                "ply_path": None,
+            }
+        )
+    )
+
+    with patch.object(ReconstructionManager, "_get_reconstruction_client", return_value=fake_client), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.reconstruction_server_env_configured", return_value=True), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.get_by_task_id", AsyncMock(return_value=record)), \
+         patch("csrcqsf.modules.railway_parts.services.reconstruction_service.ReconstructionRecord.update_status", AsyncMock()) as update_status:
+        result = asyncio.run(ReconstructionManager.get_task_status("task-id"))
+
+    assert result["status"] == ReconstructionStatus.TRAINING
+    assert result["progress"] == 55
+    assert result["current_stage"] == "等待人工恢复: colmap"
+    assert result["error_message"] is None
+    assert record.completed_at is None
+    assert record.elapsed_sec is None
+    update_status.assert_awaited_once()
+    session.commit.assert_awaited_once()
 
 
 def test_get_task_status_returns_local_snapshot_when_remote_service_url_missing():
