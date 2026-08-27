@@ -77,10 +77,41 @@ class IndexRebuildTaskManager:
         self._max_single_tasks = max_single_tasks or index_single_task_max_concurrency
         self._active: dict[str, _ActiveTask] = {}
         self._lock = asyncio.Lock()
+        self._capacity_listener: Callable[[], None] | None = None
 
     @property
     def active_task_ids(self) -> tuple[str, ...]:
         return tuple(self._active.keys())
+
+    @property
+    def active_single_item_ids(self) -> tuple[int, ...]:
+        return tuple(
+            active.item_id
+            for active in self._active.values()
+            if active.task_scope == "single" and active.item_id is not None
+        )
+
+    @property
+    def available_single_slots(self) -> int:
+        active_values = tuple(self._active.values())
+        if any(active.task_scope == "batch" for active in active_values):
+            return 0
+        running_single_count = sum(
+            active.task_scope == "single" for active in active_values
+        )
+        return max(self._max_single_tasks - running_single_count, 0)
+
+    def set_capacity_listener(self, listener: Callable[[], None] | None) -> None:
+        self._capacity_listener = listener
+
+    def _notify_capacity_available(self) -> None:
+        listener = self._capacity_listener
+        if listener is None:
+            return
+        try:
+            listener()
+        except Exception:
+            logger.exception("V2 index task capacity listener failed")
 
     async def start(
         self,
@@ -97,6 +128,21 @@ class IndexRebuildTaskManager:
             rebuild_existing=rebuild_existing,
         )
 
+    async def try_start_single(
+        self,
+        runner: IndexRebuildRunner,
+        *,
+        item_id: int,
+    ) -> dict[str, Any] | None:
+        return await self._start(
+            runner=runner,
+            item_id=item_id,
+            record_limit=1,
+            execution_limit=1,
+            rebuild_existing=False,
+            return_none_when_unavailable=True,
+        )
+
     async def _start(
         self,
         *,
@@ -106,10 +152,16 @@ class IndexRebuildTaskManager:
         execution_limit: int | None,
         rebuild_existing: bool,
         source: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        return_none_when_unavailable: bool = False,
+    ) -> dict[str, Any] | None:
         task_scope = "single" if item_id is not None else "batch"
         async with self._lock:
-            self._check_capacity(task_scope, item_id)
+            try:
+                self._check_capacity(task_scope, item_id)
+            except RuntimeError:
+                if return_none_when_unavailable:
+                    return None
+                raise
             task_id = str(uuid4())
             initial = source or {}
             record = await self._repository.create(
@@ -194,10 +246,14 @@ class IndexRebuildTaskManager:
                     heartbeat_at=now,
                     estimated_remaining_seconds=None,
                 )
+        removed = False
         async with self._lock:
             active = self._active.get(task_id)
             if active is not None and active.task is completed_task:
                 self._active.pop(task_id, None)
+                removed = True
+        if removed:
+            self._notify_capacity_available()
 
     def _check_capacity(self, task_scope: str, item_id: int | None) -> None:
         active_values = tuple(self._active.values())
@@ -326,8 +382,13 @@ class IndexRebuildTaskManager:
                     estimated_remaining_seconds=None,
                 )
         finally:
+            removed = False
             async with self._lock:
-                self._active.pop(task_id, None)
+                removed = self._active.pop(task_id, None) is not None
+            if removed:
+                # Refill automatic single-item capacity as soon as any manual or
+                # automatic index task leaves the active set.
+                self._notify_capacity_available()
 
     async def get(self, task_id: str) -> dict[str, Any] | None:
         return _decorate(await self._repository.get(task_id))

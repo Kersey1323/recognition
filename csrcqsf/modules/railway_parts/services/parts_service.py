@@ -64,6 +64,7 @@ from csrcqsf.modules.railway_parts.schemas.search import (
     SearchRes,
 )
 from csrcqsf.modules.railway_parts.services import contextual_search_service, item_service, parts_index_service, parts_search_service
+from csrcqsf.modules.railway_parts.services.auto_index_scheduler import auto_index_scheduler
 from csrcqsf.modules.railway_parts.services.segmented_image_service import SegmentedImageService
 from csrcqsf.infra.external.model_client import ModelServiceError, get_model_client
 from csrcqsf.modules.sgo.schemas import ImageSourceType, SegmentStatus

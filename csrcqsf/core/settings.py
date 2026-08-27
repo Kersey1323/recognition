@@ -298,6 +298,10 @@ index_single_task_max_concurrency = max(
     1,
     int(os.getenv("INDEX_SINGLE_TASK_MAX_CONCURRENCY", "16")),
 )
+index_auto_scan_interval_seconds = max(
+    1,
+    int(os.getenv("INDEX_AUTO_SCAN_INTERVAL_SECONDS", "30")),
+)
 reconstruction_server_url = _first_non_empty_env(
     "RECONSTRUCTION_SERVER_URL",
     default="http://127.0.0.1:8000",

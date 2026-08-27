@@ -92,3 +92,16 @@ def test_startup_recovers_index_tasks_after_database_migration():
     assert lifespan_source.index('"主业务数据库迁移"') < lifespan_source.index(
         '"索引重建任务状态恢复"'
     )
+
+
+def test_startup_starts_auto_index_scheduler_after_task_recovery_and_stops_it():
+    source = Path("csrcqsf/core/app.py").read_text(encoding="utf-8")
+    lifespan_source = source[
+        source.index("async def lifespan") : source.index("# 创建FastAPI应用实例")
+    ]
+
+    assert lifespan_source.index('"索引重建任务状态恢复"') < lifespan_source.index(
+        '"待索引图片自动索引调度器初始化"'
+    )
+    assert "RailwayPartsManager.rebuild_v2_index" in lifespan_source
+    assert "await auto_index_scheduler.stop()" in lifespan_source

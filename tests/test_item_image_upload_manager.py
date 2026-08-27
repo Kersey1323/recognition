@@ -96,20 +96,28 @@ def test_create_item_image_files_uploads_to_minio_and_creates_pg_records():
     session = AsyncMock()
     fake_item = SimpleNamespace(id=101)
     fake_files = [_fake_upload_file("a.jpg"), _fake_upload_file("b.jpg")]
+    scanner = SimpleNamespace(wake=MagicMock())
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
          patch.object(parts_module.SgoItemImages, "create_item_images", AsyncMock()) as create_images_mock, \
          patch.object(parts_module.minio_instance.client, "put_object", MagicMock()), \
          patch.object(parts_module, "run_sync", AsyncMock(side_effect=lambda func, *args, **kwargs: func(*args, **kwargs))), \
-         patch.object(parts_module, "ensure_minio_bucket", MagicMock()):
+         patch.object(parts_module, "ensure_minio_bucket", MagicMock()), \
+         patch.object(parts_module, "auto_index_scheduler", scanner, create=True):
         res = asyncio.run(parts_module.RailwayPartsManager.create_item_image_files(101, fake_files))
 
     assert res["item_id"] == 101
     assert res["uploaded_count"] == 2
     assert len(res["records"]) == 2
+    assert res["auto_index_pending"] is True
+    assert all(
+        image.is_indexed == 0
+        for image in create_images_mock.await_args.args[1]
+    )
     create_images_mock.assert_awaited()
     session.commit.assert_awaited()
+    scanner.wake.assert_called_once_with()
 
 
 def test_create_item_image_url_mode_still_deduplicates_existing_image_url():
@@ -117,11 +125,13 @@ def test_create_item_image_url_mode_still_deduplicates_existing_image_url():
     session = AsyncMock()
     fake_item = SimpleNamespace(id=101)
     existing = [SimpleNamespace(image_url="bfr-ai-files/manual/demo.jpg")]
+    scanner = SimpleNamespace(wake=MagicMock())
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
          patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock(return_value=existing)), \
-         patch.object(parts_module.SgoItemImages, "create_item_images", AsyncMock()) as create_images_mock:
+         patch.object(parts_module.SgoItemImages, "create_item_images", AsyncMock()) as create_images_mock, \
+         patch.object(parts_module, "auto_index_scheduler", scanner, create=True):
         res = asyncio.run(
             parts_module.RailwayPartsManager.create_item_image(
                 101,
@@ -130,7 +140,36 @@ def test_create_item_image_url_mode_still_deduplicates_existing_image_url():
         )
 
     assert res["uploaded_count"] == 1
+    assert res["auto_index_pending"] is True
+    assert create_images_mock.await_args.args[1][0].is_indexed == 0
     create_images_mock.assert_awaited()
+    scanner.wake.assert_called_once_with()
+
+
+def test_create_item_image_url_mode_does_not_wake_when_all_urls_exist():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    fake_item = SimpleNamespace(id=101)
+    existing = [SimpleNamespace(image_url="bfr-ai-files/manual/demo.jpg")]
+    scanner = SimpleNamespace(wake=MagicMock())
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
+         patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock(return_value=existing)), \
+         patch.object(parts_module.SgoItemImages, "create_item_images", AsyncMock()) as create_images_mock, \
+         patch.object(parts_module, "auto_index_scheduler", scanner, create=True):
+        res = asyncio.run(
+            parts_module.RailwayPartsManager.create_item_image(
+                101,
+                image_url_list=["bfr-ai-files/manual/demo.jpg"],
+            )
+        )
+
+    assert res["uploaded_count"] == 0
+    assert res["auto_index_pending"] is False
+    create_images_mock.assert_not_awaited()
+    session.commit.assert_not_awaited()
+    scanner.wake.assert_not_called()
 
 
 def test_create_item_image_files_rolls_back_minio_when_pg_write_fails():
@@ -138,6 +177,7 @@ def test_create_item_image_files_rolls_back_minio_when_pg_write_fails():
     session = AsyncMock()
     fake_item = SimpleNamespace(id=101)
     fake_file = _fake_upload_file("a.jpg")
+    scanner = SimpleNamespace(wake=MagicMock())
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
@@ -145,7 +185,8 @@ def test_create_item_image_files_rolls_back_minio_when_pg_write_fails():
          patch.object(parts_module.minio_instance.client, "put_object", MagicMock()), \
          patch.object(parts_module, "run_sync", AsyncMock(side_effect=lambda func, *args, **kwargs: func(*args, **kwargs))), \
          patch.object(parts_module, "ensure_minio_bucket", MagicMock()), \
-         patch.object(parts_module.minio_instance.client, "remove_object", MagicMock()) as remove_mock:
+         patch.object(parts_module.minio_instance.client, "remove_object", MagicMock()) as remove_mock, \
+         patch.object(parts_module, "auto_index_scheduler", scanner, create=True):
         try:
             asyncio.run(parts_module.RailwayPartsManager.create_item_image_files(101, [fake_file]))
         except RuntimeError as exc:
@@ -155,3 +196,29 @@ def test_create_item_image_files_rolls_back_minio_when_pg_write_fails():
 
     session.rollback.assert_awaited()
     remove_mock.assert_called_once()
+    scanner.wake.assert_not_called()
+
+
+def test_scanner_wake_failure_does_not_rollback_committed_upload():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    fake_item = SimpleNamespace(id=101)
+    existing = []
+    scanner = SimpleNamespace(wake=MagicMock(side_effect=RuntimeError("wake failed")))
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
+         patch.object(parts_module.SgoItemImages, "list_item_images_by_item_id", AsyncMock(return_value=existing)), \
+         patch.object(parts_module.SgoItemImages, "create_item_images", AsyncMock()), \
+         patch.object(parts_module, "auto_index_scheduler", scanner, create=True):
+        res = asyncio.run(
+            parts_module.RailwayPartsManager.create_item_image(
+                101,
+                image_url_list=["bfr-ai-files/manual/demo.jpg"],
+            )
+        )
+
+    assert res["uploaded_count"] == 1
+    assert res["auto_index_pending"] is True
+    session.commit.assert_awaited_once()
+    session.rollback.assert_not_awaited()

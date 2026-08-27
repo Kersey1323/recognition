@@ -439,6 +439,14 @@ async def get_item_detail(cls, item_id: int, runtime=None):
     return res
 
 
+def _wake_auto_index_scan(runtime) -> None:
+    try:
+        runtime.auto_index_scheduler.wake()
+    except Exception:
+        # 图片事务已经提交；调度通知失败只能影响处理时效，由 30 秒扫描兜底。
+        runtime.logger.exception("配件图片已保存，但自动索引扫描器唤醒失败")
+
+
 async def create_item_image(cls, item_id: int, image_url_list: list[str], runtime=None):
     runtime = runtime or _runtime()
     async with runtime.SessionLocal() as session:
@@ -462,13 +470,17 @@ async def create_item_image(cls, item_id: int, image_url_list: list[str], runtim
                     item_id=item_id,
                     image_url=image_url,
                     image_source=runtime.ImageSourceType.CREATEBYSELF,
-                    is_indexed=1,
+                    is_indexed=0,
                 )
             )
 
         if image_list:
             await runtime.SgoItemImages.create_item_images(session, image_list)
             await session.commit()
+
+    if image_list:
+        # 自主采集图片提交后立即唤醒统一自动索引调度器，缩短等待下一轮扫描的时间。
+        _wake_auto_index_scan(runtime)
 
     return {
         "item_id": item_id,
@@ -481,7 +493,12 @@ async def create_item_image(cls, item_id: int, image_url_list: list[str], runtim
             }
             for image in image_list
         ],
-        "message": "配件图片登记成功",
+        "message": (
+            "配件图片登记成功，等待自动索引"
+            if image_list
+            else "没有新增配件图片"
+        ),
+        "auto_index_pending": bool(image_list),
     }
 
 
@@ -561,7 +578,7 @@ async def create_item_image_files(cls, item_id: int, files: list, runtime=None) 
                         image_url=image_url,
                         raw_url=None,
                         image_source=runtime.ImageSourceType.CREATEBYSELF,
-                        is_indexed=1,
+                        is_indexed=0,
                     )
                 )
 
@@ -576,6 +593,10 @@ async def create_item_image_files(cls, item_id: int, files: list, runtime=None) 
                     pass
             raise
 
+    if image_rows:
+        # 文件与图片记录均已提交后再通知扫描器，索引失败不会回滚上传结果。
+        _wake_auto_index_scan(runtime)
+
     return {
         "item_id": item_id,
         "uploaded_count": len(image_rows),
@@ -587,7 +608,8 @@ async def create_item_image_files(cls, item_id: int, files: list, runtime=None) 
             }
             for image, filename in zip(image_rows, uploaded_filenames)
         ],
-        "message": "配件图片上传成功",
+        "message": "配件图片上传成功，等待自动索引",
+        "auto_index_pending": bool(image_rows),
     }
 
 

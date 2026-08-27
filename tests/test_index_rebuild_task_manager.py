@@ -233,6 +233,60 @@ def test_index_rebuild_task_manager_rejects_seventeenth_single_task():
     asyncio.run(scenario())
 
 
+def test_try_start_single_uses_available_slot_without_persisting_waiting_task():
+    async def scenario():
+        repository = FakeTaskRepository()
+        manager = IndexRebuildTaskManager(
+            repository=repository,
+            max_single_tasks=1,
+        )
+        release = asyncio.Event()
+
+        async def runner(**_kwargs):
+            await release.wait()
+            return {}
+
+        assert manager.available_single_slots == 1
+        first = await manager.try_start_single(runner, item_id=101)
+
+        assert first is not None
+        assert manager.available_single_slots == 0
+        assert manager.active_single_item_ids == (101,)
+        assert await manager.try_start_single(runner, item_id=102) is None
+        assert len(repository.records) == 1
+
+        release.set()
+        await _wait_for_status(manager, first["task_id"], "success")
+
+    asyncio.run(scenario())
+
+
+def test_task_completion_notifies_capacity_listener():
+    async def scenario():
+        manager = IndexRebuildTaskManager(repository=FakeTaskRepository())
+        release = asyncio.Event()
+        capacity_available = asyncio.Event()
+        manager.set_capacity_listener(capacity_available.set)
+
+        async def runner(**_kwargs):
+            await release.wait()
+            return {}
+
+        started = await manager.start(
+            runner,
+            item_id=101,
+            limit=1,
+            rebuild_existing=False,
+        )
+        release.set()
+        await _wait_for_status(manager, started["task_id"], "success")
+        await asyncio.wait_for(capacity_available.wait(), timeout=1)
+
+        assert manager.available_single_slots == 16
+
+    asyncio.run(scenario())
+
+
 def test_index_rebuild_task_manager_rejects_duplicate_active_item():
     async def scenario():
         manager = IndexRebuildTaskManager(repository=FakeTaskRepository())

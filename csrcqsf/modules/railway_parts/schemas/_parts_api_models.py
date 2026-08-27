@@ -207,6 +207,10 @@ class CreateItemImagesRes(BaseModel):
     uploaded_count: int = 0
     records: list[CreateItemImageRecord] = Field(default_factory=list)
     message: str
+    auto_index_pending: bool = Field(
+        False,
+        description="本次是否新增了等待自动索引的自主采集图片",
+    )
 
     @validator("item_id", pre=True, allow_reuse=True)
     def normalize_item_id(cls, value):

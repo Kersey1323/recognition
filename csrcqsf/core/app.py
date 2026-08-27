@@ -23,6 +23,8 @@ from csrcqsf.modules.image.routes import image_router
 from csrcqsf.modules.image.schemas import SimpleSegmentReq, SimpleSegmentRes
 from csrcqsf.modules.image.services import SegmentBiz
 from csrcqsf.modules.railway_parts.routes import asset_proxy_router, parts_router
+from csrcqsf.modules.railway_parts.services.auto_index_scheduler import auto_index_scheduler
+from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
 from csrcqsf.modules.sgo.routes import sgo_router
 from csrcqsf.infra.db.main_db import db_migrate
 from csrcqsf.models.orm.index_rebuild_task import recover_index_rebuild_tasks
@@ -131,10 +133,29 @@ async def lifespan(app: FastAPI):
                 f"port={ai_settings.sgo_port}, database={sgo_database_name}"
             ),
         )
+    if (
+        main_db_env_configured()
+        and minio_env_configured()
+        and milvus_env_configured()
+    ):
+        await run_startup_step(
+            "待索引图片自动索引调度器初始化",
+            lambda: auto_index_scheduler.start(
+                RailwayPartsManager.rebuild_v2_index
+            ),
+            logger=logger,
+        )
+    else:
+        logger.warning(
+            "主业务库、MinIO 或 Milvus 配置不完整，跳过待索引图片自动索引调度器初始化"
+        )
     RunVar("_default_thread_limiter").set(CapacityLimiter(200))  # 线程池限制
     logger.info("模型推理已迁移至独立服务（MODEL_SERVICE_URL），本地不再加载模型")
     logger.info("应用启动初始化全部完成")
-    yield
+    try:
+        yield
+    finally:
+        await auto_index_scheduler.stop()
 
 
 # 创建FastAPI应用实例

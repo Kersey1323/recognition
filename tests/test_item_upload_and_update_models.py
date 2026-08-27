@@ -43,6 +43,7 @@ def test_create_item_images_response_serializes_item_id_and_records():
             }
         ],
         message="配件图片上传成功",
+        auto_index_pending=True,
     )
 
     data = dump_model(res)
@@ -50,6 +51,18 @@ def test_create_item_images_response_serializes_item_id_and_records():
     assert data["item_id"] == str(BIG_ITEM_ID)
     assert data["uploaded_count"] == 2
     assert data["records"][0]["image_id"] == str(BIG_ITEM_ID)
+    assert data["auto_index_pending"] is True
+
+
+def test_create_item_images_response_defaults_auto_index_pending_to_false():
+    res = CreateItemImagesRes(
+        item_id=BIG_ITEM_ID,
+        uploaded_count=0,
+        records=[],
+        message="没有新增图片",
+    )
+
+    assert dump_model(res)["auto_index_pending"] is False
 
 
 def test_update_item_request_supports_partial_update_and_blank_parent_as_none():
