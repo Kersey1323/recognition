@@ -4,27 +4,7 @@
 from typing import Literal, Optional
 
 from bfrcommon.api_models import PageReq
-from pydantic import BaseModel, Field, root_validator, validator
-
-
-_RETIRED_RECONSTRUCTION_VIDEO_FIELDS = {
-    "is_sam3",
-    "text_prompt",
-    "skip_sam3",
-    "skip_extract",
-    "skip_filter",
-    "skip_colmap",
-    "sam3_model",
-    "sam2_model",
-    "video_path",
-    "name",
-    "output_name",
-    "prompt_box",
-    "prompt_box_web",
-    "prompt_box_web_host",
-    "prompt_box_web_port",
-    "prompt_box_web_timeout",
-}
+from pydantic import BaseModel, Field, validator
 
 
 class ReconstructionTrainReq(BaseModel):
@@ -36,29 +16,7 @@ class ReconstructionTrainReq(BaseModel):
 
 class ReconstructionVideoReq(BaseModel):
     item_id: str = Field(..., description='配件ID，建议按字符串传递以避免前端精度丢失')
-    iterations: int = Field(default=10000, description='训练迭代次数')
-    fps: float = Field(default=3, description='提帧率')
-    image_size: int = Field(default=1600, description='图片最大边长')
-    blur_threshold: float = Field(default=0, description='模糊阈值，0=自适应')
-    dedup_threshold: int = Field(default=25, description='去重汉明距离')
-    min_frames: int = Field(default=30, description='最小帧数')
-    max_frames: int = Field(default=150, description='最大帧数，0=不限制')
-    mask_dilate: int = Field(default=7, description='Mask膨胀像素')
-    fill_interior_holes: bool = Field(default=False, description='是否填充 Mask 内部孔洞')
-    camera: str = Field(default="OPENCV", description='相机模型')
-    colmap_gpu: bool = Field(default=False, description='是否启用 COLMAP GPU，默认使用 CPU')
-
-    @root_validator(pre=True)
-    def drop_retired_fields(cls, values):
-        if isinstance(values, dict):
-            cleaned = dict(values)
-            legacy_no_gpu = cleaned.pop("no_gpu", None)
-            if "colmap_gpu" not in cleaned and legacy_no_gpu is not None:
-                cleaned["colmap_gpu"] = not bool(legacy_no_gpu)
-            for field in _RETIRED_RECONSTRUCTION_VIDEO_FIELDS:
-                cleaned.pop(field, None)
-            return cleaned
-        return values
+    iterations: int = Field(..., description='3DGS训练迭代次数')
 
     class Config:
         extra = "forbid"

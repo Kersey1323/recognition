@@ -14,7 +14,7 @@ def _build_app():
     return app
 
 
-def test_reconstruction_video_openapi_exposes_colmap_gpu_only():
+def test_reconstruction_video_openapi_exposes_only_item_and_iterations():
     app = _build_app()
     schema = app.openapi()
 
@@ -23,12 +23,11 @@ def test_reconstruction_video_openapi_exposes_colmap_gpu_only():
     body_schema_name = body_schema_ref.split("/")[-1]
     body_schema = schema["components"]["schemas"][body_schema_name]
 
-    assert "colmap_gpu" in body_schema["properties"]
-    assert "no_gpu" not in body_schema["properties"]
-    assert body_schema["properties"]["colmap_gpu"]["default"] is False
+    assert set(body_schema["properties"]) == {"item_id", "iterations"}
+    assert set(body_schema["required"]) == {"item_id", "iterations"}
 
 
-def test_reconstruction_video_route_calls_manager_with_colmap_gpu_field():
+def test_reconstruction_video_route_forwards_only_business_fields():
     mocked_submit = AsyncMock(
         return_value={
             "task_id": "task-123",
@@ -44,12 +43,13 @@ def test_reconstruction_video_route_calls_manager_with_colmap_gpu_field():
             reconstruction_routes.reconstruct_v2_video(
                 ReconstructionVideoReq(
                     item_id="1001",
-                    iterations=30000,
-                    colmap_gpu=True,
+                    iterations=10000,
                 )
             )
         )
 
     assert response.task_id == "task-123"
-    assert mocked_submit.await_args.kwargs["item_id"] == 1001
-    assert mocked_submit.await_args.kwargs["colmap_gpu"] is True
+    assert mocked_submit.await_args.kwargs == {
+        "item_id": 1001,
+        "iterations": 10000,
+    }

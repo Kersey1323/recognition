@@ -536,17 +536,7 @@ async def submit_train_task(
 async def submit_video_task(
     cls,
     item_id: int,
-    iterations: int = 30000,
-    fps: float = 3,
-    image_size: int = 1600,
-    blur_threshold: float = 0,
-    dedup_threshold: int = 25,
-    min_frames: int = 30,
-    max_frames: int = 150,
-    mask_dilate: int = 0,
-    fill_interior_holes: bool = False,
-    camera: str = "OPENCV",
-    colmap_gpu: bool = True,
+    iterations: int,
 ) -> dict:
     """
     提交视频重建任务
@@ -554,7 +544,6 @@ async def submit_video_task(
     Args:
         item_id: 配件ID
         iterations: 训练迭代次数
-        其他参数见 reconstruction_server 的 V3 视频任务
         
     Returns:
         dict: 包含 task_id 的响应
@@ -600,16 +589,6 @@ async def submit_video_task(
                 "video_path": video_path,
                 "name": run_name,
                 "iterations": iterations,
-                "fps": fps,
-                "image_size": image_size,
-                "blur_threshold": blur_threshold,
-                "dedup_threshold": dedup_threshold,
-                "min_frames": min_frames,
-                "max_frames": max_frames,
-                "mask_dilate": mask_dilate,
-                "fill_interior_holes": fill_interior_holes,
-                "camera": camera,
-                "no_gpu": not colmap_gpu,
                 "output_name": run_name,
             }
         )

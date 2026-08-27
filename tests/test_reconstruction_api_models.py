@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from csrcqsf.modules.railway_parts.schemas.reconstruction import (
     ReconstructionMultipartUploadUrlItem,
     ReconstructionMultipartUploadedPartItem,
@@ -67,91 +70,65 @@ def test_reconstruction_train_request_keeps_item_id_as_string():
 def test_reconstruction_video_request_keeps_item_id_as_string():
     req = ReconstructionVideoReq(
         item_id=str(BIG_ITEM_ID),
+        iterations=10000,
     )
 
     assert req.item_id == str(BIG_ITEM_ID)
     assert isinstance(req.item_id, str)
 
 
-def test_reconstruction_video_request_uses_item_id_only():
+def test_reconstruction_video_request_contains_only_business_fields():
     req = ReconstructionVideoReq(
         item_id=str(BIG_ITEM_ID),
         iterations=10000,
-        fps=2.5,
     )
 
-    data = dump_model(req)
-
-    assert data["item_id"] == str(BIG_ITEM_ID)
-    assert "video_path" not in data
-    assert "name" not in data
-    assert data["iterations"] == 10000
-    assert data["fps"] == 2.5
+    assert dump_model(req) == {
+        "item_id": str(BIG_ITEM_ID),
+        "iterations": 10000,
+    }
 
 
-def test_reconstruction_video_request_drops_retired_public_fields():
-    req = ReconstructionVideoReq(
-        item_id=str(BIG_ITEM_ID),
-        is_sam3=True,
-        text_prompt="red coffee box",
-        skip_sam3=True,
-        skip_extract=True,
-        skip_filter=True,
-        skip_colmap=True,
-        sam3_model="/models/sam3",
-        sam2_model="/models/sam2.1-hiera-large",
-        output_name="manual-run",
-    )
-
-    data = dump_model(req)
-
-    assert data["item_id"] == str(BIG_ITEM_ID)
-    assert "is_sam3" not in data
-    assert "text_prompt" not in data
-    assert "skip_sam3" not in data
-    assert "skip_extract" not in data
-    assert "skip_filter" not in data
-    assert "skip_colmap" not in data
-    assert "sam3_model" not in data
-    assert "sam2_model" not in data
-    assert "output_name" not in data
+def test_reconstruction_video_request_requires_iterations():
+    with pytest.raises(ValidationError, match="iterations"):
+        ReconstructionVideoReq(item_id=str(BIG_ITEM_ID))
 
 
 def test_reconstruction_video_request_rejects_unknown_extra_field():
-    from pydantic import ValidationError
-
-    try:
+    with pytest.raises(ValidationError, match="unknown_flag"):
         ReconstructionVideoReq(
             item_id=str(BIG_ITEM_ID),
+            iterations=10000,
             unknown_flag=True,
         )
-    except ValidationError as exc:
-        assert "unknown_flag" in str(exc)
-    else:
-        raise AssertionError("unknown extra fields should still be rejected by the public API model")
 
 
-def test_reconstruction_video_request_defaults_align_with_v3_pipeline():
-    req = ReconstructionVideoReq(item_id=str(BIG_ITEM_ID))
-
-    data = dump_model(req)
-
-    assert data["fps"] == 3
-    assert data["max_frames"] == 150
-    assert data["colmap_gpu"] is False
-    assert data["fill_interior_holes"] is False
-
-
-def test_reconstruction_video_request_maps_legacy_no_gpu_to_colmap_gpu():
-    req = ReconstructionVideoReq(
-        item_id=str(BIG_ITEM_ID),
-        no_gpu=False,
-    )
-
-    data = dump_model(req)
-
-    assert "no_gpu" not in data
-    assert data["colmap_gpu"] is True
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("fps", 3),
+        ("image_size", 1600),
+        ("blur_threshold", 0),
+        ("dedup_threshold", 25),
+        ("min_frames", 30),
+        ("max_frames", 150),
+        ("mask_dilate", 7),
+        ("fill_interior_holes", False),
+        ("camera", "OPENCV"),
+        ("colmap_gpu", False),
+        ("no_gpu", False),
+        ("text_prompt", "object"),
+        ("video_path", "bfr-3d-videos/raw/demo.mp4"),
+        ("name", "manual-run"),
+    ],
+)
+def test_reconstruction_video_request_rejects_retired_fields(field, value):
+    with pytest.raises(ValidationError, match=field):
+        ReconstructionVideoReq(
+            item_id=str(BIG_ITEM_ID),
+            iterations=10000,
+            **{field: value},
+        )
 
 
 def test_reconstruction_video_upload_response_serializes_item_id_as_string():

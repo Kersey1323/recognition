@@ -199,24 +199,20 @@ async def delete_reconstruct_v2_source_video(item_id: str):
     return ReconstructionSourceVideoMessageRes(**result)
 
 
-@parts_router.post('/v2/reconstruct/tasks/video', tags=["算法-3D重建V2"], summary='V2: 从视频完整重建（V3自动分割）')
+@parts_router.post('/v2/reconstruct/tasks/video', tags=["算法-3D重建V2"], summary='V2: 从已绑定视频发起完整重建')
 async def reconstruct_v2_video(req: ReconstructionVideoReq):
     """
     完整视频重建流程
 
-    流程：已绑定原始视频 → 提帧 → 去模糊去重 → COLMAP → YOLO+SAM2 自动分割 → 3DGS训练
+    流程：根据 item_id 读取已绑定视频和配件名称，重构参数由 reconstruction_server 统一配置。
 
-    参数：
-    - item_id: 配件ID
-    - iterations: 训练迭代次数
-    - fps / image_size / blur_threshold / dedup_threshold / min_frames / max_frames: 帧提取与筛选参数
-    - mask_dilate / fill_interior_holes: 分割后处理参数
-    - camera / colmap_gpu: COLMAP 参数，默认使用 CPU
+    公开参数：
+    - item_id：配件 ID
+    - iterations：3DGS 训练迭代次数
 
     说明：
-    - 服务端会根据 `item_id` 自动读取已绑定的 `video_path` 和配件名称
-    - 输出目录默认使用 `时间_item_name` 作为运行名
-    - 业务接口不再暴露 SAM3 / prompt / 手工框 / 断点调试参数
+    - 业务服务不会转发提帧、分割、COLMAP、对齐或训练分辨率参数
+    - 服务端会生成跨服务 task_id 和运行名称
 
     返回：
     - task_id: 任务ID，用于查询进度
@@ -225,16 +221,6 @@ async def reconstruct_v2_video(req: ReconstructionVideoReq):
     result = await ReconstructionManager.submit_video_task(
         item_id=int(req.item_id),
         iterations=req.iterations,
-        fps=req.fps,
-        image_size=req.image_size,
-        blur_threshold=req.blur_threshold,
-        dedup_threshold=req.dedup_threshold,
-        min_frames=req.min_frames,
-        max_frames=req.max_frames,
-        mask_dilate=req.mask_dilate,
-        fill_interior_holes=req.fill_interior_holes,
-        camera=req.camera,
-        colmap_gpu=req.colmap_gpu,
     )
 
     return ReconstructionTaskRes(**result)
