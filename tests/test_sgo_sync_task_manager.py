@@ -145,6 +145,37 @@ def test_sgo_sync_task_manager_persists_progress_and_completion():
     asyncio.run(scenario())
 
 
+def test_inquiry_sync_receives_task_id_and_persists_semantic_follow_up():
+    async def scenario():
+        repository = FakeSgoSyncTaskRepository()
+        manager = SgoSyncTaskManager(repository=repository)
+        received = {}
+
+        async def runner(**kwargs):
+            received.update(kwargs)
+            return {
+                "total_items": 1,
+                "processed_items": 1,
+                "success_count": 1,
+                "fail_count": 0,
+                "created_count": 1,
+                "skipped_count": 0,
+                "synced_image_count": 0,
+                "failure_details": [],
+                "semantic_index_task_id": "semantic-1",
+                "semantic_index_warning": None,
+            }
+
+        started = await manager.start("inquiry-history", runner)
+        completed = await wait_terminal(manager, started["task_id"])
+
+        assert received["_sync_task_id"] == started["task_id"]
+        assert completed["status"] == "success"
+        assert completed["semantic_index_task_id"] == "semantic-1"
+
+    asyncio.run(scenario())
+
+
 def test_sgo_sync_task_manager_appends_incremental_failures_without_replacing_them():
     async def scenario():
         repository = FakeSgoSyncTaskRepository()

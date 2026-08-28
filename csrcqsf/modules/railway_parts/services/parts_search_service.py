@@ -24,6 +24,7 @@ SearchResultItem: Any = None
 SearchResults: Any = None
 SearchReviewTicket: Any = None
 SearchHistoryRepository: Any = None
+ContextualSearchRepository: Any = None
 ItemSuggestItem: Any = None
 ItemSuggestRes: Any = None
 SearchReviewTicketDeleteRes: Any = None
@@ -69,6 +70,7 @@ def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) ->
             "SearchResults": parts_service_module.SearchResults,
             "SearchReviewTicket": parts_service_module.SearchReviewTicket,
             "SearchHistoryRepository": parts_service_module.SearchHistoryRepository,
+            "ContextualSearchRepository": parts_service_module.ContextualSearchRepository,
             "ItemSuggestItem": parts_service_module.ItemSuggestItem,
             "ItemSuggestRes": parts_service_module.ItemSuggestRes,
             "SearchReviewTicketDeleteRes": parts_service_module.SearchReviewTicketDeleteRes,
@@ -162,6 +164,8 @@ async def _persist_v2_search_history(
                     )
                     for matched in item.matched_images
                 ],
+                matched_description=getattr(item, "matched_description", None),
+                matched_inquiry_id=getattr(item, "matched_inquiry_id", None),
             )
             for item in search_items
         ]
@@ -243,6 +247,8 @@ def _aggregate_v2_search_items(
                 image_url=best_item.image_url,
                 rate=best_item.rate,
                 matched_images=matched_images,
+                matched_description=getattr(best_item, "matched_description", None),
+                matched_inquiry_id=getattr(best_item, "matched_inquiry_id", None),
             )
         )
 

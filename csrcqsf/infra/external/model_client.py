@@ -184,6 +184,27 @@ class ModelServiceClient:
         })
         return np.array(data["vector"], dtype=np.float32)
 
+    async def text_embeddings(self, texts: list[str]) -> np.ndarray:
+        normalized = [str(text).strip() for text in texts]
+        if not normalized or any(not text for text in normalized):
+            raise ValueError("文本向量请求不能为空")
+
+        data = await self._post(
+            "/api/v1/text/embeddings",
+            {"texts": normalized},
+        )
+        if int(data.get("count", -1)) != len(normalized):
+            raise ValueError("模型服务返回的文本向量数量不一致")
+        if int(data.get("dim", -1)) != 1024:
+            raise ValueError("模型服务返回的文本向量维度不正确")
+        try:
+            vectors = np.asarray(data.get("vectors"), dtype=np.float32)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("模型服务返回的文本向量维度不正确") from exc
+        if vectors.shape != (len(normalized), 1024):
+            raise ValueError("模型服务返回的文本向量维度不正确")
+        return vectors
+
     async def siglip_batch_images(self, images: list) -> np.ndarray:
         data = await self._post("/api/v1/siglip/batch-images", {
             "images_base64": [_image_to_base64(img) for img in images],

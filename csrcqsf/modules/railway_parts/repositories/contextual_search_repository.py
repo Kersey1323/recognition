@@ -7,6 +7,7 @@ from sqlalchemy import func, select, update
 from csrcqsf.models.orm.item import Items
 from csrcqsf.models.orm.item_inquiry_history import ItemInquiryHistory
 from csrcqsf.models.orm.search_history import SearchHistory
+from csrcqsf.models.orm.sgo import SgoItemImages
 from csrcqsf.models.orm.sgo_external import (
     SgoMaterielMasterplate,
     SgoMaterielVehicle,
@@ -57,6 +58,29 @@ class ContextualSearchRepository:
             return []
         result = await session.execute(
             select(Items).where(Items.id.in_(sorted(set(item_ids))))
+        )
+        return list(result.scalars().all())
+
+    @classmethod
+    async def list_first_images_by_item_ids(cls, session, item_ids: list[int]):
+        if not item_ids:
+            return []
+        normalized = sorted(set(item_ids))
+        first_image_ids = (
+            select(
+                SgoItemImages.item_id.label("item_id"),
+                func.min(SgoItemImages.id).label("image_id"),
+            )
+            .where(SgoItemImages.item_id.in_(normalized))
+            .where(SgoItemImages.is_deleted == 0)
+            .group_by(SgoItemImages.item_id)
+            .subquery()
+        )
+        result = await session.execute(
+            select(SgoItemImages).join(
+                first_image_ids,
+                SgoItemImages.id == first_image_ids.c.image_id,
+            )
         )
         return list(result.scalars().all())
 

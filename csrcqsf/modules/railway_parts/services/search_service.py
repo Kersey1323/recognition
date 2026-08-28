@@ -3,6 +3,9 @@ from __future__ import annotations
 import io
 from typing import Any
 
+from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+    get_inquiry_semantic_index_service,
+)
 
 
 SearchHistoryListReq: Any = None
@@ -177,29 +180,54 @@ async def search_v2_by_text(
 ):
     runtime = runtime or _runtime()
     history_id = runtime.get_id()
-    manager = runtime._get_bound_milvus_manager_v2_cls()()
-    results = await manager.search_by_text(
-        text=query_text,
-        top_k=top_k,
+    semantic_service = get_inquiry_semantic_index_service()
+    # 多取一批语义候选，主库中配件已删除时继续向后补足，API 的 top_k
+    # 始终表示最终返回的配件数，而不是 Milvus 样本窗口大小。
+    enrichment_limit = min(200, max(30, int(top_k) * 5))
+    results = await semantic_service.search(
+        query_text=query_text,
+        top_k=enrichment_limit,
+        item_ids=None,
     )
 
     search_items = []
-    async with runtime.SessionLocal() as session:
-        for result in results:
-            item_id = result["entity"]["item_id"]
-            image_url = result["entity"]["image_url"]
-            item = await runtime.Items.get_item_by_id(session, item_id)
-            if item:
-                search_items.append(
-                    runtime.SearchItem(
-                        item_id=str(item.id),
-                        item_code=item.item_code,
-                        item_name=item.item_name,
-                        image_url=image_url,
-                        rate=result["distance"],
-                    )
+    item_ids = [int(result["entity"]["item_id"]) for result in results]
+    if item_ids:
+        async with runtime.SessionLocal() as session:
+            items = await runtime.ContextualSearchRepository.list_items_by_ids(
+                session, item_ids
+            )
+            first_images = (
+                await runtime.ContextualSearchRepository.list_first_images_by_item_ids(
+                    session, item_ids
                 )
-    search_items = cls._aggregate_v2_search_items(search_items)
+            )
+        item_map = {int(item.id): item for item in items}
+        image_map = {int(image.item_id): image.image_url for image in first_images}
+        for result in results:
+            entity = result.get("entity", {})
+            item_id = int(entity["item_id"])
+            item = item_map.get(item_id)
+            if item is None:
+                continue
+            search_items.append(
+                runtime.SearchItem(
+                    item_id=str(item.id),
+                    item_code=item.item_code,
+                    item_name=item.item_name,
+                    image_url=image_map.get(item_id, "") or "",
+                    rate=float(result.get("distance", 0) or 0),
+                    matched_images=[],
+                    matched_description=entity.get("description"),
+                    matched_inquiry_id=(
+                        str(entity["inquiry_id"])
+                        if entity.get("inquiry_id") is not None
+                        else None
+                    ),
+                )
+            )
+            if len(search_items) >= top_k:
+                break
     await cls._persist_v2_search_history(
         history_id=history_id,
         query_text=query_text,
@@ -208,7 +236,7 @@ async def search_v2_by_text(
         search_equipment=search_equipment,
         search_items=search_items,
     )
-    return runtime.SearchRes(history_id=str(history_id), data=search_items)
+    return runtime.SearchRes(history_id=str(history_id), data=search_items, message=None)
 
 
 async def search_v2_by_image(

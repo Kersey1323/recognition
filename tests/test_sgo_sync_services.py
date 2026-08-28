@@ -453,7 +453,7 @@ def test_sync_inquiry_history_maps_item_codes_and_reports_progress():
         assert payloads[0]["vehicle_batch"] == "SFE27"
         assert payloads[1]["item_id"] is None
         assert payloads[1]["vehicle_batch"] == "SFE28"
-        return len(payloads)
+        return {"processed_count": len(payloads), "history_ids": [501, 502]}
 
     with patch.object(
         SGOBiz,
@@ -488,3 +488,52 @@ def test_sync_inquiry_history_maps_item_codes_and_reports_progress():
     }
     assert [item["progress"] for item in progress] == [0, 100]
     assert progress[-1]["current_item_id"] == "inq-2"
+
+
+def test_sync_inquiry_history_enqueues_semantic_index_after_commit():
+    source_rows = [
+        {
+            "inquiry_id": "inq-1",
+            "inquiry_num": "CX001",
+            "vehicle": "SFE27",
+            "train_no": None,
+            "car_num": None,
+            "inquiry_item_name": "监控室对面窗帘",
+            "subordinate_component": None,
+            "remark": None,
+            "return_item_name": "窗帘组件",
+            "return_item_code": "code-1",
+            "inquiry_time": None,
+        }
+    ]
+    enqueue_semantic = AsyncMock(
+        return_value={"task_id": "semantic-task-1", "status": "pending"}
+    )
+
+    with patch.object(
+        SGOBiz,
+        "_list_sgo_inquiry_history_source_rows",
+        AsyncMock(return_value=source_rows),
+    ), patch.object(
+        SGOBiz,
+        "_list_main_item_ids_by_codes",
+        AsyncMock(return_value={"code-1": 101}),
+    ), patch.object(
+        SGOBiz,
+        "_upsert_inquiry_history_payloads",
+        AsyncMock(return_value={"processed_count": 1, "history_ids": [501]}),
+    ), patch.object(
+        SGOBiz,
+        "_enqueue_inquiry_semantic_index",
+        enqueue_semantic,
+    ):
+        result = asyncio.run(
+            SGOBiz.sync_inquiry_history(_sync_task_id="sync-task-1")
+        )
+
+    assert result["semantic_index_task_id"] == "semantic-task-1"
+    assert result["semantic_index_warning"] is None
+    enqueue_semantic.assert_awaited_once_with(
+        [501],
+        source_sync_task_id="sync-task-1",
+    )

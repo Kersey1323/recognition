@@ -361,6 +361,7 @@ def test_text_recall_does_not_appear_as_a_matched_image():
             return_value=[SimpleNamespace(id=1, item_code="CODE-1", item_name="冲洗按钮")]
         ),
         list_histories_by_item_ids=AsyncMock(return_value=[]),
+        list_first_images_by_item_ids=AsyncMock(return_value=[]),
     )
     manager = SimpleNamespace(
         search_by_image=AsyncMock(
@@ -376,35 +377,49 @@ def test_text_recall_does_not_appear_as_a_matched_image():
                 }
             ]
         ),
-        search_by_text=AsyncMock(
+    )
+    semantic_service = SimpleNamespace(
+        search=AsyncMock(
             return_value=[
                 {
                     "distance": 0.95,
                     "entity": {
                         "item_id": 1,
-                        "item_code": "CODE-1",
-                        "item_name": "冲洗按钮",
-                        "image_url": "text-hit.jpg",
+                        "description": "卫生间墙面上的冲洗按钮",
+                        "inquiry_id": "inq-1",
                     },
                 }
             ]
-        ),
+        )
     )
     runtime = _runtime(session, repository)
     runtime._get_milvus_manager_v2_cls = lambda: lambda: manager
 
-    results, message = asyncio.run(
-        contextual_search_service._execute_contextual_search(
-            object,
-            query_images=[object()],
-            parameters=SearchParameters(item_name="冲洗按钮", search_mode="siglip"),
-            runtime=runtime,
+    with patch.object(
+        contextual_search_service,
+        "get_inquiry_semantic_index_service",
+        return_value=semantic_service,
+        create=True,
+    ):
+        results, message = asyncio.run(
+            contextual_search_service._execute_contextual_search(
+                object,
+                query_images=[object()],
+                parameters=SearchParameters(item_name="冲洗按钮", search_mode="siglip"),
+                runtime=runtime,
+            )
         )
-    )
 
     assert message is None
     assert results[0].image_url == "visual.jpg"
     assert [match.image_url for match in results[0].matched_images] == ["visual.jpg"]
+    assert results[0].matched_description == "卫生间墙面上的冲洗按钮"
+    assert results[0].matched_inquiry_id == "inq-1"
+    semantic_service.search.assert_awaited_once_with(
+        "冲洗按钮",
+        top_k=100,
+        item_ids=None,
+    )
 
 
 def test_only_pending_history_can_be_searched_again():

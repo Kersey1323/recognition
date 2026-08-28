@@ -38,6 +38,8 @@ def test_sgo_sync_models_define_persistent_task_and_failure_contracts():
         "completed_at",
         "error_message",
         "cancel_reason",
+        "semantic_index_task_id",
+        "semantic_index_warning",
     }.issubset(task_columns)
     assert {
         "task_id",

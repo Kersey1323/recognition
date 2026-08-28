@@ -46,6 +46,8 @@ class SearchResultItem(BaseModel):
     similar: float
     image_url: str | None = None
     matched_images: list[MatchedImage] = []
+    matched_description: str | None = None
+    matched_inquiry_id: str | None = None
 
 
 class SearchResults(BaseModel):

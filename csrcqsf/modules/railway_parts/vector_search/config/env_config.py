@@ -8,6 +8,20 @@ from typing import Any, Dict
 from csrcqsf.core.runtime_paths import resolve_runtime_paths
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    value = int(os.getenv(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} 必须大于 0")
+    return value
+
+
+def _score_env(name: str, default: float) -> float:
+    value = float(os.getenv(name, str(default)))
+    if not -1 <= value <= 1:
+        raise ValueError(f"{name} 必须在 -1 到 1 之间")
+    return value
+
+
 class VectorDBConfig:
     """向量数据库配置类。"""
 
@@ -44,6 +58,35 @@ class VectorDBConfig:
         self.dinov2_patch_tokens_dir = str(runtime_paths.patch_tokens_dir)
 
         # ============================================
+        # 询码自然语言描述使用独立 BGE-M3 Collection，避免与图片索引混用。
+        # ============================================
+        self.inquiry_text_collection_alias = os.getenv(
+            "INQUIRY_TEXT_COLLECTION_ALIAS",
+            "PARTS_INQUIRY_BGE_M3_CURRENT",
+        )
+        self.inquiry_text_embedding_dim = _positive_int_env(
+            "INQUIRY_TEXT_EMBEDDING_DIM",
+            1024,
+        )
+        self.inquiry_text_index_batch_size = _positive_int_env(
+            "INQUIRY_TEXT_INDEX_BATCH_SIZE",
+            128,
+        )
+        self.inquiry_text_search_oversample = _positive_int_env(
+            "INQUIRY_TEXT_SEARCH_OVERSAMPLE",
+            5,
+        )
+        self.inquiry_text_search_min_candidates = _positive_int_env(
+            "INQUIRY_TEXT_SEARCH_MIN_CANDIDATES",
+            30,
+        )
+        self.inquiry_text_search_max_candidates = _positive_int_env(
+            "INQUIRY_TEXT_SEARCH_MAX_CANDIDATES",
+            200,
+        )
+        self.inquiry_text_min_score = _score_env("INQUIRY_TEXT_MIN_SCORE", 0.55)
+
+        # ============================================
         # 索引状态与日志统一写入可持久化运行时目录，避免源码只读挂载后写入失败。
         # ============================================
         self.indexing_checkpoint_file = str(runtime_paths.indexing_checkpoint_file)
@@ -76,6 +119,15 @@ class VectorDBConfig:
             'dinov2': {
                 'collection_name': self.dinov2_collection_name,
                 'patch_tokens_dir': self.dinov2_patch_tokens_dir,
+            },
+            'inquiry_text': {
+                'collection_alias': self.inquiry_text_collection_alias,
+                'embedding_dim': self.inquiry_text_embedding_dim,
+                'index_batch_size': self.inquiry_text_index_batch_size,
+                'search_oversample': self.inquiry_text_search_oversample,
+                'search_min_candidates': self.inquiry_text_search_min_candidates,
+                'search_max_candidates': self.inquiry_text_search_max_candidates,
+                'min_score': self.inquiry_text_min_score,
             },
             'indexing': {
                 'checkpoint_file': self.indexing_checkpoint_file,

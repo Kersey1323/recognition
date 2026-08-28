@@ -16,6 +16,9 @@ from csrcqsf.models.orm.search_history import (
     SearchSnapshot,
 )
 from csrcqsf.modules.railway_parts.schemas.search import SearchItem
+from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+    get_inquiry_semantic_index_service,
+)
 
 
 FINAL_SCORE_WEIGHTS = {
@@ -366,6 +369,8 @@ def _stored_results(search_items: list[SearchItem], *, runtime=None) -> SearchRe
                     )
                     for matched in item.matched_images
                 ],
+                matched_description=getattr(item, "matched_description", None),
+                matched_inquiry_id=getattr(item, "matched_inquiry_id", None),
             )
             for item in search_items
         ]
@@ -409,6 +414,8 @@ def _snapshot_response(snapshot: SearchSnapshot, *, runtime=None):
                     )
                     for matched in item.matched_images
                 ],
+                matched_description=getattr(item, "matched_description", None),
+                matched_inquiry_id=getattr(item, "matched_inquiry_id", None),
             )
             for item in snapshot.results.items
         ],
@@ -485,7 +492,7 @@ async def _execute_contextual_search(
 
     text_hits = []
     if parameters.item_name:
-        text_hits = await manager.search_by_text(
+        text_hits = await get_inquiry_semantic_index_service().search(
             parameters.item_name,
             top_k=100,
             item_ids=candidate_filter,
@@ -523,8 +530,24 @@ async def _execute_contextual_search(
         history_rows = await runtime.ContextualSearchRepository.list_histories_by_item_ids(
             session, recalled_item_ids
         )
+        text_only_item_ids = [
+            item_id
+            for item_id in recalled_item_ids
+            if item_id in text_scores and item_id not in image_scores
+        ]
+        first_images = (
+            await runtime.ContextualSearchRepository.list_first_images_by_item_ids(
+                session, text_only_item_ids
+            )
+            if text_only_item_ids
+            else []
+        )
 
     item_map = {int(item.id): item for item in items}
+    first_image_by_item = {
+        int(image.item_id): image.image_url
+        for image in first_images
+    }
     histories_by_item: dict[int, list[Any]] = {}
     for row in history_rows:
         if row.item_id is not None:
@@ -581,14 +604,26 @@ async def _execute_contextual_search(
                     ),
                 )
             )
+        best_text_hit = fallback_text_hits[0] if fallback_text_hits else {}
+        best_text_entity = best_text_hit.get("entity", {})
         search_items.append(
             runtime.SearchItem(
                 item_id=str(item_id),
                 item_code=(item.item_code if item else representative.get("item_code", "")),
                 item_name=(item.item_name if item else representative.get("item_name", "")),
-                image_url=representative.get("image_url", "") or "",
+                image_url=(
+                    representative.get("image_url", "")
+                    or first_image_by_item.get(item_id, "")
+                    or ""
+                ),
                 rate=float(score_row["final_score"]),
                 matched_images=matched_images,
+                matched_description=best_text_entity.get("description"),
+                matched_inquiry_id=(
+                    str(best_text_entity["inquiry_id"])
+                    if best_text_entity.get("inquiry_id") is not None
+                    else None
+                ),
             )
         )
     return search_items, None

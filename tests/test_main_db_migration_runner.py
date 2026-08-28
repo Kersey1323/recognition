@@ -96,3 +96,36 @@ def test_run_pending_migrations_rejects_changed_checksum(monkeypatch):
         assert "已执行迁移脚本内容发生变化" in str(exc)
     else:
         raise AssertionError("changed migration checksum should fail startup migration")
+
+
+def test_inquiry_text_index_migration_adds_sgo_relation_columns():
+    migration = __import__(
+        "csrcqsf.infra.db.migrations.20260828_001_add_inquiry_text_index_tasks",
+        fromlist=["upgrade"],
+    )
+    calls = []
+
+    async def fake_ensure_column(_conn, table_name, column_name, definition):
+        calls.append((table_name, column_name, definition))
+
+    import csrcqsf.infra.db.main_db as main_db
+
+    original = main_db._ensure_column
+    main_db._ensure_column = fake_ensure_column
+    try:
+        asyncio.run(migration.upgrade(object()))
+    finally:
+        main_db._ensure_column = original
+
+    assert calls == [
+        (
+            "sgo_sync_task",
+            "semantic_index_task_id",
+            "`semantic_index_task_id` VARCHAR(100) NULL",
+        ),
+        (
+            "sgo_sync_task",
+            "semantic_index_warning",
+            "`semantic_index_warning` TEXT NULL",
+        ),
+    ]

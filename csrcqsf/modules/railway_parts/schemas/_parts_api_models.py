@@ -223,11 +223,16 @@ class UpdateItemSizeStr(BaseModel):
 
 
 class SearchTextReq(BaseModel):
-    query_text: str = Field(description="查询文本", example="制动盘")
+    query_text: str = Field(
+        description="自然语言配件描述，将与历史询码中的名称描述进行语义匹配",
+        example="监控室对面窗帘",
+    )
     top_k: int = Field(
         default=10,
-        description="参与聚合的图片命中数量，仍按图片结果窗口工作",
+        description="最终返回的配件数量",
         example=5,
+        ge=1,
+        le=100,
     )
     search_equipment: str = Field(
         default="web",
@@ -238,7 +243,7 @@ class SearchTextReq(BaseModel):
     class Config:
         schema_extra = {
             "example": {
-                "query_text": "制动盘",
+                "query_text": "监控室对面窗帘",
                 "top_k": 5,
                 "search_equipment": "web",
             }
@@ -252,6 +257,14 @@ class SearchItem(BaseModel):
     image_url: str = ''
     rate: float = 0
     matched_images: list[MatchedImage] = []
+    matched_description: str | None = Field(
+        None,
+        description="文本检索命中的历史询码名称描述；图片检索为空",
+    )
+    matched_inquiry_id: str | None = Field(
+        None,
+        description="命中描述对应的询码记录 ID；图片检索为空",
+    )
 
 
 class SearchRes(BaseModel):

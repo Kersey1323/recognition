@@ -4,6 +4,7 @@ from .asset_proxy_routes import asset_proxy_router
 from .router import parts_router
 from . import (
     asset_proxy_routes,
+    inquiry_text_index_routes,
     parts_routes,
     reconstruction_operations_routes,
     reconstruction_routes,
@@ -76,6 +77,7 @@ list_reconstruction_scenes = reconstruction_routes.list_reconstruction_scenes
 __all__ = [
     "asset_proxy_router",
     "asset_proxy_routes",
+    "inquiry_text_index_routes",
     "parts_router",
     "parts_routes",
     "search_routes",

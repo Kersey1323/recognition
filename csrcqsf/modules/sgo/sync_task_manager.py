@@ -131,7 +131,7 @@ class SgoSyncTaskManager:
                 status="pending",
             )
             task = asyncio.create_task(
-                self._run(task_id, runner, deepcopy(runner_kwargs)),
+                self._run(task_id, task_type, runner, deepcopy(runner_kwargs)),
                 name=f"sgo-{task_type}-sync-{task_id}",
             )
             self._active[task_id] = task
@@ -165,6 +165,7 @@ class SgoSyncTaskManager:
     async def _run(
         self,
         task_id: str,
+        task_type: str,
         runner: SgoSyncRunner,
         runner_kwargs: dict[str, Any],
     ) -> None:
@@ -203,8 +204,13 @@ class SgoSyncTaskManager:
                 )
 
         try:
+            invocation_kwargs = dict(runner_kwargs)
+            if task_type == "inquiry-history":
+                # 同步任务 ID 仅用于关联后续语义索引任务，不属于用户请求参数，
+                # 因此只在执行时注入，不写入 task_params_json，也不传给其他同步类型。
+                invocation_kwargs["_sync_task_id"] = task_id
             result = await runner(
-                **runner_kwargs,
+                **invocation_kwargs,
                 progress_callback=persist_progress,
             )
             failures = list(result.get("failure_details") or [])
@@ -227,6 +233,9 @@ class SgoSyncTaskManager:
                 for field in PROGRESS_FIELDS
                 if field in result
             }
+            for field in ("semantic_index_task_id", "semantic_index_warning"):
+                if field in result:
+                    values[field] = result[field]
             values.update(
                 status="failed" if all_failed else "success",
                 progress=100,

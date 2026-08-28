@@ -417,6 +417,54 @@ class CollectionManager:
         logger.info(f"SigLIP collection created: {collection_name}")
         return True
 
+    def create_inquiry_semantic_collection(
+        self,
+        collection_name: str,
+        vector_dim: int = 1024,
+    ) -> bool:
+        """创建独立的询码自然语言语义索引 Collection。"""
+        if self.collection_exists(collection_name):
+            logger.info(f"Collection already exists: {collection_name}")
+            return False
+
+        schema = MilvusClient.create_schema(
+            auto_id=False,
+            enable_dynamic_field=False,
+        )
+        schema.add_field(
+            field_name="document_key",
+            datatype=DataType.VARCHAR,
+            max_length=64,
+            is_primary=True,
+        )
+        schema.add_field(field_name="history_id", datatype=DataType.INT64)
+        schema.add_field(field_name="inquiry_id", datatype=DataType.VARCHAR, max_length=100)
+        schema.add_field(field_name="item_id", datatype=DataType.INT64)
+        schema.add_field(field_name="item_code", datatype=DataType.VARCHAR, max_length=100)
+        schema.add_field(field_name="description", datatype=DataType.VARCHAR, max_length=1000)
+        schema.add_field(field_name="content_hash", datatype=DataType.VARCHAR, max_length=64)
+        schema.add_field(
+            field_name="text_vector",
+            datatype=DataType.FLOAT_VECTOR,
+            dim=vector_dim,
+        )
+        schema.add_field(field_name="updated_at", datatype=DataType.VARCHAR, max_length=50)
+
+        index_params = self.client.prepare_index_params()
+        index_params.add_index(
+            field_name="text_vector",
+            index_type="HNSW",
+            metric_type="COSINE",
+            params={"M": 16, "efConstruction": 200},
+        )
+        self.client.create_collection(
+            collection_name=collection_name,
+            schema=schema,
+            index_params=index_params,
+        )
+        logger.info(f"Inquiry semantic collection created: {collection_name}")
+        return True
+
     def create_dinov2_collection(
         self,
         collection_name: str,

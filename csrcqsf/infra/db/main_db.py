@@ -67,6 +67,7 @@ class PlainBase(DeclarativeBase):
 MAIN_DB_MODEL_MODULES = (
     "csrcqsf.models.orm.files",
     "csrcqsf.models.orm.index_rebuild_task",
+    "csrcqsf.models.orm.inquiry_text_index_task",
     "csrcqsf.models.orm.item",
     "csrcqsf.models.orm.reconstruction",
     "csrcqsf.models.orm.reconstruction_operation_audit",

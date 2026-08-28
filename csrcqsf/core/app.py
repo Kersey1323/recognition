@@ -28,9 +28,13 @@ from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsMan
 from csrcqsf.modules.sgo.routes import sgo_router
 from csrcqsf.infra.db.main_db import db_migrate
 from csrcqsf.models.orm.index_rebuild_task import recover_index_rebuild_tasks
+from csrcqsf.models.orm.inquiry_text_index_task import recover_inquiry_text_index_tasks
 from csrcqsf.models.orm.sgo_sync_task import recover_sgo_sync_tasks
 from csrcqsf.infra.storage.minio import create_minio_buckets
 from csrcqsf.modules.sgo.services import SGOBiz
+from csrcqsf.modules.railway_parts.services.inquiry_text_index_task_manager import (
+    inquiry_text_index_task_manager,
+)
 from csrcqsf.core.scheduler import register_main_async_loop
 from csrcqsf.core.settings import (
     ai_settings,
@@ -92,6 +96,11 @@ async def lifespan(app: FastAPI):
             recover_sgo_sync_tasks,
             logger=logger,
         )
+        await run_startup_step(
+            "询码语义索引任务状态恢复",
+            recover_inquiry_text_index_tasks,
+            logger=logger,
+        )
     else:
         logger.warning("未显式配置主业务库环境变量，跳过数据库迁移初始化")
 
@@ -149,6 +158,14 @@ async def lifespan(app: FastAPI):
         logger.warning(
             "主业务库、MinIO 或 Milvus 配置不完整，跳过待索引图片自动索引调度器初始化"
         )
+    if main_db_env_configured() and milvus_env_configured():
+        await run_startup_step(
+            "询码语义索引任务队列初始化",
+            inquiry_text_index_task_manager.start_worker,
+            logger=logger,
+        )
+    else:
+        logger.warning("主业务库或 Milvus 配置不完整，跳过询码语义索引任务队列初始化")
     RunVar("_default_thread_limiter").set(CapacityLimiter(200))  # 线程池限制
     logger.info("模型推理已迁移至独立服务（MODEL_SERVICE_URL），本地不再加载模型")
     logger.info("应用启动初始化全部完成")
@@ -156,6 +173,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await auto_index_scheduler.stop()
+        await inquiry_text_index_task_manager.stop_worker()
 
 
 # 创建FastAPI应用实例

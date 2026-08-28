@@ -68,6 +68,8 @@ class SgoSyncTask(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     cancel_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    semantic_index_task_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    semantic_index_warning: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     @classmethod
     async def recover_active_tasks(cls, session: AsyncSession) -> dict[str, int]:

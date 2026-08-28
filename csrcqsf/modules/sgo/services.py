@@ -15,7 +15,7 @@ from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
 from csrcqsf.core.logging_config import logger
 from pydantic import BaseModel
-from sqlalchemy import String, cast, select, text
+from sqlalchemy import String, cast, select, text, tuple_
 from urllib3 import PoolManager
 from urllib3.util import create_urllib3_context
 
@@ -889,6 +889,7 @@ class SGOBiz:
         limit: int | None = None,
         batch_size: int = 500,
         progress_callback: Callable[[dict], None] | None = None,
+        _sync_task_id: str | None = None,
     ) -> dict:
         source_rows = await cls._list_sgo_inquiry_history_source_rows(limit=limit)
         total_items = len(source_rows)
@@ -921,10 +922,11 @@ class SGOBiz:
             )
             for row in source_rows
         ]
-        processed_count = await cls._upsert_inquiry_history_payloads(
+        upsert_result = await cls._upsert_inquiry_history_payloads(
             payloads,
             batch_size=batch_size,
         )
+        processed_count = int(upsert_result["processed_count"])
 
         if progress_callback is not None:
             await _notify_progress(
@@ -944,7 +946,7 @@ class SGOBiz:
                 }
             )
 
-        return {
+        result = {
             "total_items": total_items,
             "processed_items": total_items,
             "success_count": processed_count,
@@ -954,6 +956,44 @@ class SGOBiz:
             "synced_image_count": 0,
             "failed_item_ids": [],
         }
+
+        if _sync_task_id is not None:
+            result["semantic_index_task_id"] = None
+            result["semantic_index_warning"] = None
+            history_ids = list(upsert_result["history_ids"])
+            if history_ids:
+                try:
+                    # 询码主数据已经提交后再创建语义索引任务；任务创建失败只记录告警，
+                    # 不回滚已经成功写入的询码记录，也不改变 SGO 同步任务的成功状态。
+                    semantic_task = await cls._enqueue_inquiry_semantic_index(
+                        history_ids,
+                        source_sync_task_id=_sync_task_id,
+                    )
+                    result["semantic_index_task_id"] = semantic_task["task_id"]
+                except Exception as exc:
+                    warning = str(exc) or repr(exc)
+                    result["semantic_index_warning"] = warning
+                    logger.exception(
+                        "询码同步成功，但增量语义索引任务创建失败: sync_task_id=%s",
+                        _sync_task_id,
+                    )
+        return result
+
+    @classmethod
+    async def _enqueue_inquiry_semantic_index(
+        cls,
+        history_ids: list[int],
+        *,
+        source_sync_task_id: str,
+    ) -> dict:
+        from csrcqsf.modules.railway_parts.services.inquiry_text_index_task_manager import (
+            inquiry_text_index_task_manager,
+        )
+
+        return await inquiry_text_index_task_manager.enqueue_incremental(
+            history_ids,
+            source_sync_task_id=source_sync_task_id,
+        )
 
     @classmethod
     async def _list_sgo_inquiry_history_source_rows(
@@ -1005,12 +1045,13 @@ class SGOBiz:
         payloads: list[dict],
         *,
         batch_size: int,
-    ) -> int:
+    ) -> dict[str, int | list[int]]:
         if not payloads:
-            return 0
+            return {"processed_count": 0, "history_ids": []}
 
         statement = text(_build_inquiry_history_upsert_sql())
         processed_count = 0
+        history_ids: list[int] = []
         async with SessionLocal() as session:
             for offset in range(0, len(payloads), batch_size):
                 batch = payloads[offset : offset + batch_size]
@@ -1031,8 +1072,47 @@ class SGOBiz:
                 await session.execute(statement, rows)
                 processed_count += len(rows)
                 await session.flush()
+
+                # upsert 可能更新已有记录，不能使用本次生成的 Snowflake ID；按业务唯一键
+                # 回查数据库中的真实主键，供后续增量语义索引准确定位本批询码样本。
+                unique_keys = list(
+                    dict.fromkeys(
+                        (
+                            str(payload["inquiry_id"]),
+                            str(payload["return_item_code"]),
+                            str(payload["source"]),
+                        )
+                        for payload in batch
+                    )
+                )
+                id_result = await session.execute(
+                    select(
+                        ItemInquiryHistory.id,
+                        ItemInquiryHistory.inquiry_id,
+                        ItemInquiryHistory.return_item_code,
+                        ItemInquiryHistory.source,
+                    ).where(
+                        tuple_(
+                            ItemInquiryHistory.inquiry_id,
+                            ItemInquiryHistory.return_item_code,
+                            ItemInquiryHistory.source,
+                        ).in_(unique_keys)
+                    )
+                )
+                id_by_key = {
+                    (str(inquiry_id), str(return_item_code), str(source)): int(history_id)
+                    for history_id, inquiry_id, return_item_code, source in id_result
+                }
+                history_ids.extend(
+                    id_by_key[key]
+                    for key in unique_keys
+                    if key in id_by_key
+                )
             await session.commit()
-        return processed_count
+        return {
+            "processed_count": processed_count,
+            "history_ids": list(dict.fromkeys(history_ids)),
+        }
 
     @classmethod
     async def get_inquery_code_pic_from_db(cls, item_id_list: list[str]) -> int:

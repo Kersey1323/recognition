@@ -103,27 +103,16 @@ def test_search_v2_by_text_persists_query_text_after_success():
         {
             "entity": {
                 "item_id": 1,
-                "item_name": "制动2",
-                "item_code": "40000728845",
-                "image_url": "bfr-ai-files/a.jpg",
-            },
-            "distance": 0.95,
-        },
-        {
-            "entity": {
-                "item_id": 1,
-                "item_name": "制动2",
-                "item_code": "40000728845",
-                "image_url": "bfr-ai-files/b.jpg",
+                "description": "转向架上的制动圆盘",
+                "inquiry_id": "inq-1",
             },
             "distance": 0.98,
         },
         {
             "entity": {
                 "item_id": 2,
-                "item_name": "制动控制器",
-                "item_code": "19010025620",
-                "image_url": "bfr-ai-files/c.jpg",
+                "description": "司机室操作制动的控制部件",
+                "inquiry_id": "inq-2",
             },
             "distance": 0.91,
         },
@@ -135,14 +124,27 @@ def test_search_v2_by_text_persists_query_text_after_success():
 
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
 
-    async def _get_item_by_id(session, item_id):
-        return fake_items[item_id]
-
-    with patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
-         patch.object(parts_module, "get_id", return_value=2048696242753638400), \
+    semantic_service = SimpleNamespace(search=AsyncMock(return_value=fake_hits))
+    with patch.object(
+        parts_module.parts_search_service.search_service,
+        "get_inquiry_semantic_index_service",
+        return_value=semantic_service,
+    ), patch.object(parts_module, "get_id", return_value=2048696242753638400), \
          patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(side_effect=_get_item_by_id)):
-        manager_cls.return_value.search_by_text = AsyncMock(return_value=fake_hits)
+         patch.object(
+             parts_module.ContextualSearchRepository,
+             "list_items_by_ids",
+             AsyncMock(return_value=list(fake_items.values())),
+         ), patch.object(
+             parts_module.ContextualSearchRepository,
+             "list_first_images_by_item_ids",
+             AsyncMock(
+                 return_value=[
+                     SimpleNamespace(item_id=1, image_url="bfr-ai-files/b.jpg"),
+                     SimpleNamespace(item_id=2, image_url="bfr-ai-files/c.jpg"),
+                 ]
+             ),
+         ):
         result = asyncio.run(RailwayPartsManager.search_v2_by_text("制动盘", top_k=10))
 
     assert result.history_id == "2048696242753638400"
@@ -151,10 +153,8 @@ def test_search_v2_by_text_persists_query_text_after_success():
     assert result.data[0].item_code == "40000728845"
     assert result.data[0].image_url == "bfr-ai-files/b.jpg"
     assert result.data[0].rate == 0.98
-    assert [img.image_url for img in result.data[0].matched_images] == [
-        "bfr-ai-files/b.jpg",
-        "bfr-ai-files/a.jpg",
-    ]
+    assert result.data[0].matched_images == []
+    assert result.data[0].matched_description == "转向架上的制动圆盘"
     assert isinstance(session.added, SearchHistory)
     assert session.added.search_result_item_code == "40000728845"
     assert session.added.query_text == "制动盘"
@@ -163,7 +163,8 @@ def test_search_v2_by_text_persists_query_text_after_success():
     assert session.added.search_results.items[0].item_id == "1"
     assert session.added.search_results.items[0].item_name == "制动2"
     assert session.added.search_results.items[0].image_url == "bfr-ai-files/b.jpg"
-    assert session.added.search_results.items[0].matched_images[0].image_url == "bfr-ai-files/b.jpg"
+    assert session.added.search_results.items[0].matched_images == []
+    assert session.added.search_results.items[0].matched_inquiry_id == "inq-1"
     assert len(session.added.search_results.items) == 2
     session.commit.assert_awaited()
 
@@ -185,9 +186,8 @@ def test_search_v2_by_text_persists_search_equipment_and_pending_feedback():
     fake_hit = {
         "entity": {
             "item_id": 1935558010375340032,
-            "item_name": "螺栓M8X22",
-            "item_code": "11010150131",
-            "image_url": "bfr-ai-files/bolt.jpg",
+            "description": "固定盖板的六角螺栓",
+            "inquiry_id": "inq-bolt",
         },
         "distance": 0.98,
     }
@@ -199,15 +199,34 @@ def test_search_v2_by_text_persists_search_equipment_and_pending_feedback():
 
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
 
-    with patch.object(parts_module, "MilvusManagerV2") as manager_cls, \
-         patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)):
-        manager_cls.return_value.search_by_text = AsyncMock(return_value=[fake_hit])
+    semantic_service = SimpleNamespace(search=AsyncMock(return_value=[fake_hit]))
+    with patch.object(
+        parts_module.parts_search_service.search_service,
+        "get_inquiry_semantic_index_service",
+        return_value=semantic_service,
+    ), patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(
+             parts_module.ContextualSearchRepository,
+             "list_items_by_ids",
+             AsyncMock(return_value=[fake_item]),
+         ), patch.object(
+             parts_module.ContextualSearchRepository,
+             "list_first_images_by_item_ids",
+             AsyncMock(
+                 return_value=[
+                     SimpleNamespace(
+                         item_id=1935558010375340032,
+                         image_url="bfr-ai-files/bolt.jpg",
+                     )
+                 ]
+             ),
+         ):
         asyncio.run(RailwayPartsManager.search_v2_by_text("螺栓", top_k=5, search_equipment="web"))
 
     assert isinstance(session.added, SearchHistory)
     assert session.added.search_equipment == "web"
     assert session.added.verify_status == "pending"
+    assert session.added.search_results.items[0].matched_description == "固定盖板的六角螺栓"
 
 
 def test_search_v2_by_image_uploads_query_image_and_persists_path():

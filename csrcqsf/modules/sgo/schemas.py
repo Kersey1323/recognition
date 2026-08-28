@@ -102,6 +102,14 @@ class SgoSyncTaskStatusRes(BaseModel):
     )
     error_message: str | None = Field(None, description="任务异常或业务失败摘要")
     cancel_reason: str | None = Field(None, description="任务取消原因")
+    semantic_index_task_id: str | None = Field(
+        None,
+        description="询码同步后创建的语义索引任务 ID；其他同步类型为空",
+    )
+    semantic_index_warning: str | None = Field(
+        None,
+        description="语义索引任务创建失败原因；不影响询码同步成功状态",
+    )
     heartbeat_at: str | None = Field(None, description="最近一次进度持久化时间")
     started_at: str | None = Field(None, description="开始时间")
     completed_at: str | None = Field(None, description="结束时间")

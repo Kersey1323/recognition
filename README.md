@@ -4,7 +4,7 @@ https://github.com/Tencent-Hunyuan/Hunyuan3D-2
 基于 FastAPI 的铁路配件主业务服务，当前覆盖以下能力：
 
 - 配件基础管理
-- 图片检索与文本检索
+- 图片检索与基于历史询码描述的自然语言语义检索
 - V2 向量索引管理
 - 检索历史与技术部核验闭环
 - 配件图片分割与预处理
@@ -100,17 +100,31 @@ cp .env.example .env
 - Redis：`REDIS_*`
 - 基础服务 HTTP 鉴权地址：`BASIS_API_HTTP_URL`
 - 模型推理服务：`MODEL_SERVICE_URL`
+- 询码语义索引：`INQUIRY_TEXT_*`
 - 三维重构服务：`RECONSTRUCTION_SERVER_URL`
 
 说明：
 
 - `MODEL_SERVICE_URL` 不可用时，依赖模型推理的接口无法正常使用
+- 文本检索调用模型服务的 BGE-M3 `/api/v1/text/embeddings`，不再使用 SigLIP 文本找图
 - V2 索引构建要求模型服务 `/health` 包含 `indexing_extract`；任务会先校验能力，再读取业务数据
 - V2 索引对 `BASEINFO`、`INQUERY`、`CREATEBYSELF` 图片统一执行 YOLO-World + SAM2 黑底抠图，仅主体未检测到或空 mask 时回退原图
 - 分割 PNG 写入 `MINIO_BUCKET/segmented/{item_id}/{image_id}/`，记录保存在 `segmented_image_info`
 - `MODEL_SERVICE_INDEX_TIMEOUT_SEC` 控制单张组合提取超时，默认 120 秒
 - `RECONSTRUCTION_SERVER_URL` 不配置时，主业务仍可启动，但三维重构相关接口会禁用
 - `DINOV2_PATCH_TOKENS_DIR` 默认是 `state/vector_db/patch_tokens`，部署时应挂载持久化目录
+
+### 询码语义检索首次启用
+
+文本检索只索引主库 `item_inquiry_history.inquiry_item_name`，用于“监控室对面窗帘”这类自然语言描述。首次启用顺序：
+
+1. 模型服务启用 BGE-M3，并确认 `/health` 已声明文本向量能力。
+2. 部署主服务，让启动迁移创建询码语义任务表和 SGO 任务关联字段。
+3. 调用 `POST /railway/parts/v2/inquiry-text-index/rebuild` 创建首次全量任务。
+4. 查询 `GET /railway/parts/v2/inquiry-text-index/tasks/{task_id}`，等待状态变为 `success`。
+5. 使用 `POST /railway/parts/v2/search/text` 验证自然语言描述召回。
+
+服务启动不会自动执行全量重建。后续 SGO 询码同步提交成功后会创建增量语义索引任务；增量任务创建失败只记录在同步任务的 `semantic_index_warning`，不会回滚已同步的询码数据。
 
 ### 3. 启动主服务
 

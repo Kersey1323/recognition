@@ -16,6 +16,7 @@ from csrcqsf.modules.railway_parts.schemas import (
     SearchReviewTicketItem,
     V2IndexDeleteRes,
 )
+from csrcqsf.models.orm.search_history import SearchResultItem
 
 
 BIG_ITEM_ID = 1935558010375340032
@@ -101,6 +102,37 @@ def test_search_item_serializes_matched_images():
     assert data["matched_images"][0]["image_url"].endswith("1960224093814181888.jpg")
     assert data["matched_images"][0]["rate"] == 0.9584
     assert data["matched_images"][0]["matched_query_indexes"] == [0, 1]
+
+
+def test_text_search_explanation_fields_are_forward_and_backward_compatible():
+    old_history_item = SearchResultItem(
+        item_id="1",
+        item_code="CODE-1",
+        item_name="窗帘组件",
+        similar=0.9,
+    )
+    assert old_history_item.matched_description is None
+    assert old_history_item.matched_inquiry_id is None
+
+    response_item = SearchItem(
+        item_id="1",
+        item_code="CODE-1",
+        item_name="窗帘组件",
+        rate=0.93,
+        matched_description="监控室对面窗帘",
+        matched_inquiry_id="inq-1",
+    )
+    stored_item = SearchResultItem(
+        item_id=response_item.item_id,
+        item_code=response_item.item_code,
+        item_name=response_item.item_name,
+        similar=response_item.rate,
+        matched_description=response_item.matched_description,
+        matched_inquiry_id=response_item.matched_inquiry_id,
+    )
+
+    assert dump_model(response_item)["matched_description"] == "监控室对面窗帘"
+    assert dump_model(stored_item)["matched_inquiry_id"] == "inq-1"
 
 
 def test_search_text_request_model_serializes_request_body_fields():

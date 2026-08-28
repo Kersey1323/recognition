@@ -1,0 +1,228 @@
+import asyncio
+from types import SimpleNamespace
+
+import numpy as np
+
+
+class FakeRepository:
+    def __init__(self, rows):
+        self.rows = rows
+
+    async def list_by_ids(self, history_ids):
+        wanted = set(history_ids)
+        return [row for row in self.rows if row.id in wanted]
+
+    async def list_valid(self):
+        return [
+            row
+            for row in self.rows
+            if row.item_id is not None and str(row.inquiry_item_name or "").strip()
+        ]
+
+
+class FakeModelClient:
+    def __init__(self):
+        self.calls = []
+
+    async def text_embeddings(self, texts):
+        self.calls.append(list(texts))
+        return np.asarray(
+            [[float(index + 1)] * 1024 for index, _text in enumerate(texts)],
+            dtype=np.float32,
+        )
+
+
+class FakeStore:
+    def __init__(self):
+        self.hashes = {}
+        self.upserts = []
+        self.deletes = []
+        self.search_hits = []
+        self.activated = []
+        self.dropped = []
+
+    def get_existing_hashes(self, keys, collection_name=None):
+        return {key: self.hashes[key] for key in keys if key in self.hashes}
+
+    def upsert(self, documents, collection_name=None):
+        self.upserts.extend((collection_name, document) for document in documents)
+        return len(documents)
+
+    def delete(self, keys, collection_name=None):
+        self.deletes.append((collection_name, list(keys)))
+        return len(keys)
+
+    def search(self, vector, *, limit, item_ids=None):
+        self.search_limit = limit
+        self.search_item_ids = item_ids
+        return self.search_hits
+
+    def create_build_collection(self, task_id):
+        return f"build-{task_id}"
+
+    def activate_build_collection(self, collection_name):
+        self.activated.append(collection_name)
+
+    def drop_build_collection(self, collection_name):
+        self.dropped.append(collection_name)
+
+
+def make_row(
+    row_id,
+    inquiry_id,
+    description,
+    *,
+    item_id=10,
+    item_code="40001",
+    source="sgo",
+):
+    return SimpleNamespace(
+        id=row_id,
+        inquiry_id=inquiry_id,
+        inquiry_item_name=description,
+        item_id=item_id,
+        item_code=item_code,
+        source=source,
+    )
+
+
+def make_config(**overrides):
+    values = {
+        "inquiry_text_index_batch_size": 128,
+        "inquiry_text_search_oversample": 5,
+        "inquiry_text_search_min_candidates": 30,
+        "inquiry_text_search_max_candidates": 200,
+        "inquiry_text_min_score": 0.55,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_description_normalization_and_hashes_are_deterministic():
+    from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+        build_content_hash,
+        build_document_key,
+        normalize_inquiry_description,
+    )
+
+    assert normalize_inquiry_description(" 监控室\u3000对面\n窗帘 ") == "监控室 对面 窗帘"
+    assert build_document_key("sgo", "1001") == build_document_key("sgo", "1001")
+    assert build_document_key("sgo", "1001") != build_document_key("sgo", "1002")
+    assert build_content_hash(10, "40001", "描述") != build_content_hash(11, "40001", "描述")
+
+
+def test_incremental_index_skips_unchanged_updates_changed_and_deletes_invalid():
+    from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+        InquirySemanticIndexService,
+        build_content_hash,
+        build_document_key,
+    )
+
+    unchanged = make_row(1, "1001", "监控室对面窗帘")
+    changed = make_row(2, "1002", "底板螺栓", item_id=20, item_code="40002")
+    invalid = make_row(3, "1003", " ", item_id=None, item_code="40003")
+    store = FakeStore()
+    store.hashes[build_document_key("sgo", "1001")] = build_content_hash(
+        10, "40001", "监控室对面窗帘"
+    )
+    store.hashes[build_document_key("sgo", "1003")] = "old"
+    model = FakeModelClient()
+    service = InquirySemanticIndexService(
+        repository=FakeRepository([unchanged, changed, invalid]),
+        store=store,
+        model_client=model,
+        config=make_config(),
+    )
+
+    result = asyncio.run(service.run_incremental([1, 2, 3]))
+
+    assert result["total_items"] == 3
+    assert result["processed_items"] == 3
+    assert result["indexed_count"] == 1
+    assert result["skipped_count"] == 1
+    assert result["deleted_count"] == 1
+    assert result["fail_count"] == 0
+    assert model.calls == [["底板螺栓"]]
+    assert store.upserts[0][1].inquiry_id == "1002"
+    assert store.deletes == [(None, [build_document_key("sgo", "1003")])]
+
+
+def test_full_build_switches_alias_only_after_success():
+    from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+        InquirySemanticIndexService,
+    )
+
+    store = FakeStore()
+    service = InquirySemanticIndexService(
+        repository=FakeRepository([make_row(1, "1001", "监控室对面窗帘")]),
+        store=store,
+        model_client=FakeModelClient(),
+        config=make_config(),
+    )
+
+    result = asyncio.run(service.run_full("task-1"))
+
+    assert result["indexed_count"] == 1
+    assert store.activated == ["build-task-1"]
+    assert store.dropped == []
+    assert store.upserts[0][0] == "build-task-1"
+
+
+def test_search_applies_threshold_and_aggregates_by_best_item_hit():
+    from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+        InquirySemanticIndexService,
+    )
+
+    store = FakeStore()
+    store.search_hits = [
+        {"distance": 0.91, "entity": {"item_id": 10, "inquiry_id": "a", "description": "描述A"}},
+        {"distance": 0.82, "entity": {"item_id": 10, "inquiry_id": "b", "description": "描述B"}},
+        {"distance": 0.73, "entity": {"item_id": 20, "inquiry_id": "c", "description": "描述C"}},
+        {"distance": 0.50, "entity": {"item_id": 30, "inquiry_id": "d", "description": "描述D"}},
+    ]
+    service = InquirySemanticIndexService(
+        repository=FakeRepository([]),
+        store=store,
+        model_client=FakeModelClient(),
+        config=make_config(),
+    )
+
+    result = asyncio.run(service.search("窗帘在哪里", top_k=2, item_ids=[10, 20, 30]))
+
+    assert [hit["entity"]["item_id"] for hit in result] == [10, 20]
+    assert result[0]["entity"]["inquiry_id"] == "a"
+    assert store.search_limit == 30
+    assert store.search_item_ids == [10, 20, 30]
+
+
+def test_incremental_progress_only_reports_failures_from_current_batch():
+    from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+        InquirySemanticIndexService,
+    )
+
+    class FirstRowFailsModel(FakeModelClient):
+        async def text_embeddings(self, texts):
+            if texts == ["失败描述"]:
+                raise RuntimeError("embedding failed")
+            return await super().text_embeddings(texts)
+
+    progress = []
+    service = InquirySemanticIndexService(
+        repository=FakeRepository(
+            [
+                make_row(1, "1001", "失败描述"),
+                make_row(2, "1002", "成功描述"),
+            ]
+        ),
+        store=FakeStore(),
+        model_client=FirstRowFailsModel(),
+        config=make_config(inquiry_text_index_batch_size=1),
+    )
+
+    result = asyncio.run(
+        service.run_incremental([1, 2], progress_callback=progress.append)
+    )
+
+    assert result["fail_count"] == 1
+    assert len(progress[0]["new_failure_details"]) == 1
+    assert progress[1]["new_failure_details"] == []
