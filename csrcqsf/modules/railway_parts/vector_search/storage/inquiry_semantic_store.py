@@ -126,7 +126,11 @@ class InquirySemanticStore:
                     "content_hash",
                     "updated_at",
                 ],
-                search_params={"metric_type": "COSINE", "params": {"ef": 64}},
+                # 文本检索会为配件去重和主库补足扩大候选窗口；HNSW 要求 ef 不小于 limit。
+                search_params={
+                    "metric_type": "COSINE",
+                    "params": {"ef": max(64, int(limit))},
+                },
             )
         except Exception as exc:
             message = str(exc).lower()

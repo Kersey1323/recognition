@@ -150,6 +150,30 @@ def test_store_upserts_queries_hashes_deletes_and_searches():
     }
 
 
+def test_store_search_expands_hnsw_ef_to_cover_candidate_limit():
+    from csrcqsf.modules.railway_parts.vector_search.storage.inquiry_semantic_store import (
+        InquirySemanticStore,
+    )
+
+    client = FakeClient()
+    store = InquirySemanticStore(
+        collection_manager=SimpleNamespace(client=client),
+        config=SimpleNamespace(
+            inquiry_text_collection_alias="inquiry-current",
+            inquiry_text_embedding_dim=1024,
+        ),
+    )
+
+    store.search(np.ones(1024, dtype=np.float32), limit=150)
+
+    search_call = next(call for call in client.calls if call[0] == "search")
+    assert search_call[1]["limit"] == 150
+    assert search_call[1]["search_params"] == {
+        "metric_type": "COSINE",
+        "params": {"ef": 150},
+    }
+
+
 def test_store_creates_then_switches_stable_alias():
     from csrcqsf.modules.railway_parts.vector_search.storage.inquiry_semantic_store import (
         InquirySemanticStore,
