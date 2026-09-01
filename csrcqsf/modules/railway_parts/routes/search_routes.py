@@ -402,21 +402,25 @@ async def search_v2_by_image(
 @parts_router.post(
     '/v2/search/contextual',
     tags=["算法-向量检索V2"],
-    summary='带业务条件的V2图片检索',
+    summary='带业务条件的V2图片/描述检索',
     response_model=ContextualSearchRes,
 )
 async def search_v2_contextual(
     history_id: str | None = Form(default=None),
-    file: list[UploadFile] | None = File(default=None),
-    vehicle_batch: str | None = Form(default=None),
-    item_name: str | None = Form(default=None),
+    file: list[UploadFile | str] | None = File(
+        default=None,
+        description="查询图片；允许 Swagger 提交空文件字段",
+    ),
+    vehicle_batch: str | None = Form(default=None, description="车型精确过滤条件"),
+    item_name: str | None = Form(default=None, description="配件名称精确过滤条件；名称不存在时自动取消该过滤"),
+    item_description: str | None = Form(default=None, description="配件自然语言描述，用于询码语义检索"),
     train_no: str | None = Form(default=None),
     car_num: str | None = Form(default=None),
     subordinate_component: str | None = Form(default=None),
     search_mode: str = Form(default="siglip"),
     search_equipment: str = Form(default="web"),
 ):
-    """首次上传或在同一 pending 历史中滚动最近两次条件检索结果。"""
+    """使用图片或配件描述检索，并在同一 pending 历史中滚动最近两次结果。"""
     ensure_vector_models_enabled()
     try:
         normalized_history_id = (
@@ -424,12 +428,21 @@ async def search_v2_contextual(
         )
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail="history_id 必须是有效整数") from exc
+    raw_files = list(file or [])
+    invalid_file_values = [
+        value for value in raw_files if isinstance(value, str) and value.strip()
+    ]
+    if invalid_file_values:
+        raise HTTPException(status_code=422, detail="file 必须上传图片文件或留空")
+    # Swagger 勾选 Send empty value 时会把空文件解析成空字符串，业务上按未上传图片处理。
+    uploaded_files = [value for value in raw_files if not isinstance(value, str)]
     try:
         return await RailwayPartsManager.search_v2_contextual(
             history_id=normalized_history_id,
-            files=list(file or []),
+            files=uploaded_files,
             vehicle_batch=vehicle_batch,
             item_name=item_name,
+            item_description=item_description,
             train_no=train_no,
             car_num=car_num,
             subordinate_component=subordinate_component,

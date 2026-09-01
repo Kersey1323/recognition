@@ -41,7 +41,7 @@ def test_name_and_history_context_can_correct_a_visual_only_ranking():
         },
         parameters=SearchParameters(
             vehicle_batch="SFE27",
-            item_name="便器冲洗按钮",
+            item_description="便器冲洗按钮",
             train_no="2777",
             car_num="01",
             subordinate_component="卫生间",

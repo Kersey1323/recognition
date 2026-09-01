@@ -37,6 +37,7 @@ def test_search_parameters_support_contextual_fields_and_default_to_siglip():
 
     assert parameters.vehicle_batch is None
     assert parameters.item_name is None
+    assert parameters.item_description is None
     assert parameters.train_no is None
     assert parameters.car_num is None
     assert parameters.subordinate_component is None

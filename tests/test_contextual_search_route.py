@@ -75,6 +75,7 @@ def test_contextual_search_openapi_uses_optional_files_and_siglip_default():
     app.include_router(router)
 
     operation = app.openapi()["paths"]["/railway/parts/v2/search/contextual"]["post"]
+    assert operation["summary"] == "带业务条件的V2图片/描述检索"
     body_ref = operation["requestBody"]["content"]["multipart/form-data"]["schema"][
         "$ref"
     ]
@@ -82,6 +83,7 @@ def test_contextual_search_openapi_uses_optional_files_and_siglip_default():
 
     assert "history_id" in body["properties"]
     assert "file" in body["properties"]
+    assert "item_description" in body["properties"]
     assert "top_k" not in body["properties"]
     assert body["properties"]["search_mode"]["default"] == "siglip"
     assert "file" not in body.get("required", [])
@@ -114,6 +116,7 @@ def test_contextual_search_route_delegates_all_business_inputs():
                 file=[],
                 vehicle_batch="SFE27",
                 item_name="按钮",
+                item_description="卫生间墙面上的冲洗按钮",
                 train_no="2777",
                 car_num="01",
                 subordinate_component="卫生间",
@@ -128,12 +131,64 @@ def test_contextual_search_route_delegates_all_business_inputs():
         "files": [],
         "vehicle_batch": "SFE27",
         "item_name": "按钮",
+        "item_description": "卫生间墙面上的冲洗按钮",
         "train_no": "2777",
         "car_num": "01",
         "subordinate_component": "卫生间",
         "search_mode": "siglip",
         "search_equipment": "web",
     }
+
+
+def test_contextual_search_route_accepts_swagger_empty_file_field():
+    routes, router = _import_search_routes()
+    app = FastAPI()
+    app.include_router(router)
+    payload = ContextualSearchRes(
+        history_id="101",
+        previous=None,
+        current={
+            "query_images": [],
+            "parameters": {"item_description": "厕所里的马桶盖"},
+            "searched_at": "2026-08-31 10:00:00",
+            "data": [],
+        },
+    )
+    search_mock = AsyncMock(return_value=payload)
+
+    api_route = next(
+        route
+        for route in app.routes
+        if getattr(route, "path", None) == "/railway/parts/v2/search/contextual"
+    )
+    request_body = api_route.body_field.type_(
+        file=[""],
+        item_description="厕所里的马桶盖",
+    )
+
+    with patch.object(
+        routes.RailwayPartsManager,
+        "search_v2_contextual",
+        search_mock,
+        create=True,
+    ):
+        response = asyncio.run(
+            routes.search_v2_contextual(
+                history_id=None,
+                file=request_body.file,
+                vehicle_batch=None,
+                item_name=None,
+                item_description=request_body.item_description,
+                train_no=None,
+                car_num=None,
+                subordinate_component=None,
+                search_mode="siglip",
+                search_equipment="web",
+            )
+        )
+
+    assert response.history_id == "101"
+    assert search_mock.await_args.kwargs["files"] == []
 
 
 def test_contextual_search_route_preserves_business_error_status():

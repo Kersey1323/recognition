@@ -27,6 +27,7 @@ class SearchParameters(BaseModel):
     lower_rate: float = 0.8
     vehicle_batch: str | None = None
     item_name: str | None = None
+    item_description: str | None = None
     train_no: str | None = None
     car_num: str | None = None
     subordinate_component: str | None = None

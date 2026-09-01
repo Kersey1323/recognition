@@ -1,5 +1,7 @@
 import asyncio
+import ast
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -127,6 +129,37 @@ def test_first_contextual_search_creates_one_pending_history():
     assert session.added[0].verify_status == "pending"
     assert session.added[0].search_revision == 1
     session.commit.assert_awaited_once()
+
+
+def test_first_contextual_search_accepts_description_without_image():
+    session = _Session()
+    repository = SimpleNamespace()
+    runtime = _runtime(session, repository)
+
+    with patch.object(
+        contextual_search_service,
+        "_prepare_uploaded_query_images",
+        AsyncMock(),
+    ) as prepare_mock, patch.object(
+        contextual_search_service,
+        "_execute_contextual_search",
+        AsyncMock(return_value=([_item("1")], None)),
+    ) as execute_mock:
+        response = asyncio.run(
+            contextual_search_service.search_v2_contextual(
+                object,
+                history_id=None,
+                files=[],
+                item_description="厕所里的马桶盖",
+                runtime=runtime,
+            )
+        )
+
+    prepare_mock.assert_not_awaited()
+    assert execute_mock.await_args.kwargs["query_images"] == []
+    assert response.current.query_images == []
+    assert response.current.parameters.item_description == "厕所里的马桶盖"
+    assert session.added[0].query_text == "厕所里的马桶盖"
 
 
 def test_repeated_search_replaces_image_and_keeps_only_old_current_as_previous():
@@ -405,7 +438,10 @@ def test_text_recall_does_not_appear_as_a_matched_image():
             contextual_search_service._execute_contextual_search(
                 object,
                 query_images=[object()],
-                parameters=SearchParameters(item_name="冲洗按钮", search_mode="siglip"),
+                parameters=SearchParameters(
+                    item_description="冲洗按钮",
+                    search_mode="siglip",
+                ),
                 runtime=runtime,
             )
         )
@@ -420,6 +456,103 @@ def test_text_recall_does_not_appear_as_a_matched_image():
         top_k=100,
         item_ids=None,
     )
+
+
+def test_description_only_search_skips_image_model_and_uses_representative_image():
+    session = _Session()
+    repository = SimpleNamespace(
+        list_items_by_ids=AsyncMock(
+            return_value=[SimpleNamespace(id=1, item_code="CODE-1", item_name="马桶盖")]
+        ),
+        list_histories_by_item_ids=AsyncMock(return_value=[]),
+        list_first_images_by_item_ids=AsyncMock(
+            return_value=[SimpleNamespace(item_id=1, image_url="first.jpg")]
+        ),
+    )
+    semantic_service = SimpleNamespace(
+        search=AsyncMock(
+            return_value=[
+                {
+                    "distance": 0.93,
+                    "entity": {
+                        "item_id": 1,
+                        "description": "厕所里的马桶盖",
+                        "inquiry_id": "inq-1",
+                    },
+                }
+            ]
+        )
+    )
+    runtime = _runtime(session, repository)
+
+    with patch.object(
+        contextual_search_service,
+        "get_inquiry_semantic_index_service",
+        return_value=semantic_service,
+    ):
+        results, message = asyncio.run(
+            contextual_search_service._execute_contextual_search(
+                object,
+                query_images=[],
+                parameters=SearchParameters(item_description="厕所里的马桶盖"),
+                runtime=runtime,
+            )
+        )
+
+    assert message is None
+    assert results[0].item_name == "马桶盖"
+    assert results[0].image_url == "first.jpg"
+    assert results[0].matched_description == "厕所里的马桶盖"
+    assert results[0].matched_images == []
+
+
+def test_exact_item_name_filters_candidates_and_missing_name_falls_back():
+    exact_repository = SimpleNamespace(
+        list_item_ids_by_exact_name=AsyncMock(return_value=[1, 2]),
+    )
+    fallback_repository = SimpleNamespace(
+        list_item_ids_by_exact_name=AsyncMock(return_value=[]),
+    )
+    exact_runtime = _runtime(_Session(), exact_repository)
+    fallback_runtime = _runtime(_Session(), fallback_repository)
+
+    exact_ids = asyncio.run(
+        contextual_search_service._item_name_candidate_item_ids(
+            "便器冲洗按钮",
+            runtime=exact_runtime,
+        )
+    )
+    fallback_ids = asyncio.run(
+        contextual_search_service._item_name_candidate_item_ids(
+            "输入错误的名称",
+            runtime=fallback_runtime,
+        )
+    )
+
+    assert exact_ids == [1, 2]
+    assert fallback_ids is None
+
+
+def test_parts_manager_delegates_item_description():
+    source_path = Path(
+        "csrcqsf/modules/railway_parts/services/parts_service.py"
+    )
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    manager = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "RailwayPartsManager"
+    )
+    method = next(
+        node
+        for node in manager.body
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "search_v2_contextual"
+    )
+
+    assert "item_description" in [arg.arg for arg in method.args.kwonlyargs]
+    delegated_call = next(node for node in ast.walk(method) if isinstance(node, ast.Call))
+    assert "item_description" in [keyword.arg for keyword in delegated_call.keywords]
 
 
 def test_only_pending_history_can_be_searched_again():

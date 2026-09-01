@@ -44,6 +44,26 @@ def test_vehicle_candidate_query_uses_complete_materiel_vehicle_relation():
     assert "SFE27" in sql
 
 
+def test_item_name_candidate_query_uses_normalized_exact_match():
+    result = SimpleNamespace(all=lambda: [(101,), (102,)])
+    session = _ExecuteSession(result)
+
+    item_ids = asyncio.run(
+        ContextualSearchRepository.list_item_ids_by_exact_name(
+            session,
+            " 便器冲洗按钮 ",
+        )
+    )
+
+    sql = str(
+        session.statements[0].compile(
+            dialect=mysql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert item_ids == [101, 102]
+    assert "lower(trim(item_info.item_name)) = '便器冲洗按钮'" in sql
+
+
 def test_history_window_update_uses_pending_state_and_revision_compare_and_swap():
     session = _ExecuteSession(SimpleNamespace(rowcount=1))
     snapshot = SearchSnapshot(
@@ -60,7 +80,10 @@ def test_history_window_update_uses_pending_state_and_revision_compare_and_swap(
             expected_revision=3,
             previous_snapshot=snapshot,
             query_images=["new.jpg"],
-            parameters=SearchParameters(vehicle_batch="SFE27"),
+            parameters=SearchParameters(
+                vehicle_batch="SFE27",
+                item_description="卫生间墙面上的冲洗按钮",
+            ),
             results=SearchResults(items=[]),
             top_item=None,
         )
@@ -77,3 +100,7 @@ def test_history_window_update_uses_pending_state_and_revision_compare_and_swap(
     assert "search_history.verify_status = 'pending'" in where_sql
     assert "search_history.search_revision = 3" in where_sql
     assert statement._values[SearchHistory.__table__.columns.search_revision].value == 4
+    assert (
+        statement._values[SearchHistory.__table__.columns.query_text].value
+        == "卫生间墙面上的冲洗按钮"
+    )

@@ -1,4 +1,4 @@
-"""带业务条件的图片检索与最近两次结果窗口。"""
+"""带业务条件的图片/描述检索与最近两次结果窗口。"""
 
 from __future__ import annotations
 
@@ -88,8 +88,8 @@ def _history_frequency(
             == _normalize_text(parameters.vehicle_batch)
         )
         names = _candidate_names(None, [row])
-        name_matches = not parameters.item_name or any(
-            _text_similarity(parameters.item_name, name) >= 0.8 for name in names
+        name_matches = not parameters.item_description or any(
+            _text_similarity(parameters.item_description, name) >= 0.8 for name in names
         )
         if vehicle_matches and name_matches:
             count += 1
@@ -148,14 +148,14 @@ def rank_contextual_candidates(
             parameters.train_no,
         )
     )
-    has_name_query = bool(_normalize_text(parameters.item_name))
+    has_name_query = bool(_normalize_text(parameters.item_description))
 
     ranked: list[dict[str, float | int]] = []
     for item_id in dict.fromkeys(int(value) for value in item_ids):
         history_rows = histories_by_item.get(item_id, [])
         names = _candidate_names(item_names.get(item_id), history_rows)
         lexical_score = max(
-            (_text_similarity(parameters.item_name, name) for name in names),
+            (_text_similarity(parameters.item_description, name) for name in names),
             default=0.0,
         )
         vector_name_score = _bounded_vector_score(text_scores.get(item_id))
@@ -166,7 +166,7 @@ def rank_contextual_candidates(
         else:
             name_score = lexical_score
 
-        normalized_query_name = _normalize_text(parameters.item_name)
+        normalized_query_name = _normalize_text(parameters.item_description)
         exact_match_score = float(
             bool(normalized_query_name)
             and any(_normalize_text(name) == normalized_query_name for name in names)
@@ -180,7 +180,7 @@ def rank_contextual_candidates(
         }
         for field_name, component_score in context_parts[item_id].items():
             inner_components.append((component_weights[field_name], component_score))
-        if max_frequency and (parameters.vehicle_batch or parameters.item_name):
+        if max_frequency and (parameters.vehicle_batch or parameters.item_description):
             inner_components.append(
                 (0.15, history_frequencies[item_id] / max_frequency)
             )
@@ -457,6 +457,23 @@ async def _vehicle_candidate_item_ids(
         )
 
 
+async def _item_name_candidate_item_ids(
+    item_name: str | None,
+    *,
+    runtime=None,
+) -> list[int] | None:
+    runtime = runtime or _runtime()
+    if not item_name:
+        return None
+    async with runtime.SessionLocal() as session:
+        item_ids = await runtime.ContextualSearchRepository.list_item_ids_by_exact_name(
+            session,
+            item_name,
+        )
+    # 输入名称可能存在错字；主库没有完全相等项时保留图片/描述的原始召回范围。
+    return item_ids or None
+
+
 async def _execute_contextual_search(
     cls,
     *,
@@ -465,35 +482,51 @@ async def _execute_contextual_search(
     runtime=None,
 ) -> tuple[list[SearchItem], str | None]:
     runtime = runtime or _runtime()
-    candidate_filter = await _vehicle_candidate_item_ids(
+    vehicle_filter = await _vehicle_candidate_item_ids(
         parameters.vehicle_batch, runtime=runtime
     )
-    if candidate_filter == []:
+    if vehicle_filter == []:
         return [], f"车型 {parameters.vehicle_batch} 下没有可检索配件"
 
-    manager = runtime._get_milvus_manager_v2_cls()()
-    per_query_results: list[list[dict]] = []
-    for image in query_images:
-        per_query_results.append(
-            await manager.search_by_image(
-                image=image,
-                top_k=100,
-                mode=parameters.search_mode,
-                coarse_top_k=100,
-                alpha=0.6,
-                item_ids=candidate_filter,
-            )
-        )
+    item_name_filter = await _item_name_candidate_item_ids(
+        parameters.item_name,
+        runtime=runtime,
+    )
+    if vehicle_filter is None:
+        candidate_filter = item_name_filter
+    elif item_name_filter is None:
+        candidate_filter = vehicle_filter
+    else:
+        candidate_filter = sorted(set(vehicle_filter) & set(item_name_filter))
+        if not candidate_filter:
+            return [], f"车型 {parameters.vehicle_batch} 下没有名称为 {parameters.item_name} 的配件"
 
-    if len(per_query_results) == 1:
+    per_query_results: list[list[dict]] = []
+    if query_images:
+        manager = runtime._get_milvus_manager_v2_cls()()
+        for image in query_images:
+            per_query_results.append(
+                await manager.search_by_image(
+                    image=image,
+                    top_k=100,
+                    mode=parameters.search_mode,
+                    coarse_top_k=100,
+                    alpha=0.6,
+                    item_ids=candidate_filter,
+                )
+            )
+
+    if not per_query_results:
+        image_hits = []
+    elif len(per_query_results) == 1:
         image_hits = per_query_results[0]
     else:
         image_hits = cls._fuse_multi_image_search_results(per_query_results)
 
     text_hits = []
-    if parameters.item_name:
+    if parameters.item_description:
         text_hits = await get_inquiry_semantic_index_service().search(
-            parameters.item_name,
+            parameters.item_description,
             top_k=100,
             item_ids=candidate_filter,
         )
@@ -586,7 +619,7 @@ async def _execute_contextual_search(
             continue
         matched_images = []
         seen_urls = set()
-        # 文本召回只参与名称评分；matched_images 仅表达图片与图片的匹配关系。
+        # 描述召回只参与语义评分；matched_images 仅表达图片与图片的匹配关系。
         for hit in visual_hits:
             entity = hit.get("entity", {})
             image_url = entity.get("image_url", "") or ""
@@ -636,6 +669,7 @@ async def search_v2_contextual(
     files: list | None,
     vehicle_batch: str | None = None,
     item_name: str | None = None,
+    item_description: str | None = None,
     train_no: str | None = None,
     car_num: str | None = None,
     subordinate_component: str | None = None,
@@ -651,6 +685,7 @@ async def search_v2_contextual(
     parameters = runtime.SearchParameters(
         vehicle_batch=_clean_optional(vehicle_batch),
         item_name=_clean_optional(item_name),
+        item_description=_clean_optional(item_description),
         train_no=_clean_optional(train_no),
         car_num=_clean_optional(car_num),
         subordinate_component=_clean_optional(subordinate_component),
@@ -660,6 +695,7 @@ async def search_v2_contextual(
         (
             parameters.vehicle_batch,
             parameters.item_name,
+            parameters.item_description,
             parameters.train_no,
             parameters.car_num,
             parameters.subordinate_component,
@@ -667,14 +703,20 @@ async def search_v2_contextual(
     )
 
     if history_id is None:
-        if not files:
-            raise ContextualSearchBusinessError(422, "首次条件检索必须上传图片")
+        if not files and not parameters.item_description:
+            raise ContextualSearchBusinessError(
+                422,
+                "首次条件检索至少上传图片或提供配件描述",
+            )
         new_history_id = int(runtime.get_id())
         query_paths: list[str] = []
         try:
-            query_paths, pil_images = await _prepare_uploaded_query_images(
-                new_history_id, files, runtime=runtime
-            )
+            if files:
+                query_paths, pil_images = await _prepare_uploaded_query_images(
+                    new_history_id, files, runtime=runtime
+                )
+            else:
+                pil_images = []
             search_items, message = await _execute_contextual_search(
                 cls,
                 query_images=pil_images,
@@ -693,7 +735,7 @@ async def search_v2_contextual(
                         search_result_item_name=(top_item.item_name if top_item else None),
                         search_result_item_code=(top_item.item_code if top_item else ""),
                         search_parameter=parameters,
-                        query_text=parameters.item_name,
+                        query_text=parameters.item_description,
                         query_image=query_paths[0] if len(query_paths) == 1 else None,
                         query_images_json=query_paths if len(query_paths) > 1 else None,
                         search_equipment=search_equipment,
@@ -732,8 +774,11 @@ async def search_v2_contextual(
         raise ContextualSearchBusinessError(422, "未上传新图片时至少提供一个业务条件")
 
     current_paths = _history_query_images(history)
-    if not files and not current_paths:
-        raise ContextualSearchBusinessError(422, "当前历史没有可复用的查询图片")
+    if not files and not current_paths and not parameters.item_description:
+        raise ContextualSearchBusinessError(
+            422,
+            "当前历史没有可复用的查询图片，请提供新图片或配件描述",
+        )
 
     uploaded_paths: list[str] = []
     try:
@@ -742,9 +787,12 @@ async def search_v2_contextual(
                 int(history_id), files, runtime=runtime
             )
             next_paths = uploaded_paths
-        else:
+        elif current_paths:
             next_paths = current_paths
             pil_images = await _load_query_images(current_paths, runtime=runtime)
+        else:
+            next_paths = []
+            pil_images = []
 
         search_items, message = await _execute_contextual_search(
             cls,

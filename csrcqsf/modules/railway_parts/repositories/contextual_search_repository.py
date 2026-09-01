@@ -53,6 +53,18 @@ class ContextualSearchRepository:
         return [int(item_id) for (item_id,) in result.all()]
 
     @classmethod
+    async def list_item_ids_by_exact_name(cls, session, item_name: str) -> list[int]:
+        normalized_name = str(item_name).strip().casefold()
+        if not normalized_name:
+            return []
+        result = await session.execute(
+            select(Items.id).where(
+                func.lower(func.trim(Items.item_name)) == normalized_name
+            )
+        )
+        return [int(item_id) for (item_id,) in result.all()]
+
+    @classmethod
     async def list_items_by_ids(cls, session, item_ids: list[int]):
         if not item_ids:
             return []
@@ -126,7 +138,7 @@ class ContextualSearchRepository:
                 query_image=query_images[0] if len(query_images) == 1 else None,
                 query_images_json=query_images if len(query_images) > 1 else None,
                 search_parameter=parameters,
-                query_text=parameters.item_name,
+                query_text=parameters.item_description,
                 search_results=results,
                 search_result_item_name=(top_item.item_name if top_item else None),
                 search_result_item_code=(top_item.item_code if top_item else ""),
