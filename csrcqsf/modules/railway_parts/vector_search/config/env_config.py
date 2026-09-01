@@ -1,4 +1,4 @@
-"""Environment-based configuration for railway-parts vector search runtime."""
+"""配件向量检索运行时的环境变量配置。"""
 
 from __future__ import annotations
 

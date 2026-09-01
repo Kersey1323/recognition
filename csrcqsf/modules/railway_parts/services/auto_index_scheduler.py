@@ -1,4 +1,4 @@
-"""Periodic scheduling for unindexed part images."""
+"""未索引配件图片的定时扫描与自动任务调度。"""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ IndexRunner = Callable[..., Awaitable[dict[str, Any]]]
 
 
 class AutoIndexScheduler:
+    """按索引任务空闲容量补充单配件任务，不在扫描器内执行索引。"""
     def __init__(
         self,
         *,
@@ -78,6 +79,7 @@ class AutoIndexScheduler:
             self._wake_event = None
 
     async def scan_once(self) -> int:
+        # 正在执行的配件先排除，候选查询只返回当前可安全提交的配件。
         runner = self._runner
         if runner is None:
             raise RuntimeError("自动索引扫描器尚未绑定索引执行器")
@@ -97,8 +99,7 @@ class AutoIndexScheduler:
                 item_id=int(item_id),
             )
             if task is None:
-                # A manual request may consume capacity after candidate lookup.
-                # The next completion or timer tick will rescan the remaining rows.
+                # 候选查询后手工任务可能占用容量，剩余候选由下次完成通知或定时扫描处理。
                 break
             started_count += 1
         if started_count:

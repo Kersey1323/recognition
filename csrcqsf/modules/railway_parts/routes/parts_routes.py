@@ -1,4 +1,4 @@
-"""Routes for parts CRUD, image management, and segmentation entrypoints."""
+"""配件维护、图片管理和分割入口路由。"""
 
 from fastapi import File, Form, Request, UploadFile
 

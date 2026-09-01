@@ -45,6 +45,7 @@ def _checksum_module(module) -> str:
 
 
 def discover_migrations() -> list[Migration]:
+    """按版本号发现迁移模块，并以源码摘要固定每个已发布版本。"""
     package = importlib.import_module("csrcqsf.infra.db.migrations")
     migrations: list[Migration] = []
     for module_info in pkgutil.iter_modules(package.__path__):
@@ -87,12 +88,14 @@ async def _record_migration(conn, migration: Migration, execution_ms: int) -> No
 
 
 async def run_pending_migrations(conn) -> None:
+    """顺序执行未登记的迁移，并拒绝运行被事后修改的历史迁移。"""
     await ensure_schema_migrations_table(conn)
     applied_migrations = await _load_applied_migrations(conn)
 
     for migration in sorted(discover_migrations(), key=lambda item: item.version):
         applied_checksum = applied_migrations.get(migration.version)
         if applied_checksum is not None:
+            # 历史迁移必须不可变，否则不同部署环境可能拥有同版本、不同结构的数据库。
             if applied_checksum != migration.checksum:
                 raise RuntimeError(
                     "已执行迁移脚本内容发生变化: "

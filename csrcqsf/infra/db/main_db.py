@@ -80,6 +80,7 @@ MAIN_DB_MODEL_MODULES = (
 
 
 def load_main_db_models() -> None:
+    # 建表前显式导入全部模型，确保 SQLAlchemy metadata 收集完整。
     for module_name in MAIN_DB_MODEL_MODULES:
         importlib.import_module(module_name)
 
@@ -94,6 +95,7 @@ def _get_async_main_db_admin_dsn() -> str:
 
 
 async def ensure_main_database_exists() -> None:
+    """使用 MySQL 管理库连接创建主业务库，支持空环境首次启动。"""
     database_name = main_db_database.strip()
     if database_name == "":
         return
@@ -140,6 +142,7 @@ async def _column_exists(conn, table_name: str, column_name: str) -> bool:
 
 
 async def _ensure_column(conn, table_name: str, column_name: str, ddl: str) -> None:
+    # 兼容补列用于接管早期无迁移记录的部署，后续结构演进统一由迁移脚本负责。
     if await _column_exists(conn, table_name, column_name):
         return
     await conn.execute(text(f"ALTER TABLE `{table_name}` ADD COLUMN {ddl}"))

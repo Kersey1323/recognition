@@ -15,8 +15,10 @@ from csrcqsf.core.logging_config import logger
 
 
 class DocBiz:
+    """从配件文档提取物料表，并提供整理后的 Excel 下载任务。"""
     @classmethod
     def get_paragraph_before_table(cls, doc, table_index=0, start_element_index=0):
+        # 业务文档用表格前一段作为表名，并从上次位置继续扫描以减少重复遍历。
         if table_index < 0 or table_index >= len(doc.tables):
             print(f"表格索引 {table_index} 无效。文档中共有 {len(doc.tables)} 个表格。")
             return "", 0
@@ -41,6 +43,7 @@ class DocBiz:
 
     @classmethod
     def rename_duplicate_columns(cls, df: pd.DataFrame):
+        # Word 合并单元格可能产生重名表头，追加序号后才能稳定转换为 JSON。
         cols = pd.Series(df.columns)
         for dup in cols[cols.duplicated()].unique():
             indices = cols[cols == dup].index
@@ -51,6 +54,7 @@ class DocBiz:
 
     @classmethod
     async def create_file(cls, file_name: str, file_url: str):
+        """只提取同时包含图号和物料编码的业务表格。"""
         json_data_dict: dict[str, str] = {}
         file_name_arr = file_url.split("/")
         if len(file_name_arr) < 2:
@@ -124,6 +128,7 @@ class DocBiz:
 
     @classmethod
     async def write_to_excel(cls, file_id: int, user_id: int):
+        # 每张解析表恢复为独立工作表，再通知公共文件服务生成用户下载任务。
         async with SessionLocal() as session:
             file = await Files.get_file(session, file_id)
             if file is None:

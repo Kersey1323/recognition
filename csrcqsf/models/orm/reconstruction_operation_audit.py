@@ -1,4 +1,4 @@
-"""Durable audit records for reconstruction recovery and output cleanup."""
+"""三维重构恢复与输出清理操作的持久化审计记录。"""
 
 from __future__ import annotations
 

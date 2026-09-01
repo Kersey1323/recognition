@@ -51,6 +51,7 @@ class KingbaseAsyncpgDialect(PGDialect_asyncpg):
 
 
 def register_kingbase_dialect() -> None:
+    """将 Kingbase asyncpg 适配注册为项目私有 SQLAlchemy 方言。"""
     registry.register(
         "kingbase.asyncpg",
         "csrcqsf.infra.db.kingbase_dialect",

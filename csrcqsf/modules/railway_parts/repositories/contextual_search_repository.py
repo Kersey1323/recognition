@@ -54,6 +54,7 @@ class ContextualSearchRepository:
 
     @classmethod
     async def list_item_ids_by_exact_name(cls, session, item_name: str) -> list[int]:
+        # 配件名称只承担强过滤：忽略大小写和首尾空格，但不做模糊或语义匹配。
         normalized_name = str(item_name).strip().casefold()
         if not normalized_name:
             return []
@@ -78,6 +79,7 @@ class ContextualSearchRepository:
         if not item_ids:
             return []
         normalized = sorted(set(item_ids))
+        # 每个配件只取未删除图片中 ID 最小的一张作为列表封面，避免结果集重复膨胀。
         first_image_ids = (
             select(
                 SgoItemImages.item_id.label("item_id"),

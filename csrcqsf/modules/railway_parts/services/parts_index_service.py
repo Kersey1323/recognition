@@ -15,6 +15,7 @@ else:
 
 
 def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) -> None:
+    """绑定兼容门面依赖，使索引实现可独立拆分而不改变旧调用方式。"""
     if parts_service_module is None:
         from csrcqsf.modules.railway_parts.services import parts_service as parts_service_module
 
@@ -109,6 +110,7 @@ async def statistics(cls, runtime=None):
 
 
 async def create_v2_collections(cls, drop_existing: bool = False, runtime=None):
+    # drop_existing 会同时清空线上向量数据，仅用于明确发起的重建流程。
     runtime = runtime or _runtime()
     manager = runtime._get_milvus_state_manager_v2_cls()()
     if drop_existing:
@@ -135,6 +137,7 @@ async def rebuild_v2_index(
     total_items_override: int | None = None,
     runtime=None,
 ):
+    """按配件处理待索引图片，并以配件级检查点持续上报可恢复进度。"""
     runtime = runtime or _runtime()
     model_client = runtime.get_model_client()
     # 索引任务必须具备完整分割和特征能力；模型缺失时整批拒绝，避免悄悄生成原图索引。
@@ -159,7 +162,7 @@ async def rebuild_v2_index(
             )
             stmt = runtime.select(runtime.Items).where(runtime.Items.id.in_(item_id_stmt))
             if resume_after_created_at is not None and resume_after_item_id is not None:
-                # Retry resumes after the last completed part; an interrupted current part is retried.
+                # 重试从最后完成配件之后继续；中断时正在处理的配件会重新执行。
                 stmt = stmt.where(
                     or_(
                         runtime.Items.time_created < resume_after_created_at,
@@ -274,6 +277,7 @@ async def rebuild_v2_index(
                     continue
 
                 if rebuild_existing:
+                    # 强制重建先删除该配件全部向量、Patch Token 和分割产物，再重新生成。
                     delete_result = {"siglip_deleted": 0, "dinov2_deleted": 0}
                     if getattr(item, "has_v2_index", 0) == 1:
                         delete_result = state_manager.delete_item_index(item.id)
@@ -328,6 +332,7 @@ async def rebuild_v2_index(
                             indexed_image_url = img.image_url
                             image_variant = "original"
                         elif existing_segmented is not None:
+                            # 非强制任务复用成功分割图，避免同一采集图片重复调用分割模型。
                             indexed_image = await segmented_service.load_image(existing_segmented)
                             image_vector = await model_client.siglip_image_features(indexed_image)
                             global_vector = await model_client.dinov2_global_vector(indexed_image)
@@ -398,6 +403,7 @@ async def rebuild_v2_index(
                         )
 
                         if siglip_ok and dinov2_ok:
+                            # 两套向量都成功后才标记图片已索引，防止部分索引被后续任务跳过。
                             if segmented_record is not None:
                                 await segmented_service.mark_indexed(segmented_record)
                             success_count += 1

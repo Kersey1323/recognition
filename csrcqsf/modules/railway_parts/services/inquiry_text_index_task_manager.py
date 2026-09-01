@@ -1,4 +1,4 @@
-"""Persistent FIFO task manager for inquiry semantic indexing."""
+"""询码语义索引的持久化先进先出任务管理器。"""
 
 from __future__ import annotations
 
@@ -46,6 +46,7 @@ def _decorate(record: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 class InquiryTextIndexTaskManager:
+    """串行执行语义索引任务，避免全量切换与增量写入互相覆盖。"""
     def __init__(self, *, repository=None, service=None):
         self.repository = repository or InquiryTextIndexTaskRepository()
         self.service = service
@@ -120,6 +121,7 @@ class InquiryTextIndexTaskManager:
         self._active_task_id = None
 
     async def _worker_loop(self) -> None:
+        # 每次唤醒持续领取最早任务，队列清空后再休眠等待新任务。
         try:
             while True:
                 await self._wake.wait()
@@ -172,6 +174,7 @@ class InquiryTextIndexTaskManager:
                     list(result.get("failure_details") or []),
                 )
             fail_count = int(result.get("fail_count", 0) or 0)
+            # 语义样本失败会影响召回完整性，因此存在失败明细即标记任务失败。
             values = {
                 field: result[field]
                 for field in PROGRESS_FIELDS
@@ -243,6 +246,7 @@ class InquiryTextIndexTaskManager:
         task_id: str,
         cancel_reason: str | None = None,
     ) -> dict[str, Any]:
+        # pending 可直接终止；running 先转 cancelling，再由执行协程落最终状态。
         record = await self.repository.get(task_id)
         if record is None:
             raise KeyError(task_id)

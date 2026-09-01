@@ -124,6 +124,7 @@ async def suggest_items(cls, keyword: str, limit: int = 10, runtime=None):
 
 
 async def delete_v2_search_history(cls, history_id_list: list[int], runtime=None):
+    # 数据库先提交删除，MinIO 清理失败只记录告警，避免残留对象阻塞历史管理。
     runtime = runtime or _runtime()
     async with runtime.SessionLocal() as session:
         rows = await runtime.SearchHistoryRepository.delete_history_with_query_images(
@@ -178,6 +179,7 @@ async def search_v2_by_text(
     search_equipment: str = "web",
     runtime=None,
 ):
+    """对询码描述做文本对文本语义检索，不再使用 SigLIP 文本找图片。"""
     runtime = runtime or _runtime()
     history_id = runtime.get_id()
     semantic_service = get_inquiry_semantic_index_service()

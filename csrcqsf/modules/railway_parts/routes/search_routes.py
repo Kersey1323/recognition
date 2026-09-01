@@ -1,4 +1,4 @@
-"""Routes for vector index, search, and search history."""
+"""向量索引、配件检索和检索历史路由。"""
 
 from typing import Annotated
 

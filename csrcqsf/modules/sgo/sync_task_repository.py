@@ -1,4 +1,4 @@
-"""Database access for persistent SGO synchronization tasks."""
+"""SGO 同步任务及失败明细的数据访问层。"""
 
 from __future__ import annotations
 
@@ -66,6 +66,7 @@ class SgoSyncTaskRepository:
         from_statuses: tuple[str, ...],
         **values,
     ) -> dict[str, Any] | None:
+        # 状态条件写入提供轻量 CAS，取消和完成并发发生时只有合法一方生效。
         async with SessionLocal() as session:
             result = await session.execute(
                 update(SgoSyncTask)
@@ -113,6 +114,7 @@ class SgoSyncTaskRepository:
             return [_record_to_dict(record) for record in records], total
 
     async def replace_failures(self, task_id: str, failures: list[dict]) -> None:
+        # 非增量执行器在任务结束时用完整失败集合覆盖旧明细。
         async with SessionLocal() as session:
             await session.execute(
                 delete(SgoSyncTaskFailure).where(
@@ -126,6 +128,7 @@ class SgoSyncTaskRepository:
             await session.commit()
 
     async def append_failures(self, task_id: str, failures: list[dict]) -> None:
+        # 图片全量同步按批追加，避免长任务把数万条失败明细积压在内存。
         if not failures:
             return
         async with SessionLocal() as session:
@@ -161,6 +164,7 @@ class SgoSyncTaskRepository:
         self,
         task_id: str,
     ) -> dict[str, Any] | None:
+        # 数据库显示活动但当前进程没有协程时，任务已无法取消或继续，只能转中断。
         now = datetime.now()
         return await self.transition(
             task_id,

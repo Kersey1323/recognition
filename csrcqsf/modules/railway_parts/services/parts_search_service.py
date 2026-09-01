@@ -1,4 +1,4 @@
-"""Railway parts V2 search, history, and review-ticket service implementations."""
+"""配件 V2 检索、历史记录、反馈和复核工单业务。"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 else:
     SearchItemType: TypeAlias = Any
 
-# These names are injected by bind_runtime_dependencies() from parts_service.
+# 依赖由 parts_service 兼容门面注入，拆分实现仍支持原有测试替换和调用入口。
 SessionLocal: Any = None
 Items: Any = None
 MatchedImage: Any = None
@@ -55,6 +55,7 @@ minio_search_history_bucket: Any = None
 
 
 def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) -> None:
+    """绑定兼容门面中的数据库、模型和外部存储依赖。"""
     if parts_service_module is None:
         from csrcqsf.modules.railway_parts.services import parts_service as parts_service_module
 
@@ -117,6 +118,7 @@ async def _upload_v2_search_query_image(
     filename: str,
     content_bytes: bytes,
 ) -> str:
+    # 查询原图按历史 ID 独立保存，支持关闭弹窗后在历史详情中复现检索输入。
     ensure_minio_bucket, minio_instance, _ = _get_minio_helpers()
     ensure_minio_bucket(minio_search_history_bucket)
     safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", (filename or "query.jpg").strip())
@@ -145,6 +147,7 @@ async def _persist_v2_search_history(
     search_equipment: str,
     search_items: list[SearchItemType],
 ) -> None:
+    """保存完整候选快照；历史写入失败不反向中断已完成的检索响应。"""
     top1 = search_items[0] if search_items else None
     search_results = SearchResults(
         items=[
@@ -202,6 +205,7 @@ def _aggregate_v2_search_items(
     cls,
     search_items: list[SearchItemType],
 ) -> list[SearchItemType]:
+    # 向量命中以图片为单位，接口响应按配件聚合并保留每张命中图片及分数。
     grouped: dict[str, dict] = {}
 
     for index, item in enumerate(search_items):
@@ -279,6 +283,7 @@ def _build_search_item_from_hit(cls, hit: dict) -> SearchItemType:
     )
 
 def _fuse_multi_image_search_results(cls, per_query_results: list[list[dict]], rrf_k: int = 60) -> list[dict]:
+    # 多张查询图按图片 ID 做 RRF，兼顾各视角名次并记录由哪些查询图命中。
     fused_by_image_id: dict[int, dict] = {}
     next_order = 0
 
@@ -336,6 +341,7 @@ def _normalize_review_status(
     status: str | None,
     latest_review_status: str | None = None,
 ) -> str:
+    # 错误结果在复核工单闭环前仍对用户显示待处理，避免提前视为已纠正。
     if status in {"correct", "user_misjudged"}:
         return "correct"
     if status == "wrong" and latest_review_status in {"resolved", "closed"}:
@@ -366,6 +372,7 @@ def _resolve_feedback_correct_fields(
     feedback_result: str,
     resolved_selected: dict,
 ) -> dict:
+    # 用户反馈错误时不覆盖已由人工复核确认的正确配件。
     if feedback_result == "correct":
         return {
             "correct_item_id": resolved_selected["selected_item_id"],
@@ -417,6 +424,7 @@ async def _resolve_correct_image_url(
     history=None,
     item_code: str | None = None,
 ):
+    # 优先复用当次候选图；候选外正确项再回退到配件第一张有效图片。
     candidate, rank = cls._match_correct_item_in_history_results(
         history,
         item_id=item_id,
@@ -475,6 +483,7 @@ def _resolve_selected_feedback_candidate(
     feedback_result: str,
     selected_item_id: str | None,
 ) -> dict:
+    # correct 必须指向当次候选，防止反馈记录引用无法复现的外部配件。
     if feedback_result == "wrong":
         return {
             "ranking_feedback_type": "no_correct_match",

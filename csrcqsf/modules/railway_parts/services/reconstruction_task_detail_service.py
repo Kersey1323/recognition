@@ -1,4 +1,4 @@
-"""Task-scoped reconstruction detail queries."""
+"""按任务查询三维重构详情。"""
 from __future__ import annotations
 
 from bfrcommon.common import date_to_str

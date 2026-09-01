@@ -17,6 +17,7 @@ from csrcqsf.core.logging_config import logger
 
 
 def _image_to_base64(image) -> str:
+    """将业务层支持的图片类型统一编码为模型服务请求载荷。"""
     if isinstance(image, Image.Image):
         buf = io.BytesIO()
         image.convert("RGB").save(buf, format="JPEG", quality=90, optimize=True)
@@ -72,6 +73,7 @@ class ModelServiceError(RuntimeError):
 
 
 class ModelServiceClient:
+    """封装小模型服务协议，使业务层只接触稳定的领域结果。"""
 
     def __init__(self, base_url: Optional[str] = None):
         self.base_url = (base_url or model_service_url).rstrip("/")
@@ -85,6 +87,7 @@ class ModelServiceClient:
         data=None,
         timeout_seconds: int = 120,
     ) -> dict:
+        """统一处理模型服务超时、错误响应和调用耗时日志。"""
         url = f"{self.base_url}{path}"
         timeout = aiohttp.ClientTimeout(total=timeout_seconds)
         started_at = time.perf_counter()
@@ -98,6 +101,7 @@ class ModelServiceClient:
                     data=data,
                 ) as resp:
                     if resp.status != 200:
+                        # 保留远端错误码，索引任务可据此记录准确的失败阶段和原因。
                         try:
                             payload = await resp.json()
                         except Exception:
@@ -124,6 +128,7 @@ class ModelServiceClient:
         return await self._request_json("POST", path, json_data=json_data)
 
     async def indexing_extract(self, image) -> IndexingExtractResult:
+        """一次获取分割结果及全部索引特征，减少同一图片的重复模型推理。"""
         form = aiohttp.FormData()
         form.add_field(
             "file",
@@ -138,6 +143,7 @@ class ModelServiceClient:
             timeout_seconds=model_service_index_timeout_sec,
         )
         dtype = data.get("dinov2_patch_tokens_dtype")
+        # Patch Token 按二进制传输，解码前必须校验类型和形状，避免静默写入错误向量。
         if dtype != "float32":
             raise ValueError(f"Unsupported patch token dtype: {dtype}")
         patch_shape = tuple(int(value) for value in data["dinov2_patch_tokens_shape"])
@@ -163,6 +169,7 @@ class ModelServiceClient:
         )
 
     async def require_indexing_extract_capability(self) -> None:
+        """在批量索引前确认模型服务具备聚合提取能力。"""
         health = await self._request_json("GET", "/health")
         if "indexing_extract" in health.get("capabilities", []):
             return
@@ -185,6 +192,7 @@ class ModelServiceClient:
         return np.array(data["vector"], dtype=np.float32)
 
     async def text_embeddings(self, texts: list[str]) -> np.ndarray:
+        """生成询码描述的 BGE-M3 向量，并校验模型接口契约。"""
         normalized = [str(text).strip() for text in texts]
         if not normalized or any(not text for text in normalized):
             raise ValueError("文本向量请求不能为空")
@@ -250,6 +258,7 @@ _client: Optional[ModelServiceClient] = None
 
 
 def get_model_client() -> ModelServiceClient:
+    # 客户端不持有会话连接，可在进程内复用其地址配置。
     global _client
     if _client is None:
         _client = ModelServiceClient()

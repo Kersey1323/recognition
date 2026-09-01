@@ -37,6 +37,7 @@ def ocr_model_enabled() -> bool:
 
 
 def reconstruction_execution_enabled() -> bool:
+    # 三维重构由独立服务执行，仅在部署方显式提供地址后开放入口。
     return reconstruction_server_env_configured()
 
 
@@ -51,6 +52,7 @@ def ensure_segment_model_enabled() -> None:
 
 
 def ensure_vector_models_enabled() -> None:
+    # CPU 联调模式会主动禁用高开销向量能力，即使模型开关保持默认开启。
     if cpu_safe_mode_enabled():
         raise Exception(CPU_SAFE_MODE_DISABLED_MESSAGE)
     if not vector_models_enabled():

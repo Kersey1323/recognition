@@ -1,4 +1,4 @@
-"""Persistent lifecycle records for V2 index rebuild tasks."""
+"""V2 图片索引任务的持久化状态与启动恢复规则。"""
 
 from __future__ import annotations
 
@@ -40,6 +40,7 @@ def classify_startup_recovery(
     total_items: int,
     completed_item_count: int,
 ) -> IndexRebuildTaskStatus:
+    """根据持久化的配件级检查点判定重启后的任务终态。"""
     normalized_status = IndexRebuildTaskStatus(status)
     if normalized_status not in ACTIVE_INDEX_TASK_STATUSES:
         return normalized_status
@@ -49,6 +50,7 @@ def classify_startup_recovery(
 
 
 class IndexRebuildTask(Base):
+    """记录单配件或批量索引任务，支持取消、重试和进度回看。"""
     __tablename__ = "index_rebuild_task"
     __table_args__ = (
         Index("ix_index_rebuild_task_status_created", "status", "time_created"),
@@ -92,6 +94,7 @@ class IndexRebuildTask(Base):
 
     @classmethod
     async def recover_active_tasks(cls, session: AsyncSession) -> dict[str, int]:
+        # 后台协程无法跨进程恢复；只有全部配件检查点完成的任务可补记为成功。
         result = await session.scalars(select(cls).where(cls.status.in_(ACTIVE_INDEX_TASK_STATUSES)))
         records = list(result)
         recovered = {"success": 0, "interrupted": 0}
@@ -107,7 +110,7 @@ class IndexRebuildTask(Base):
             record.completed_at = now
             record.heartbeat_at = now
             if target == IndexRebuildTaskStatus.SUCCESS:
-                # The final part checkpoint is durable even if restart interrupted the terminal write.
+                # 最后一个配件检查点已持久化时，重启仅丢失终态写入，可安全补记成功。
                 record.progress = 100
                 record.processed_items = record.total_items
                 record.estimated_remaining_seconds = 0

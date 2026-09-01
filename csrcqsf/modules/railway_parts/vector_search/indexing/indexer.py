@@ -18,7 +18,7 @@ logger = setup_logger(__name__)
 
 
 class VectorIndexer:
-    """向量入库核心逻辑"""
+    """供旧版批量入库流程使用的单配件向量写入器。"""
 
     def __init__(
         self,
@@ -53,6 +53,7 @@ class VectorIndexer:
         indexed_image_ids = []
         failed_image_ids = []
 
+        # 旧版 SigLIP 集合同时保存描述文本向量，供文本到图片的跨模态召回使用。
         text_vector = await self.model_client.siglip_text_features(description)
 
         for img_info in images:
@@ -79,6 +80,7 @@ class VectorIndexer:
                 np.save(patch_tokens_path, patch_tokens)
 
                 created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                # 同一张图片同时生成语义向量和局部视觉向量，两套记录共享配件与图片标识。
                 siglip_records.append({
                     "item_id": item_id,
                     "item_name": item_name,
@@ -114,6 +116,7 @@ class VectorIndexer:
         siglip_ids = []
         dinov2_ids = []
 
+        # 两个集合分别批量写入；返回两组主键供上层核对图片是否完整入库。
         if siglip_records:
             siglip_ids = self.collection_manager.insert_siglip_records(
                 self.siglip_collection_name,

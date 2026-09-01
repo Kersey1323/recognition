@@ -40,6 +40,7 @@ class ItemsVechile(Base):
 
 
 class ItemsParent(Base):
+    """保存配件的直接父级关系，供车型和所属部件条件检索使用。"""
     __tablename__ = 'item_relation'
     item_id: Mapped[int] = mapped_column(BIGINT, nullable=False)
     parent_item_id: Mapped[int] = mapped_column(BIGINT, nullable=False)
@@ -63,6 +64,7 @@ class ItemsParent(Base):
         item_id: int,
         parent_item_id: int | None,
     ):
+        # 父级关系采用先清后写，传入空父级时即表示解除现有关系。
         stmt = delete(cls).where(cls.item_id == item_id)
         await session.execute(stmt)
         await session.flush()
@@ -75,6 +77,7 @@ class ItemsParent(Base):
 
 
 class Items(Base):
+    """配件主数据及其图片索引、三维源视频的汇总状态。"""
     __tablename__ = 'item_info'
     item_name: Mapped[str] = mapped_column(String(100), nullable=False)
     item_code: Mapped[str] = mapped_column(
@@ -252,6 +255,7 @@ class Items(Base):
         v2_indexed_image_num: int,
         updated_at,
     ) -> dict:
+        # 主表只保存配件级汇总，图片级索引状态由 SgoItemImages 独立维护。
         return {
             "has_v2_index": 1 if has_v2_index else 0,
             "v2_indexed_image_num": int(v2_indexed_image_num),
@@ -260,6 +264,7 @@ class Items(Base):
 
     @classmethod
     async def reset_v2_index_state(cls, session: AsyncSession, updated_at):
+        # 清空向量库后同步重置所有配件汇总，避免列表继续显示为已索引。
         stmt = update(cls).values(
             has_v2_index=0,
             v2_indexed_image_num=0,
@@ -336,6 +341,7 @@ class Items(Base):
         width: float | None = None,
         weight: float | None = None,
     ) -> dict:
+        # 只更新请求中实际出现的字段，使未提交字段保持原值。
         values = {}
         if "item_name" in fields:
             values["item_name"] = item_name
@@ -490,6 +496,7 @@ class Items(Base):
 
     @classmethod
     def normalize_source_video_filter_mode(cls, has_source_video: int | None) -> str | None:
+        # 接口沿用 0/1/2 三态参数，2 和空值都表示不按源视频过滤。
         if has_source_video == 0:
             return "missing"
         if has_source_video == 1:
@@ -501,6 +508,7 @@ class Items(Base):
                          has_images: bool = False,
                          item_id_list: list[int] = [], item_code_list: list[str] = [], need_index: bool = False,
                          need_v2_index: bool = False, has_source_video: int = 2):
+        """按配件主数据、图片和索引汇总状态组合筛选列表。"""
         offset = (page-1) * per_page
         stmt = select(cls)
         if len(item_id_list) > 0:

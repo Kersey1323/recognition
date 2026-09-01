@@ -1,4 +1,4 @@
-"""Persistent lifecycle management for SGO synchronization tasks."""
+"""SGO 同步任务的进程内执行与持久化生命周期管理。"""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def _default_runner_resolver(task_type: str) -> SgoSyncRunner:
 
 
 class SgoSyncTaskManager:
-    """Run one in-process SGO task while persisting its complete lifecycle."""
+    """单实例内串行执行同步任务，并持久化完整生命周期。"""
 
     def __init__(
         self,
@@ -111,6 +111,7 @@ class SgoSyncTaskManager:
         runner_kwargs: dict[str, Any],
         source: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        # 三类同步共享甲方数据库和本地主库，统一串行可避免交叉写入与重复同步。
         async with self._lock:
             active_task_id = next(iter(self._active), None)
             if active_task_id is not None:
@@ -123,6 +124,7 @@ class SgoSyncTaskManager:
             task_id = str(uuid4())
             source = source or {}
             record = await self._repository.create(
+                # 重试生成新 task_id，但沿用 root_task_id 形成可追溯任务链。
                 task_id=task_id,
                 root_task_id=source.get("root_task_id") or task_id,
                 retry_from_task_id=source.get("task_id"),
@@ -182,6 +184,7 @@ class SgoSyncTaskManager:
             return
 
         async def persist_progress(progress: dict[str, Any]) -> None:
+            # 心跳和进度同事务更新，前端可据此区分长耗时与任务失活。
             values = {
                 field: progress[field]
                 for field in PROGRESS_FIELDS
@@ -223,6 +226,7 @@ class SgoSyncTaskManager:
                 and processed_items > 0
                 and fail_count >= processed_items
             )
+            # 部分对象失败仍保留 success 终态并携带告警；全部失败才判定任务失败。
             error_message = self._build_error_message(
                 fail_count=fail_count,
                 all_failed=all_failed,
@@ -343,6 +347,7 @@ class SgoSyncTaskManager:
         task_id: str,
         cancel_reason: str | None = None,
     ) -> dict[str, Any]:
+        # 先持久化 cancelling 再取消协程，避免进程退出时留下看似运行中的任务。
         async with self._lock:
             record = await self._repository.get(task_id)
             if record is None:
@@ -373,6 +378,7 @@ class SgoSyncTaskManager:
             return _decorate(updated)
 
     async def retry(self, task_id: str) -> dict[str, Any]:
+        """使用原任务参数创建新任务，不覆写历史任务记录。"""
         source = await self._repository.get(task_id)
         if source is None:
             raise KeyError(task_id)

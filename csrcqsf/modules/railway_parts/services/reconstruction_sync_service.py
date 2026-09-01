@@ -13,8 +13,10 @@ from csrcqsf.modules.railway_parts.services.reconstruction_service import Recons
 
 
 class ReconstructionSyncManager:
+    """批量拉取远端运行中任务状态，修复本地进度和终态。"""
     @classmethod
     async def sync_running_tasks(cls) -> dict:
+        # 一次批量请求替代逐任务轮询，远端缺失项保留本地状态并记录告警。
         async with SessionLocal() as session:
             stmt = select(ReconstructionRecord).where(
                 or_(

@@ -470,7 +470,7 @@ async def _item_name_candidate_item_ids(
             session,
             item_name,
         )
-    # 输入名称可能存在错字；主库没有完全相等项时保留图片/描述的原始召回范围。
+    # 配件名称仅在主库存在完全相等项时强过滤；输入可能有错字，无精确项则保留原召回。
     return item_ids or None
 
 
@@ -677,6 +677,7 @@ async def search_v2_contextual(
     search_equipment: str = "web",
     runtime=None,
 ):
+    """融合可选图片和配件描述，并用业务条件过滤后维护最近两轮快照。"""
     runtime = runtime or _runtime()
     files = list(files or [])
     if search_mode not in {"siglip", "dinov2", "hybrid"}:

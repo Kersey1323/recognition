@@ -1,4 +1,4 @@
-"""Routes for reconstruction source videos, tasks, and results."""
+"""三维重构源视频、任务和结果管理路由。"""
 
 from fastapi import File, Form, HTTPException, UploadFile
 

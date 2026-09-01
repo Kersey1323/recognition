@@ -1,4 +1,4 @@
-"""Candidate lookup for automatic indexing of pending part images."""
+"""自动索引扫描的待处理配件查询。"""
 
 from __future__ import annotations
 
@@ -36,8 +36,7 @@ def build_auto_index_candidate_stmt(
     if excluded_item_ids:
         stmt = stmt.where(SgoItemImages.item_id.not_in(excluded_item_ids))
 
-    # Oldest pending collection data is scheduled first, while one task covers all
-    # unindexed images belonging to the selected part.
+    # 最早采集的待索引图片优先；选中配件后，一个任务处理该配件全部未索引图片。
     return (
         stmt.group_by(SgoItemImages.item_id)
         .order_by(

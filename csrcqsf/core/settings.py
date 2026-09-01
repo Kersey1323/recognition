@@ -6,6 +6,7 @@ from bfrcommon.settings import Settings
 from csrcqsf.core.environment import load_explicit_env_file
 from csrcqsf.core.runtime_paths import get_runtime_paths
 
+# 记录进程启动时真实注入的变量，避免镜像默认值被误判为甲方已完成部署配置。
 _EXPLICIT_ENV_KEYS = frozenset(os.environ.keys())
 
 # 本地环境文件必须显式指定；生产环境始终以进程环境变量为准。
@@ -59,6 +60,7 @@ def _build_service_url(
     default_url: str,
     scheme: str = "http",
 ) -> str:
+    """优先使用完整地址，否则由主机和端口拼出外部服务地址。"""
     if explicit_url.strip() != "":
         return explicit_url.strip()
     if host.strip() == "":
@@ -69,6 +71,7 @@ def _build_service_url(
 
 
 def _first_explicit_then_non_empty_env(*names: str, default: str = "") -> str:
+    # 部署环境显式值优先于 Settings 内置值，兼容旧变量名时仍保持唯一取值顺序。
     for name in names:
         if env_is_explicit(name):
             return os.getenv(name, "").strip()
@@ -105,6 +108,7 @@ def reconstruction_server_env_configured() -> bool:
 
 
 def sgo_env_configured() -> bool:
+    # 只校验当前启用的 SGO 数据源，未启用数据库的配置不应阻塞服务启动。
     prefix = "SGO_KINGBASE" if sgo_database_type == "kingbase" else "SGO_MYSQL"
     return _all_explicit_env(
         f"{prefix}_HOST",
@@ -200,6 +204,7 @@ class AISettings(Settings):
         return self.get_async_mysql_dsn()
 
     def get_sgo_dsn(self):
+        # Kingbase 使用项目注册的 SQLAlchemy 方言，MySQL 沿用 asyncmy 异步驱动。
         if sgo_database_type == "kingbase":
             return (
                 "kingbase+asyncpg://"
@@ -226,6 +231,7 @@ class AISettings(Settings):
 
 
 def _apply_runtime_connection_overrides(settings: AISettings) -> None:
+    """将部署环境连接信息覆盖到公共 Settings 对象，供旧代码继续统一取值。"""
     settings.mysql.url = _first_non_empty_env(
         "MAIN_DB_HOST",
         default=settings.mysql.url,

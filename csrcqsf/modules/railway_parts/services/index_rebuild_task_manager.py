@@ -1,4 +1,4 @@
-"""Persistent lifecycle management for V2 index rebuild tasks."""
+"""V2 图片索引任务的并发控制与持久化生命周期管理。"""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ class _ActiveTask:
 
 
 class IndexRebuildTaskManager:
-    """Run tasks in-process while keeping their observable lifecycle in MySQL."""
+    """在进程内执行索引任务，并将前端可观察状态持续写入 MySQL。"""
 
     def __init__(
         self,
@@ -154,6 +154,7 @@ class IndexRebuildTaskManager:
         source: dict[str, Any] | None = None,
         return_none_when_unavailable: bool = False,
     ) -> dict[str, Any] | None:
+        # 先在锁内检查容量并创建记录，避免并发请求同时越过任务上限。
         task_scope = "single" if item_id is not None else "batch"
         async with self._lock:
             try:
@@ -235,7 +236,7 @@ class IndexRebuildTaskManager:
                 "running",
                 "cancelling",
             }:
-                # A task cancelled before its first coroutine step cannot run _run's cleanup.
+                # 协程首步前被取消时不会进入 _run，由完成回调补齐 cancelled 终态。
                 now = datetime.now()
                 await self._repository.transition(
                     task_id,
@@ -256,6 +257,7 @@ class IndexRebuildTaskManager:
             self._notify_capacity_available()
 
     def _check_capacity(self, task_scope: str, item_id: int | None) -> None:
+        # 批量任务全局唯一；单配件任务允许并发，但同一配件不能重复执行。
         active_values = tuple(self._active.values())
         has_batch = any(active.task_scope == "batch" for active in active_values)
         if has_batch or (task_scope == "batch" and active_values):
@@ -386,8 +388,7 @@ class IndexRebuildTaskManager:
             async with self._lock:
                 removed = self._active.pop(task_id, None) is not None
             if removed:
-                # Refill automatic single-item capacity as soon as any manual or
-                # automatic index task leaves the active set.
+                # 任一手工或自动单配件任务结束后立即唤醒扫描器补充空闲并发位。
                 self._notify_capacity_available()
 
     async def get(self, task_id: str) -> dict[str, Any] | None:
@@ -442,6 +443,7 @@ class IndexRebuildTaskManager:
         *,
         runner: IndexRebuildRunner,
     ) -> dict[str, Any]:
+        # 重试创建新记录并保留原任务，批量任务沿用配件级检查点而非图片级断点。
         source = await self._repository.get(task_id)
         if source is None:
             raise KeyError(task_id)

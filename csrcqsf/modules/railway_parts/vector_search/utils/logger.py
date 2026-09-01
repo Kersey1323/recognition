@@ -1,4 +1,4 @@
-"""Logging helpers for railway-parts vector search."""
+"""配件向量检索的控制台与文件日志配置。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from importlib import import_module
 
 
 def setup_logger(name: str, log_dir: str | None = None) -> logging.Logger:
-    """Create a module logger with console and file handlers."""
+    """创建同时写入控制台和文件的模块日志器。"""
     if log_dir is None:
         runtime_paths = import_module("csrcqsf.core.runtime_paths")
         log_dir = str(runtime_paths.resolve_runtime_paths().indexing_log_dir)

@@ -58,6 +58,7 @@ async def _notify(callback: ProgressCallback | None, payload: dict[str, Any]) ->
 
 
 class InquirySemanticIndexService:
+    """将有效询码描述建成独立 BGE-M3 文本索引，并提供按配件过滤的语义检索。"""
     def __init__(
         self,
         *,
@@ -82,6 +83,7 @@ class InquirySemanticIndexService:
 
     @classmethod
     def _document_metadata(cls, row) -> tuple[str, str, str] | None:
+        # 只索引名称描述并关联唯一返回配件；空描述或未匹配主数据的记录不进入向量库。
         source, inquiry_id, description = cls._source_values(row)
         item_id = getattr(row, "item_id", None)
         if not inquiry_id or item_id is None or not description:
@@ -95,6 +97,7 @@ class InquirySemanticIndexService:
         return document_key, content_hash, description
 
     async def _embed_with_retry(self, texts: list[str]) -> Any:
+        # 模型服务短暂失败仅重试当前文本批次，不重跑已经写入的前序样本。
         last_error = None
         for attempt in range(3):
             try:
@@ -259,6 +262,7 @@ class InquirySemanticIndexService:
         task_id: str,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
+        # 全量任务在临时 Collection 构建完成后原子切换别名，失败不影响在线旧索引。
         collection_name = await run_sync(
             lambda: self.store.create_build_collection(task_id)
         )
@@ -291,6 +295,7 @@ class InquirySemanticIndexService:
         top_k: int,
         item_ids: list[int] | None = None,
     ) -> list[dict]:
+        """检索历史询码描述样本，并按配件去重返回最高分语义候选。"""
         normalized = normalize_inquiry_description(query_text)
         if not normalized:
             raise ValueError("查询文本不能为空")

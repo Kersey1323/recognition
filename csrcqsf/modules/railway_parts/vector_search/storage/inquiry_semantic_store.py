@@ -1,4 +1,4 @@
-"""Milvus storage for inquiry-description BGE-M3 vectors."""
+"""询码描述 BGE-M3 向量的 Milvus 存储实现。"""
 
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ class InquirySemanticDocument:
 
 
 class InquirySemanticStore:
+    """管理询码语义文档的幂等写入、检索和全量集合切换。"""
     def __init__(self, *, collection_manager=None, config=None):
         self.config = config or get_config()
         self.collection_manager = collection_manager or CollectionManager(
@@ -56,6 +57,7 @@ class InquirySemanticStore:
         *,
         collection_name: str | None = None,
     ) -> dict[str, str]:
+        # 内容摘要用于增量任务跳过未变化样本，减少重复向量计算和写入。
         if not document_keys:
             return {}
         rows = self.client.query(
@@ -142,6 +144,7 @@ class InquirySemanticStore:
         return list(results[0]) if results else []
 
     def create_build_collection(self, task_id: str) -> str:
+        # 每个全量任务使用独立临时集合，任务之间不会共享半成品数据。
         token = task_id.replace("-", "")[:12]
         collection_name = f"PARTS_INQUIRY_BGE_M3_1024D_BUILD_{token}"
         self.collection_manager.create_inquiry_semantic_collection(

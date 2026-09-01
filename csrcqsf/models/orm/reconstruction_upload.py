@@ -10,6 +10,8 @@ from csrcqsf.infra.db.main_db import Base
 
 
 class ReconstructionVideoUploadSession(Base):
+    """记录分片视频在本地接收与远端重构服务补传中的双阶段状态。"""
+
     __tablename__ = "reconstruction_video_upload_session"
 
     item_id: Mapped[int] = mapped_column(BIGINT, nullable=False, index=True)
@@ -62,6 +64,7 @@ class ReconstructionVideoUploadSession(Base):
 
     @classmethod
     async def get_active_by_item_id(cls, session: AsyncSession, item_id: int):
+        # 同一配件复用最新的未完成会话，防止并行上传生成两套分片和重构任务。
         stmt = (
             select(cls)
             .where(cls.item_id == item_id, cls.status == "initiated")
@@ -92,6 +95,7 @@ class ReconstructionVideoUploadSession(Base):
 
     @classmethod
     async def list_local_sessions_pending_remote_sync(cls, session: AsyncSession):
+        # 本地文件已经合并即可继续补传；同步中断也重新纳入队列，由同步服务恢复状态。
         stmt = (
             select(cls)
             .where(

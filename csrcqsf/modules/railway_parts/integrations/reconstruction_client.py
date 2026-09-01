@@ -24,6 +24,7 @@ _CONTENT_DISPOSITION_FILENAME_RE = re.compile(
 
 
 def _sanitize_content_disposition(value: str | None) -> str | None:
+    # 上游响应头不可直接透传，先移除路径、控制字符并规范中文文件名编码。
     if not value or "\r" in value or "\n" in value:
         return None
     match = _CONTENT_DISPOSITION_FILENAME_RE.search(value)
@@ -54,6 +55,7 @@ def _validated_content_length(value: str | None) -> int | None:
 
 @dataclass
 class ReconstructionUpstreamStream:
+    """持有上游下载连接，并在流读取结束后统一释放响应和会话。"""
     session: aiohttp.ClientSession
     response: aiohttp.ClientResponse
     content_type: str
@@ -93,6 +95,7 @@ class ReconstructionServiceClientError(Exception):
 
 
 class ReconstructionServiceClient:
+    """封装三维重构服务的任务、运维和文件流协议。"""
     def __init__(
         self,
         base_url: str | None = None,
@@ -113,6 +116,7 @@ class ReconstructionServiceClient:
         json: dict | None = None,
         params: Mapping[str, str] | None = None,
     ) -> dict:
+        # 将超时、连接失败和上游业务错误分型，主服务据此映射稳定的接口错误。
         url = f"{self.base_url}{path}"
         timeout = aiohttp.ClientTimeout(total=self.timeout_sec)
         try:
@@ -203,6 +207,7 @@ class ReconstructionServiceClient:
         *,
         params: Mapping[str, str] | None = None,
     ) -> ReconstructionUpstreamStream:
+        """打开上游文件流，只透传经过校验且与实际正文一致的响应头。"""
         url = f"{self.base_url}{path}"
         timeout = aiohttp.ClientTimeout(total=self.download_timeout_sec)
         session = aiohttp.ClientSession(timeout=timeout)

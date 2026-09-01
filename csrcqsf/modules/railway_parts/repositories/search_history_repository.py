@@ -4,7 +4,7 @@ from csrcqsf.models.orm.search_history import SearchHistory, SearchReviewTicket
 
 
 class SearchHistoryRepository:
-    """Search history and review-ticket data access boundary."""
+    """统一隔离检索历史与人工复核工单的数据访问入口。"""
 
     @classmethod
     def _get_history_model(cls, history_model=None):
@@ -58,6 +58,7 @@ class SearchHistoryRepository:
         *,
         review_ticket_model=None,
     ):
+        # 列表页一次批量读取各历史的最新工单，避免逐条查询造成 N+1 数据库请求。
         return await cls._get_review_ticket_model(review_ticket_model).list_latest_by_history_ids(
             session,
             history_id_list,

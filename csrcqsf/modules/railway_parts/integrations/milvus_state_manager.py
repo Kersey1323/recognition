@@ -53,6 +53,7 @@ class PartsIndex(BaseModel):
 
 
 class MilvusManager:
+    """旧 V1 索引兼容入口；新图片检索和状态统计统一使用 V2 管理器。"""
     _hp_extractor = None
 
     @classmethod
@@ -199,6 +200,7 @@ class MilvusManager:
 
 
 class MilvusManagerV2(_BaseMilvusManagerV2):
+    """对外暴露单例兼容方法，实际向量逻辑由 storage 层实现。"""
     _instance: Optional["MilvusManagerV2"] = None
 
     @classmethod

@@ -193,6 +193,7 @@ def _inquiry_history_payload_from_source_row(row: dict, item_id: int | None) -> 
 
 
 def _build_inquiry_history_upsert_sql() -> str:
+    # 询码编号、返回编码和来源共同保证幂等；重复同步只刷新可变化的业务字段。
     columns = ", ".join(f"`{column}`" for column in INQUIRY_HISTORY_COLUMNS)
     placeholders = ", ".join(f":{column}" for column in INQUIRY_HISTORY_COLUMNS)
     updates = ", ".join(
@@ -220,6 +221,7 @@ class TokenResponse(BaseModel):
 
 
 class SGOBiz:
+    """负责从 SGO 同步配件、图片和询码记录到 Recognition 自有存储。"""
     token = ""
     _token_error_detail = ""
     _api_url = os.getenv("SGO_API_URL", "https://sgo.csrcqsf.com")
@@ -230,6 +232,7 @@ class SGOBiz:
 
     @classmethod
     def init(cls):
+        # 配件主数据可独立定时同步；图片 token 仅在开启图片同步时预热和续期。
         scheduler.add_job(
             cls._submit_scheduled_parts_sync,
             "interval",
@@ -266,6 +269,7 @@ class SGOBiz:
 
     @classmethod
     def get_token(cls):
+        """获取图片下载令牌，并保留不含敏感值的诊断信息。"""
         url = f"{cls._api_url}/uc/sfsso/authByAccount?tenantId={cls._tenant_id}"
         response = None
         with PoolManager(ssl_context=ctx) as pool:
@@ -319,6 +323,7 @@ class SGOBiz:
         sync_scope: Literal["selected", "all"],
         item_id_list: list[str],
     ) -> int:
+        # selected 按请求去重后的配件计数，all 只遍历已同步到主库的配件。
         if sync_scope == "selected":
             return len(dict.fromkeys(str(item_id) for item_id in item_id_list))
         async with SessionLocal() as session:
@@ -332,6 +337,7 @@ class SGOBiz:
         item_id_list: list[str],
         batch_size: int,
     ) -> AsyncIterator[ImageSyncItemBatch]:
+        """以稳定 ID 游标分批读取配件，避免全量同步一次加载数万条主数据。"""
         if sync_scope == "selected":
             normalized_ids = list(
                 dict.fromkeys(str(item_id) for item_id in item_id_list)
@@ -364,6 +370,7 @@ class SGOBiz:
             return
 
         last_id = 0
+        # 使用主键游标而非 offset，长任务期间数据新增不会造成前后页重复。
         while True:
             async with SessionLocal() as session:
                 rows = await Items.list_item_id_codes_after(
@@ -391,6 +398,7 @@ class SGOBiz:
         cls,
         items: list[ImageSyncItem],
     ) -> tuple[dict[str, ImageSyncCandidate], list[dict[str, str]]]:
+        """合并配件基础图和询码图片，并按 SGO 原始文件标识去重。"""
         if not items:
             return {}, []
 
@@ -454,6 +462,7 @@ class SGOBiz:
         cls,
         progress_callback: Callable[[dict], None] | None = None,
     ) -> dict:
+        """同步 SGO 配件主数据，已存在 ID 或编码均视为跳过。"""
         started_at = time.perf_counter()
         async with SessionLocal() as session:
             item_id_codes = await Items.list_all_item_id_codes(session)
@@ -625,6 +634,7 @@ class SGOBiz:
         sync_scope: Literal["selected", "all"] = "selected",
         progress_callback: Callable[[dict], None] | None = None,
     ) -> dict:
+        """同步指定或全部已入库配件的缺失图片，并持续上报任务进度。"""
         if sync_scope not in {"selected", "all"}:
             raise ValueError(f"不支持的图片同步范围: {sync_scope}")
 
@@ -719,6 +729,7 @@ class SGOBiz:
             if missing_candidates and not cls.token:
                 await run_sync(cls.get_token)
 
+            # 进度按请求配件数统计；一个配件包含多少图片不会改变 total_items 口径。
             batch_processed = len(batch.requested_ids)
             zip_groups = [
                 missing_candidates[start : start + sgo_image_zip_batch_size]
@@ -825,6 +836,7 @@ class SGOBiz:
                     await asyncio.gather(*zip_tasks, return_exceptions=True)
 
             failed_in_batch = set()
+            # 同一配件即使多张图片失败，也只在任务配件失败数中累计一次。
             for failure in batch_failures:
                 failed_in_batch.add(failure["item_id"])
                 if (
@@ -891,6 +903,7 @@ class SGOBiz:
         progress_callback: Callable[[dict], None] | None = None,
         _sync_task_id: str | None = None,
     ) -> dict:
+        """同步已返回配件编码的询码记录，并触发对应描述的增量语义索引。"""
         source_rows = await cls._list_sgo_inquiry_history_source_rows(limit=limit)
         total_items = len(source_rows)
         if progress_callback is not None:
@@ -1031,6 +1044,7 @@ class SGOBiz:
 
     @classmethod
     async def _list_main_item_ids_by_codes(cls, item_codes: set[str]) -> dict[str, int]:
+        # 询码记录允许先于配件主数据到达，找不到编码时仍保留历史但 item_id 为空。
         if not item_codes:
             return {}
         async with SessionLocal() as session:
@@ -1185,6 +1199,7 @@ class SGOBiz:
 
     @classmethod
     def download_images_from_sgo(cls, files_name: list[str]):
+        """调用 SGO 批量下载接口，校验 ZIP 完整性并对可恢复错误重试。"""
         # 关闭启动时的图片同步不应阻断手动同步；首次下载时按需建立认证会话。
         if not cls.token:
             cls.get_token()
@@ -1264,6 +1279,7 @@ class SGOBiz:
         cls,
         candidates: list[ImageSyncCandidate],
     ) -> tuple[int, list[dict[str, str]]]:
+        """将 ZIP 中图片并发写入 MinIO，随后一次提交对应图片记录。"""
         if not candidates:
             return 0, []
 
@@ -1400,6 +1416,7 @@ class SGOBiz:
         cls,
         candidates: dict[str, ImageSyncCandidate],
     ) -> tuple[list[ImageSyncCandidate], int]:
+        # 已软删除图片也视为同步过，避免全量任务把人工删除的错误图片重新导入。
         if not candidates:
             return [], 0
 
@@ -1426,6 +1443,7 @@ class SGOBiz:
 
     @classmethod
     async def _commit_images(cls, sgo_image_list: list[SgoItemImages]):
+        """在最终写入前再次按原始地址去重，保证任务重试幂等。"""
         if not sgo_image_list:
             return 0
         async with SessionLocal() as session:

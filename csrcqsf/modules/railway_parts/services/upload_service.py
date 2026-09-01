@@ -1,3 +1,5 @@
+"""三维源视频分片上传及 MinIO 不可用时的本地兜底实现。"""
+
 from __future__ import annotations
 
 
@@ -19,6 +21,7 @@ async def _init_remote_source_video_upload(
     weight: float | None = None,
     runtime=None,
 ) -> dict:
+    # 同一配件只能有一个活动上传会话，避免多个视频同时争用最终绑定关系。
     runtime = runtime or _runtime()
     object_name = cls._build_source_video_multipart_object_name(item_id=item_id, file_name=file_name)
     video_path = f"{runtime.minio_reconstruction_video_bucket}/{object_name}"
@@ -95,6 +98,7 @@ async def _init_local_source_video_upload(
     weight: float | None = None,
     runtime=None,
 ) -> dict:
+    # 本地模式沿用相同分片协议，恢复 MinIO 后可按原会话无感补传。
     runtime = runtime or _runtime()
     object_name = cls._build_source_video_multipart_object_name(item_id=item_id, file_name=file_name)
     video_path = f"{runtime.minio_reconstruction_video_bucket}/{object_name}"
@@ -420,6 +424,7 @@ async def get_source_video_upload_urls(
 
 
 async def complete_source_video_multipart_upload(cls, upload_session_id: int, runtime=None) -> dict:
+    # 以存储端实际分片列表完成合并，避免前端遗漏或伪造分片状态。
     runtime = runtime or _runtime()
     upload_session = await cls._require_upload_session(upload_session_id)
     if upload_session.storage_mode == "local":
@@ -587,6 +592,7 @@ async def _minio_health_check(cls, runtime=None) -> bool:
 
 
 async def _sync_local_session_to_remote(cls, upload_session, session, runtime=None) -> bool:
+    # 已上传到远端的分片直接跳过，服务重启后可从缺失分片继续同步。
     runtime = runtime or _runtime()
     merged_file_path = getattr(upload_session, "merged_file_path", None)
     if not merged_file_path or not runtime.Path(merged_file_path).exists():
@@ -689,6 +695,7 @@ async def _sync_local_session_to_remote(cls, upload_session, session, runtime=No
 
 
 async def check_minio_and_sync_local_uploads(cls, runtime=None) -> dict:
+    """MinIO 恢复后批量补传已在本地合并完成的视频会话。"""
     runtime = runtime or _runtime()
     if not runtime.minio_env_configured():
         return {

@@ -71,7 +71,7 @@ from csrcqsf.modules.sgo.schemas import ImageSourceType, SegmentStatus
 from csrcqsf.core.settings import minio_bucket, minio_search_history_bucket, temp_dir
 from csrcqsf.core.logging_config import logger
 
-# These names are consumed by split service modules through `_runtime_context()`.
+# 拆分后的业务模块通过运行时上下文复用这些依赖，保持原门面接口和测试替换点不变。
 try:
     from csrcqsf.infra.storage.minio import ensure_minio_bucket, minio_instance, parse_minio_path
 except Exception:  # pragma: no cover - import-time fallback for test patching only
@@ -85,6 +85,7 @@ def _get_minio_helpers():
     return ensure_minio_bucket, minio_instance, parse_minio_path
 
 def _get_milvus_manager_v2_cls():
+    # 延迟导入避免未启用向量能力时，仅加载主服务就连接 Milvus。
     global MilvusManagerV2
     if MilvusManagerV2 is None:
         from csrcqsf.modules.railway_parts.vector_search.storage.milvus_manager import (
@@ -119,6 +120,7 @@ def _runtime_context():
 
 
 class RailwayPartsManager:
+    """配件、检索和索引能力的兼容门面，具体业务由拆分服务实现。"""
     @classmethod
     async def init(cls):
         pass
@@ -663,6 +665,7 @@ class RailwayPartsManager:
 
     @classmethod
     async def create_item_image_files(cls, item_id: int, files: list) -> dict:
+        """保存采集图片并唤醒自动索引扫描，不在上传请求内等待索引完成。"""
         _bind_item_runtime()
         return await item_service.create_item_image_files(
             cls,

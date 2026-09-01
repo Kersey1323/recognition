@@ -61,6 +61,7 @@ class InquiryTextIndexTaskRepository:
         from_statuses: tuple[str, ...],
         **values,
     ) -> dict[str, Any] | None:
+        # 条件更新保证 worker 完成、取消请求和服务停止只能写入一个合法终态。
         async with SessionLocal() as session:
             result = await session.execute(
                 update(InquiryTextIndexTask)
@@ -82,6 +83,7 @@ class InquiryTextIndexTaskRepository:
             return _record_to_dict(record) if record is not None else None
 
     async def claim_next_pending(self) -> dict[str, Any] | None:
+        # 行锁跳过已被领取任务，为未来多 worker 部署保留安全的 FIFO 领取语义。
         async with SessionLocal() as session:
             record = await session.scalar(
                 select(InquiryTextIndexTask)

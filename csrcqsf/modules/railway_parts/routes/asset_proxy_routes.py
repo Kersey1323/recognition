@@ -1,4 +1,4 @@
-"""Root-level asset proxy routes for bucket/object downloads."""
+"""按 bucket/object 下载内部资产的根级代理路由。"""
 
 from __future__ import annotations
 

@@ -91,6 +91,7 @@ def parse_minio_path(path: str, default_bucket: str | None = None) -> tuple[str,
         ] if bucket
     }
 
+    # 对外返回可访问 URL，对内始终还原为 MinIO 的 bucket/object 二元定位。
     if raw_path.startswith(("minio://", "s3://")):
         parsed = urlparse(raw_path)
         bucket = parsed.netloc
@@ -118,6 +119,7 @@ def parse_minio_path(path: str, default_bucket: str | None = None) -> tuple[str,
 
 
 def looks_like_minio_path(path: str, default_bucket: str | None = None) -> bool:
+    """复用完整解析规则判断路径，避免识别逻辑与实际下载规则分叉。"""
     try:
         parse_minio_path(path, default_bucket=default_bucket)
         return True

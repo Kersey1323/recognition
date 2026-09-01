@@ -1,4 +1,4 @@
-"""Reconstruction task, status, and result service implementations."""
+"""三维重构任务提交、状态同步和结果持久化业务。"""
 from __future__ import annotations
 
 import os
@@ -10,8 +10,7 @@ from uuid import uuid4
 
 from csrcqsf.modules.railway_parts.services import reconstruction_result_service, reconstruction_task_detail_service
 
-# These names are injected by bind_runtime_dependencies() at import-install time.
-# Keep module-level placeholders so IDEs and static analyzers can resolve them.
+# 依赖由 ReconstructionManager 安装时注入；保留占位声明便于静态检查和测试替换。
 run_sync: Any = None
 get_id: Any = None
 logger: Any = None
@@ -32,6 +31,7 @@ _REMOTE_RECOVERY_STATES = frozenset({"RECOVERY_QUEUED", "RECOVERING"})
 
 
 def bind_runtime_dependencies(reconstruction_service_module: ModuleType | None = None) -> None:
+    """绑定重构兼容门面的数据库、存储和远端客户端依赖。"""
     if reconstruction_service_module is None:
         from csrcqsf.modules.railway_parts.services import (
             reconstruction_service as reconstruction_service_module,
@@ -72,6 +72,7 @@ def _is_terminal_status(cls, status: str | None) -> bool:
     )
 
 def _normalize_remote_status_snapshot(cls, remote_status: dict) -> dict:
+    # 把 Celery 状态和缺省阶段统一为前端稳定使用的业务快照。
     mapped_status = map_celery_state_to_reconstruction_status(
         str(remote_status.get("status") or "PENDING")
     )
@@ -245,6 +246,7 @@ def _response_time_updated(cls, record) -> str | None:
     return record.time_updated.isoformat() if record.time_updated else None
 
 async def _apply_remote_status_to_record(cls, *, session, record, remote_status: dict) -> bool:
+    """合并远端状态到本地记录，并阻止普通运行态覆盖既有终态。"""
     remote_state = str(remote_status.get("status") or "PENDING").upper()
     is_recovery_state = remote_state in _REMOTE_RECOVERY_STATES
     remote_mapped_status = map_celery_state_to_reconstruction_status(
@@ -574,7 +576,7 @@ async def submit_video_task(
     run_name = cls._build_video_run_name(name)
     task_id = str(uuid4())
     
-    # 先创建数据库记录，避免 worker 很快完成时查不到 task_id。
+    # 先创建数据库记录，避免远端任务很快完成时回查不到 task_id。
     async with SessionLocal() as session:
         await ReconstructionRecord.create_record(
             session=session,

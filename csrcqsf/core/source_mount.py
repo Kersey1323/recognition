@@ -43,6 +43,7 @@ def resolve_source_mount(
     container_path: Path,
     mountinfo_path: Path,
 ) -> SourceMountResolution:
+    """判断当前业务包来自宿主机挂载还是镜像内置源码。"""
     resolved_path = container_path.resolve()
     base = {
         "container_path": str(container_path),
@@ -58,6 +59,7 @@ def resolve_source_mount(
             **base,
         )
 
+    # 只有挂载点与业务包路径完全一致时才认定为外部源码，父目录中的普通挂载不算。
     for line in lines:
         left, separator, right = line.partition(" - ")
         if not separator:
@@ -94,6 +96,7 @@ def record_source_mount(
     container_path: Path | None = None,
     mountinfo_path: Path | None = None,
 ) -> SourceMountResolution | None:
+    """记录实际运行的源码来源，便于线上确认挂载代码是否已经生效。"""
     if not _env_flag("RECOGNITION_MAIN_SOURCE_LOG_ENABLED", True):
         return None
 
@@ -119,6 +122,7 @@ def record_source_mount(
         "argv": sys.argv,
     }
 
+    # 源码来源日志不能影响主服务启动，因此磁盘不可写时仅告警。
     try:
         runtime_paths.log_dir.mkdir(parents=True, exist_ok=True)
         source_log_path = runtime_paths.log_dir / "source_mount.log"

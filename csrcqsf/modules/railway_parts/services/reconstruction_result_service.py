@@ -112,6 +112,7 @@ async def _persist_success_result(
     task_result: dict,
     runtime=None,
 ) -> bool:
+    # 远端若已返回 MinIO 路径则直接绑定；本地文件路径则先上传再更新配件模型入口。
     runtime = runtime or _runtime()
     ply_path = task_result.get("ply_path")
     if task_result.get("output_dir") and not record.output_path:
@@ -187,6 +188,7 @@ async def _persist_success_result(
 
 
 async def persist_task_result_by_task_id(cls, task_id: str, task_result: dict, runtime=None) -> bool:
+    """将远端终态和 PLY 结果原子关联到任务及配件主数据。"""
     runtime = runtime or _runtime()
     async with runtime.SessionLocal() as session:
         record = await runtime.ReconstructionRecord.get_by_task_id(session, task_id)
@@ -233,6 +235,7 @@ async def persist_task_result_by_task_id(cls, task_id: str, task_result: dict, r
 
 
 async def ensure_item_result_persisted(cls, item_id: int, runtime=None) -> bool:
+    # 兼容早期成功任务未写回 obj_url 的情况，寻找已有成功结果补齐引用。
     runtime = runtime or _runtime()
     async with runtime.SessionLocal() as session:
         item = await runtime.Items.get_item_by_id(session, item_id)

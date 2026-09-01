@@ -144,6 +144,7 @@ async def update_v2_search_review_ticket(
         if history is None:
             raise Exception(f"history_id={ticket.history_id} 的记录不存在")
 
+        # 判定为用户误判时，以系统原始 Top1 作为正确结果回写历史，保留系统检索本身正确的事实。
         if review_status == "resolved" and resolved_verify_status == "user_misjudged":
             correct_fields = await cls._resolve_system_top1_correct_fields(session, history)
             correct_item_id = correct_fields["correct_item_id"]
@@ -166,6 +167,7 @@ async def update_v2_search_review_ticket(
                 verify_remark=resolution_remark or review_remark,
                 verified_at=now,
             )
+        # 人工指定正确编码时，同时修正检索历史，后续详情和统计统一读取同一份核验结论。
         elif correct_item_code:
             resolved_verify_status = resolved_verify_status or "wrong"
             item = await runtime.Items.get_item_by_item_code(session, correct_item_code)
@@ -204,6 +206,7 @@ async def update_v2_search_review_ticket(
                 verified_at=now,
             )
 
+        # 状态回退会清空后续节点时间，避免工单显示已经解决或关闭的旧时间。
         review_started_at = ticket.review_started_at
         resolved_at = ticket.resolved_at
         closed_at = ticket.closed_at
@@ -329,6 +332,7 @@ async def verify_v2_search_history(
         correct_image_url = None
         correct_rank = None
         correct_source = None
+        # 用户误判不另选配件，直接把当次系统 Top1 固化为正确答案。
         if verify_status == "user_misjudged":
             correct_fields = await cls._resolve_system_top1_correct_fields(session, history)
             correct_item_id = correct_fields["correct_item_id"]
@@ -337,6 +341,7 @@ async def verify_v2_search_history(
             correct_image_url = correct_fields["correct_image_url"]
             correct_rank = correct_fields["correct_rank"]
             correct_source = correct_fields["correct_source"]
+        # 确认检索正确且未指定编码时，优先从历史候选恢复完整的图片、名次和配件信息。
         elif verify_status == "correct" and not correct_item_code:
             correct_item_code = history.search_result_item_code
             correct_item_name = history.search_result_item_name
@@ -360,6 +365,7 @@ async def verify_v2_search_history(
                         item_code=correct_item_code,
                     )
             correct_source = "review_resolved" if correct_item_code else None
+        # 指定其他编码代表人工纠错，正确项可不在原候选列表中，因此回源配件表和图片表补全信息。
         elif correct_item_code:
             item = await runtime.Items.get_item_by_item_code(session, correct_item_code)
             if item is None:

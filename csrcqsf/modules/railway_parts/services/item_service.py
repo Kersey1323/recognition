@@ -1,3 +1,5 @@
+"""配件主数据、图片上传和索引展示的一致性业务。"""
+
 from __future__ import annotations
 
 import os
@@ -5,6 +7,7 @@ from types import ModuleType
 
 
 def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) -> None:
+    """绑定配件兼容门面的数据库、存储和索引依赖。"""
     if parts_service_module is None:
         from csrcqsf.modules.railway_parts.services import parts_service as parts_service_module
 
@@ -112,6 +115,7 @@ async def delete_item_image(
     delete_reason: str | None = None,
     runtime=None,
 ) -> dict:
+    # 先软删除数据库记录，让检索和列表立即不可见，再尽力清理各类外部产物。
     runtime = runtime or _runtime()
     async with runtime.SessionLocal() as session:
         image = await runtime.SgoItemImages.get_item_image(
@@ -448,6 +452,7 @@ def _wake_auto_index_scan(runtime) -> None:
 
 
 async def create_item_image(cls, item_id: int, image_url_list: list[str], runtime=None):
+    # 路径登记接口只新增未出现的自主采集图，重复请求保持幂等。
     runtime = runtime or _runtime()
     async with runtime.SessionLocal() as session:
         item = await runtime.Items.get_item_by_id(session, item_id)
@@ -530,6 +535,7 @@ async def _delete_minio_object(object_path: str, runtime=None) -> None:
 
 
 async def create_item_image_files(cls, item_id: int, files: list, runtime=None) -> dict:
+    """上传原图并创建待索引记录；数据库失败时回收本次已上传对象。"""
     runtime = runtime or _runtime()
     if len(files) == 0:
         raise Exception("未上传图片文件")

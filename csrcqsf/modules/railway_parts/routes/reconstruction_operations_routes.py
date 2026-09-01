@@ -1,4 +1,4 @@
-"""Public task-scoped reconstruction operations routes."""
+"""面向前端的任务级三维重构运维路由。"""
 
 from __future__ import annotations
 

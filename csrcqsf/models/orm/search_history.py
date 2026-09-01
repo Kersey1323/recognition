@@ -19,6 +19,7 @@ from csrcqsf.modules.sgo.schemas import ListInqueryItem
 
 
 class SearchParameters(BaseModel):
+    """保存一次检索实际使用的图片、描述和结构化过滤条件。"""
     features: list[str] = []
     images: list[str] = []
     query_images: list[str] = []
@@ -87,6 +88,7 @@ class SearchHistoryItem(BaseModel):
 
 
 class SearchHistory(Base):
+    """持久化检索、反馈和精准校验闭环，关闭前端弹窗后仍可回看。"""
     __tablename__ = 'search_history'
     inquery_id: Mapped[str] = mapped_column(String(500), nullable=True)
     inquery_num: Mapped[str] = mapped_column(String(500), nullable=True)
@@ -139,6 +141,7 @@ class SearchHistory(Base):
         date_from: str | None = None,
         date_to: str | None = None,
     ):
+        """按检索来源、校验状态和日期筛选历史记录。"""
         offset = (page-1) * per_page
         stmt = select(cls)
 
@@ -166,6 +169,7 @@ class SearchHistory(Base):
             )
 
         if status != "all":
+            # partial 与 wrong 都表示原结果需要纠正，列表端统一归入错误状态。
             if status == "pending":
                 stmt = stmt.where(
                     or_(cls.verify_status.is_(None), cls.verify_status == "pending")
@@ -262,6 +266,7 @@ class SearchHistory(Base):
         correct_rank: int | None,
         correct_source: str | None,
     ):
+        # 一次写入用户选择与最终正确项，保证排序反馈和业务校验指向同一版本。
         stmt = update(cls).where(cls.id == history_id).values(
             verify_status=verify_status,
             verify_remark=verify_remark,
@@ -284,6 +289,7 @@ class SearchHistory(Base):
 
     @classmethod
     async def delete_history_with_query_images(cls, session: AsyncSession, history_id_list: list[int]):
+        # 删除记录前返回所有查询图片快照，服务层据此清理 MinIO 对象。
         stmt = select(
             cls.id,
             cls.query_image,
@@ -304,6 +310,7 @@ class SearchHistory(Base):
 
 
 class SearchReviewTicket(Base):
+    """对需要人工复核的检索历史建立独立处理工单。"""
     __tablename__ = 'search_review_ticket'
     INACTIVE_REVIEW_STATUSES = ("closed", "deleted")
 
@@ -318,6 +325,7 @@ class SearchReviewTicket(Base):
 
     @classmethod
     async def get_active_by_history_id(cls, session: AsyncSession, history_id: int):
+        # 同一历史记录只复用尚未关闭或删除的最新工单，避免重复派单。
         stmt = select(cls).where(
             and_(
                 cls.history_id == history_id,
@@ -490,6 +498,7 @@ class SearchReviewTicket(Base):
         if not history_id_list:
             return {}
 
+        # 同一检索历史允许保留多次复核记录；按工单倒序后只暴露最新状态。
         stmt = select(cls).where(cls.history_id.in_(history_id_list)).order_by(
             cls.history_id.asc(),
             cls.id.desc(),

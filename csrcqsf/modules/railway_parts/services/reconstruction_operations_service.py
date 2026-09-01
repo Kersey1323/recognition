@@ -1,4 +1,4 @@
-"""Task-scoped reconstruction recovery, diagnostics, and cleanup orchestration."""
+"""按任务编排三维重构恢复、诊断下载和输出清理操作。"""
 
 from __future__ import annotations
 
@@ -52,6 +52,7 @@ class ReconstructionOperationsError(Exception):
 
 
 def _public_error_detail(detail: str) -> str:
+    # 上游异常可能包含内部 URL 和磁盘路径，对外响应只保留可定位的首行摘要。
     first_line = str(detail).splitlines()[0].strip()
     cleaned = _URL_RE.sub("[内部地址已隐藏]", first_line)
     cleaned = _ABSOLUTE_PATH_RE.sub("[内部路径已隐藏]", cleaned)
@@ -78,6 +79,7 @@ def _sanitize_summary(value: Any) -> Any:
 
 
 class ReconstructionOperationsService:
+    """校验本地任务归属后代理运维操作，并记录脱敏审计信息。"""
     def __init__(self, session, client: ReconstructionServiceClient | None = None):
         self.session = session
         self.client = client or ReconstructionServiceClient()
@@ -90,6 +92,7 @@ class ReconstructionOperationsService:
 
     @staticmethod
     def validate_artifact_path(relative_path: str) -> str:
+        # 诊断文件只能使用任务目录内相对路径，拒绝绝对路径和目录穿越。
         if not relative_path or len(relative_path) > 1000 or "\x00" in relative_path:
             raise ReconstructionOperationsError(400, "诊断产物路径无效")
         path = PurePosixPath(relative_path.replace("\\", "/"))
@@ -180,6 +183,7 @@ class ReconstructionOperationsService:
             )
 
     async def get_diagnostics(self, task_id: str) -> ReconstructionDiagnosticsRes:
+        # 下载地址统一改写为主服务路由，前端不接触重构服务内部地址。
         await self.get_owned_record(task_id)
         try:
             payload = await self.client.get_diagnostics(task_id)
@@ -331,6 +335,7 @@ class ReconstructionOperationsService:
         status_code: int,
         error_message: str | None,
     ) -> None:
+        # 审计失败不能覆盖原运维操作结果，记录中也不落 token、文件体和内部路径。
         from csrcqsf.infra.db.main_db import SessionLocal
         from csrcqsf.models.orm.reconstruction_operation_audit import (
             ReconstructionOperationAudit,

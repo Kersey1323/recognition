@@ -1,4 +1,4 @@
-"""Database access for persistent V2 index rebuild tasks."""
+"""V2 图片索引任务的持久化访问层。"""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ class IndexRebuildTaskRepository:
         from_statuses: tuple[str, ...],
         **values,
     ) -> dict[str, Any] | None:
-        """Atomically update a task only while it is in an allowed source state."""
+        """仅在允许的源状态下原子更新任务，避免取消与完成互相覆盖。"""
         async with SessionLocal() as session:
             result = await session.execute(
                 update(IndexRebuildTask)

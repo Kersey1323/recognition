@@ -14,6 +14,7 @@ from csrcqsf.modules.sgo.schemas import SegmentStatus
 
 
 class SegmentedImageService:
+    """管理自主采集图片的分割产物、状态记录及索引关联。"""
     def __init__(
         self,
         session,
@@ -48,6 +49,7 @@ class SegmentedImageService:
         bbox: tuple[int, int, int, int],
         mask_area: int,
     ) -> SegmentedImage:
+        # 先创建 pending 记录再上传产物，上传失败仍能留下可诊断的失败记录。
         record = SegmentedImage(
             id=self.id_factory(),
             item_id=item_id,
@@ -137,6 +139,7 @@ class SegmentedImageService:
         item_id: int,
         source_image_id: int,
     ) -> int:
+        # 删除原图或强制重建时，同时清理其全部历史分割对象和数据库记录。
         records = await SegmentedImage.list_by_source_image(
             self.session,
             item_id,

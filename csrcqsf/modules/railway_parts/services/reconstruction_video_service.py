@@ -1,4 +1,4 @@
-"""Reconstruction source-video upload, multipart, and sync service implementations."""
+"""三维重构源视频的直传、分片上传和本地兜底同步门面。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 from csrcqsf.modules.railway_parts.services import source_video_service, upload_service
 
-# These names are injected by bind_runtime_dependencies() from reconstruction_service.
+# 依赖由 reconstruction_service 兼容门面注入，保持原调用入口不变。
 run_sync: Any = None
 get_id: Any = None
 logger: Any = None
@@ -32,6 +32,7 @@ ItemsType = Any
 def bind_runtime_dependencies(
     reconstruction_service_module: ModuleType | None = None,
 ) -> None:
+    """绑定上传实现需要的数据库、MinIO 和本地文件依赖。"""
     if reconstruction_service_module is None:
         from csrcqsf.modules.railway_parts.services import (
             reconstruction_service as reconstruction_service_module,
@@ -75,6 +76,7 @@ def _safe_filename(filename: str | None) -> str:
 
 
 def _choose_multipart_part_size(file_size: int) -> int:
+    # 分片大小同时满足 MinIO 最小分片和最多一万片限制。
     min_part_size = 5 * 1024 * 1024
     max_part_size = 5 * 1024 * 1024 * 1024
     mb_10 = 10 * 1024 * 1024
@@ -112,6 +114,7 @@ def _strip_presigned_url_host(url: str) -> str:
 
 
 def _normalize_complete_parts(cls, parts: list[dict], total_parts: int) -> list[PartType]:
+    # 完成请求必须覆盖连续的全部分片，防止 MinIO 合并出缺段视频。
     normalized_parts = []
     for item in sorted(parts, key=lambda value: int(value["part_number"])):
         normalized_parts.append(

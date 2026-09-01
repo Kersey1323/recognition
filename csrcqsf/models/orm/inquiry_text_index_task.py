@@ -41,6 +41,7 @@ def classify_inquiry_text_index_startup_recovery(status: str) -> str:
 
 
 class InquiryTextIndexTask(Base):
+    """记录询码描述语义索引的全量或增量构建过程。"""
     __tablename__ = "inquiry_text_index_task"
     __table_args__ = (
         Index("ix_inquiry_text_index_task_status_created", "status", "time_created"),
@@ -53,6 +54,7 @@ class InquiryTextIndexTask(Base):
     root_task_id: Mapped[str] = mapped_column(String(100), nullable=False)
     retry_from_task_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     source_sync_task_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # 增量任务保存来源同步任务，便于从同步记录追溯后续语义索引结果。
     task_scope: Mapped[str] = mapped_column(String(20), nullable=False)
     history_ids_json: Mapped[list[int]] = mapped_column(JSON, nullable=False, default=list)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
@@ -95,6 +97,7 @@ class InquiryTextIndexTask(Base):
 
 
 class InquiryTextIndexFailure(Base):
+    """按询码样本保存失败阶段，支持仅重试失败数据。"""
     __tablename__ = "inquiry_text_index_failure"
     __table_args__ = (
         Index("ix_inquiry_text_index_failure_task_created", "task_id", "time_created"),

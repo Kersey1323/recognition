@@ -1,4 +1,4 @@
-"""Persistent lifecycle records for SGO synchronization tasks."""
+"""SGO 配件、图片和询码同步任务的统一持久化模型。"""
 
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ def classify_sgo_sync_startup_recovery(status: str) -> str:
 
 
 class SgoSyncTask(Base):
+    """以统一计数口径记录三类同步任务的进度、取消和重试链路。"""
     __tablename__ = "sgo_sync_task"
     __table_args__ = (
         Index("ix_sgo_sync_task_status_created", "status", "time_created"),
@@ -70,9 +71,11 @@ class SgoSyncTask(Base):
     cancel_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     semantic_index_task_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     semantic_index_warning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 询码同步成功后可异步触发语义索引；警告不改变同步任务本身的成功状态。
 
     @classmethod
     async def recover_active_tasks(cls, session: AsyncSession) -> dict[str, int]:
+        # 同步游标只存在于原进程，服务重启后转为可重试的 interrupted 终态。
         records = list(
             await session.scalars(
                 select(cls).where(cls.status.in_(ACTIVE_SGO_SYNC_TASK_STATUSES))
@@ -96,6 +99,7 @@ class SgoSyncTask(Base):
 
 
 class SgoSyncTaskFailure(Base):
+    """保存同步对象在查询、下载或落库阶段的具体失败原因。"""
     __tablename__ = "sgo_sync_task_failure"
     __table_args__ = (
         Index("ix_sgo_sync_task_failure_task_created", "task_id", "time_created"),

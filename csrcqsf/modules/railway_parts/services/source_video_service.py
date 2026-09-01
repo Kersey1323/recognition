@@ -1,3 +1,5 @@
+"""配件三维重构源视频的绑定、替换与删除业务。"""
+
 from __future__ import annotations
 
 
@@ -123,6 +125,7 @@ async def update_source_video(
     weight: float | None = None,
     runtime=None,
 ) -> dict:
+    # 新文件先上传并提交新引用，成功后才删除旧对象，避免更新失败导致视频丢失。
     runtime = runtime or _runtime()
     item = await cls._require_item_exists(item_id)
     old_video_path = item.source_video_path
@@ -179,6 +182,7 @@ async def update_source_video(
 
 
 async def delete_source_video(cls, item_id: int, runtime=None) -> dict:
+    # 对象已不存在时仍清理数据库元数据，使接口具备最终幂等性。
     runtime = runtime or _runtime()
     item = await cls._require_item_exists(item_id)
     old_video_path = item.source_video_path

@@ -1,4 +1,4 @@
-"""Routes for search review ticket workflows."""
+"""检索复核工单流程路由。"""
 
 from csrcqsf.modules.railway_parts.schemas.review_ticket import (
     SearchReviewTicketDeleteReq,

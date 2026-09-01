@@ -24,6 +24,7 @@ def default_app_root() -> Path:
 
 
 def _resolve_path(raw_value: str | None, default: Path, app_root: Path) -> Path:
+    # 相对路径统一基于应用根目录，避免容器工作目录变化后数据写到未知位置。
     candidate = Path(raw_value.strip()) if raw_value and raw_value.strip() else default
     if not candidate.is_absolute():
         candidate = app_root / candidate
@@ -35,6 +36,7 @@ def resolve_runtime_paths(
     *,
     app_root: Path | None = None,
 ) -> RuntimePaths:
+    """集中解析日志、临时文件和持久化状态目录。"""
     values = os.environ if env is None else env
     root = (app_root or default_app_root()).resolve()
     log_dir = _resolve_path(values.get("APP_LOG_DIR"), root / "logs", root)
@@ -70,6 +72,7 @@ _runtime_paths: RuntimePaths | None = None
 
 
 def get_runtime_paths(*, refresh: bool = False) -> RuntimePaths:
+    # 配置加载完成后可强制刷新一次，后续调用共享同一组确定路径。
     global _runtime_paths
     if refresh or _runtime_paths is None:
         _runtime_paths = resolve_runtime_paths()
@@ -81,6 +84,7 @@ def ensure_runtime_directories(
     *,
     include_log_dirs: bool = True,
 ) -> RuntimePaths:
+    """在业务启动前创建会被索引和重构流程写入的目录。"""
     resolved = paths or get_runtime_paths()
     directories = [
         resolved.temp_dir,

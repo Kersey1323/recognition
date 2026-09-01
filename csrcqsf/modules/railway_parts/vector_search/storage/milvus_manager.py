@@ -28,7 +28,7 @@ LEGACY_PATCH_TOKENS_MARKER = os.path.join(
 
 
 class MilvusManagerV2:
-    """Milvus 统一管理器"""
+    """统一管理图片向量写入、粗排融合和 Patch Token 精排。"""
 
     def __init__(
         self,
@@ -64,6 +64,7 @@ class MilvusManagerV2:
         )
         self.image_variant_supported = self._detect_image_variant_support()
         self.patch_token_key_supported = self._detect_patch_token_key_support()
+        # 运行时探测旧集合字段，使升级后无需立即清库重建也能继续提供检索。
 
         # 初始化图像加载器
         logger.info(f"Initializing image loader with MinIO endpoint: {env_config.minio_endpoint}")
@@ -101,6 +102,7 @@ class MilvusManagerV2:
         dinov2_item_ids = self.collection_manager.iter_collection_item_ids(self.dinov2_collection)
 
         snapshot: dict[int, dict[str, int]] = {}
+        # 只有 SigLIP 和 DINOv2 都存在时才视为完整索引，避免列表显示虚假完成。
         for item_id, image_count in siglip_counts.items():
             snapshot[item_id] = {
                 "has_v2_index": 1 if item_id in dinov2_item_ids else 0,
@@ -248,6 +250,7 @@ class MilvusManagerV2:
         return os.path.join(self.patch_tokens_dir, relative_part)
 
     def _resolve_patch_tokens_path(self, entity: Dict) -> Optional[str]:
+        # 新集合优先按稳定键定位文件，旧集合仍兼容历史绝对路径映射。
         patch_token_key = entity.get("patch_token_key")
         if patch_token_key:
             candidate = self._build_patch_tokens_path(str(patch_token_key))
@@ -528,7 +531,7 @@ class MilvusManagerV2:
         item_filter = cls._build_item_filter(item_ids)
         return {"filter": item_filter} if item_filter else {}
 
-    # TODO 使用文本向量取匹配图像；当前使用的是文本完全匹配
+    # 旧版 SigLIP 文本找图入口仅保留兼容；业务文本检索已改用独立询码语义索引。
     async def search_by_text(
         self,
         text: str,
@@ -658,6 +661,7 @@ class MilvusManagerV2:
             patch_tokens_path = self._resolve_patch_tokens_path(result["entity"])
 
             if patch_tokens_path is None or not os.path.exists(patch_tokens_path):
+                # Patch Token 缺失时保留粗排候选，不让单个历史文件缺失中断整次检索。
                 logger.warning(f"Patch tokens not found: {patch_tokens_path}")
                 fine_results.append({
                     "entity": result["entity"],
