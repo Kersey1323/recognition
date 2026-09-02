@@ -30,10 +30,14 @@ from csrcqsf.infra.db.main_db import db_migrate
 from csrcqsf.models.orm.index_rebuild_task import recover_index_rebuild_tasks
 from csrcqsf.models.orm.inquiry_text_index_task import recover_inquiry_text_index_tasks
 from csrcqsf.models.orm.sgo_sync_task import recover_sgo_sync_tasks
+from csrcqsf.models.orm.viewer360_task import recover_viewer360_tasks
 from csrcqsf.infra.storage.minio import create_minio_buckets
 from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.modules.railway_parts.services.inquiry_text_index_task_manager import (
     inquiry_text_index_task_manager,
+)
+from csrcqsf.modules.railway_parts.services.viewer360_task_manager import (
+    viewer360_task_manager,
 )
 from csrcqsf.core.scheduler import register_main_async_loop
 from csrcqsf.core.settings import (
@@ -47,6 +51,7 @@ from csrcqsf.core.settings import (
     sgo_database_name,
     sgo_database_type,
     sgo_env_configured,
+    viewer360_enabled,
 )
 
 API_PREFIX = ""
@@ -99,6 +104,11 @@ async def lifespan(app: FastAPI):
         await run_startup_step(
             "询码语义索引任务状态恢复",
             recover_inquiry_text_index_tasks,
+            logger=logger,
+        )
+        await run_startup_step(
+            "Viewer360 任务状态恢复",
+            recover_viewer360_tasks,
             logger=logger,
         )
     else:
@@ -166,6 +176,14 @@ async def lifespan(app: FastAPI):
         )
     else:
         logger.warning("主业务库或 Milvus 配置不完整，跳过询码语义索引任务队列初始化")
+    if viewer360_enabled and main_db_env_configured() and minio_env_configured():
+        await run_startup_step(
+            "Viewer360 任务队列初始化",
+            viewer360_task_manager.start_workers,
+            logger=logger,
+        )
+    elif viewer360_enabled:
+        logger.warning("主业务库或 MinIO 配置不完整，跳过 Viewer360 任务队列初始化")
     RunVar("_default_thread_limiter").set(CapacityLimiter(200))  # 线程池限制
     logger.info("模型推理已迁移至独立服务（MODEL_SERVICE_URL），本地不再加载模型")
     logger.info("应用启动初始化全部完成")
@@ -174,6 +192,7 @@ async def lifespan(app: FastAPI):
     finally:
         await auto_index_scheduler.stop()
         await inquiry_text_index_task_manager.stop_worker()
+        await viewer360_task_manager.stop_workers()
 
 
 # 创建FastAPI应用实例

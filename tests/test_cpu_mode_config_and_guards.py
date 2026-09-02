@@ -524,6 +524,12 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
     fake_sgo_task_module = ModuleType("csrcqsf.models.orm.sgo_sync_task")
     fake_sgo_task_module.recover_sgo_sync_tasks = AsyncMock()
 
+    fake_inquiry_task_module = ModuleType("csrcqsf.models.orm.inquiry_text_index_task")
+    fake_inquiry_task_module.recover_inquiry_text_index_tasks = AsyncMock()
+
+    fake_viewer_task_module = ModuleType("csrcqsf.models.orm.viewer360_task")
+    fake_viewer_task_module.recover_viewer360_tasks = AsyncMock()
+
     fake_minio_module = ModuleType("csrcqsf.infra.storage.minio")
     fake_minio_module.create_minio_buckets = AsyncMock()
 
@@ -532,6 +538,34 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
 
     fake_scheduler_module = ModuleType("csrcqsf.core.scheduler")
     fake_scheduler_module.register_main_async_loop = MagicMock()
+
+    fake_auto_index_module = ModuleType(
+        "csrcqsf.modules.railway_parts.services.auto_index_scheduler"
+    )
+    fake_auto_index_module.auto_index_scheduler = SimpleNamespace(
+        start=AsyncMock(),
+        stop=AsyncMock(),
+    )
+    fake_parts_service_module = ModuleType(
+        "csrcqsf.modules.railway_parts.services.parts_service"
+    )
+    fake_parts_service_module.RailwayPartsManager = SimpleNamespace(
+        rebuild_v2_index=AsyncMock()
+    )
+    fake_inquiry_manager_module = ModuleType(
+        "csrcqsf.modules.railway_parts.services.inquiry_text_index_task_manager"
+    )
+    fake_inquiry_manager_module.inquiry_text_index_task_manager = SimpleNamespace(
+        start_worker=AsyncMock(),
+        stop_worker=AsyncMock(),
+    )
+    fake_viewer_manager_module = ModuleType(
+        "csrcqsf.modules.railway_parts.services.viewer360_task_manager"
+    )
+    fake_viewer_manager_module.viewer360_task_manager = SimpleNamespace(
+        start_workers=AsyncMock(),
+        stop_workers=AsyncMock(),
+    )
 
     fake_image_schemas_module = ModuleType("csrcqsf.modules.image.schemas")
     fake_image_schemas_module.SimpleSegmentReq = type(
@@ -560,10 +594,16 @@ def test_app_lifespan_skips_segmentbiz_init_when_segment_disabled(monkeypatch):
             "csrcqsf.infra.db.main_db": fake_pg_module,
             "csrcqsf.models.orm.index_rebuild_task": fake_index_task_module,
             "csrcqsf.models.orm.sgo_sync_task": fake_sgo_task_module,
+            "csrcqsf.models.orm.inquiry_text_index_task": fake_inquiry_task_module,
+            "csrcqsf.models.orm.viewer360_task": fake_viewer_task_module,
             "csrcqsf.infra.storage.minio": fake_minio_module,
             "csrcqsf.modules.sgo.services": fake_sgo_services_module,
             "csrcqsf.core.scheduler": fake_scheduler_module,
             "csrcqsf.modules.image.schemas": fake_image_schemas_module,
+            "csrcqsf.modules.railway_parts.services.auto_index_scheduler": fake_auto_index_module,
+            "csrcqsf.modules.railway_parts.services.parts_service": fake_parts_service_module,
+            "csrcqsf.modules.railway_parts.services.inquiry_text_index_task_manager": fake_inquiry_manager_module,
+            "csrcqsf.modules.railway_parts.services.viewer360_task_manager": fake_viewer_manager_module,
         },
     ):
         module = importlib.import_module("csrcqsf.core.app")

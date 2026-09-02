@@ -10,6 +10,7 @@ from . import (
     reconstruction_routes,
     review_ticket_routes,
     search_routes,
+    viewer360_routes,
 )
 
 RailwayPartsManager = parts_routes.RailwayPartsManager
@@ -84,6 +85,7 @@ __all__ = [
     "review_ticket_routes",
     "reconstruction_routes",
     "reconstruction_operations_routes",
+    "viewer360_routes",
     "RailwayPartsManager",
     "SGOBiz",
     "MilvusStateManagerV2",

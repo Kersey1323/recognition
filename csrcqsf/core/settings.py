@@ -344,3 +344,39 @@ sgo_image_zip_max_bytes = _bounded_env_int(
     default=256 * 1024 * 1024,
     minimum=1024 * 1024,
 )
+
+# Viewer360 使用固定采集节拍；部署环境可显式覆盖，但行数与方向必须一一对应。
+viewer360_enabled = _env_bool("VIEWER360_ENABLED", True)
+viewer360_auto_create_after_video_upload = _env_bool(
+    "VIEWER360_AUTO_CREATE_AFTER_VIDEO_UPLOAD", False
+)
+viewer360_max_concurrent_tasks = max(
+    1, int(os.getenv("VIEWER360_MAX_CONCURRENT_TASKS", "1"))
+)
+viewer360_work_dir = os.getenv("VIEWER360_WORK_DIR", "/data/viewer360-tasks")
+viewer360_work_retention_days = max(
+    1, int(os.getenv("VIEWER360_WORK_RETENTION_DAYS", "7"))
+)
+viewer360_task_timeout_seconds = max(
+    1, int(os.getenv("VIEWER360_TASK_TIMEOUT_SECONDS", "1800"))
+)
+viewer360_ffmpeg_threads = max(1, int(os.getenv("VIEWER360_FFMPEG_THREADS", "4")))
+viewer360_row_count = max(2, int(os.getenv("VIEWER360_ROW_COUNT", "4")))
+viewer360_row_directions = tuple(
+    int(value.strip())
+    for value in os.getenv("VIEWER360_ROW_DIRECTIONS", "1,-1,1,-1").split(",")
+)
+if (
+    len(viewer360_row_directions) != viewer360_row_count
+    or any(value not in {-1, 1} for value in viewer360_row_directions)
+):
+    raise ValueError("VIEWER360_ROW_DIRECTIONS must contain one -1/1 value per row")
+viewer360_rotation_seconds = float(os.getenv("VIEWER360_ROTATION_SECONDS", "25"))
+viewer360_transition_seconds = float(os.getenv("VIEWER360_TRANSITION_SECONDS", "2"))
+viewer360_fps = float(os.getenv("VIEWER360_FPS", "2"))
+viewer360_image_size = max(1, int(os.getenv("VIEWER360_IMAGE_SIZE", "1600")))
+viewer360_webp_quality = int(os.getenv("VIEWER360_WEBP_QUALITY", "90"))
+viewer360_center_p95_ratio = float(os.getenv("VIEWER360_CENTER_P95_RATIO", "0.015"))
+viewer360_model_timeout_seconds = max(
+    1, int(os.getenv("VIEWER360_MODEL_TIMEOUT_SECONDS", "600"))
+)

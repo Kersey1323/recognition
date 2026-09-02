@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from csrcqsf.modules.railway_parts.services.viewer360_auto_trigger import (
+    maybe_auto_create_viewer360,
+)
+
 
 def _runtime():
     from csrcqsf.modules.railway_parts.services import reconstruction_video_service
@@ -481,6 +485,10 @@ async def complete_source_video_multipart_upload(cls, upload_session_id: int, ru
 
         item = await runtime.Items.get_item_by_id(session, upload_session.item_id)
 
+    await maybe_auto_create_viewer360(
+        item_id=upload_session.item_id,
+        rebuild_existing=False,
+    )
     return cls._format_source_video_item(item, message="原始视频上传成功")
 
 
@@ -717,15 +725,23 @@ async def check_minio_and_sync_local_uploads(cls, runtime=None) -> dict:
 
     synced_count = 0
     failed_count = 0
+    synced_item_ids: list[int] = []
     async with runtime.SessionLocal() as session:
         pending_sessions = await runtime.ReconstructionVideoUploadSession.list_local_sessions_pending_remote_sync(session)
         for upload_session in pending_sessions:
             ok = await cls._sync_local_session_to_remote(upload_session, session)
             if ok:
                 synced_count += 1
+                synced_item_ids.append(int(upload_session.item_id))
             else:
                 failed_count += 1
         await session.commit()
+
+    for item_id in synced_item_ids:
+        await maybe_auto_create_viewer360(
+            item_id=item_id,
+            rebuild_existing=False,
+        )
 
     return {
         "available": True,

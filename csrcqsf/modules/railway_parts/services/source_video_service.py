@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from csrcqsf.modules.railway_parts.services.viewer360_auto_trigger import (
+    maybe_auto_create_viewer360,
+)
+
 
 def _runtime():
     from csrcqsf.modules.railway_parts.services import reconstruction_video_service
@@ -82,6 +86,10 @@ async def upload_source_video(
 
         item = await runtime.Items.get_item_by_id(session, item_id)
 
+    await maybe_auto_create_viewer360(
+        item_id=item_id,
+        rebuild_existing=False,
+    )
     return cls._format_source_video_item(item, message="原始视频上传成功")
 
 
@@ -177,6 +185,12 @@ async def update_source_video(
             runtime.logger.error(
                 f"旧原始视频删除失败: item_id={item_id}, path={old_video_path}, err={exc}"
             )
+
+    if uploaded is not None:
+        await maybe_auto_create_viewer360(
+            item_id=item_id,
+            rebuild_existing=bool(old_video_path),
+        )
 
     return cls._format_source_video_item(item, message="原始视频更新成功")
 

@@ -1,5 +1,6 @@
 import base64
 import io
+from pathlib import Path
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -124,6 +125,43 @@ class ModelServiceClient:
                 f"image_payload={image_payload_size / 1024:.1f}KiB"
             )
 
+    async def _request_binary_to_file(
+        self,
+        path: str,
+        *,
+        data,
+        destination: Path,
+        timeout_seconds: int,
+    ) -> Path:
+        """流式保存模型文件响应，避免大型分割结果完整驻留主服务内存。"""
+        url = f"{self.base_url}{path}"
+        timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+        started_at = time.perf_counter()
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, data=data) as resp:
+                    if resp.status != 200:
+                        try:
+                            payload = await resp.json()
+                        except Exception:
+                            payload = await resp.text()
+                        error_code = payload.get("error_code") if isinstance(payload, dict) else None
+                        raise ModelServiceError(
+                            resp.status,
+                            format_remote_error(payload),
+                            error_code=error_code,
+                        )
+                    with destination.open("wb") as output:
+                        async for chunk in resp.content.iter_chunked(1024 * 1024):
+                            output.write(chunk)
+                    return destination
+        finally:
+            logger.info(
+                "模型服务文件调用: path=%s, elapsed=%.3fs",
+                path,
+                time.perf_counter() - started_at,
+            )
+
     async def _post(self, path: str, json_data: dict) -> dict:
         return await self._request_json("POST", path, json_data=json_data)
 
@@ -167,6 +205,49 @@ class ModelServiceClient:
             ),
             dinov2_patch_tokens=patch_tokens,
         )
+
+    async def segment_video_frames(
+        self,
+        frame_paths: list[Path] | tuple[Path, ...],
+        *,
+        request_id: str,
+        angle_id: str,
+        destination: Path,
+        timeout_seconds: int,
+    ) -> Path:
+        """将单个采集角度的连续帧提交给模型服务并保存分割结果 ZIP。"""
+        from csrcqsf.modules.railway_parts.services.viewer360_archive import (
+            create_frame_archive,
+        )
+
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        request_archive = destination.with_name(f".{destination.stem}-frames.zip")
+        create_frame_archive(frame_paths, request_archive)
+        try:
+            with request_archive.open("rb") as archive_stream:
+                form = aiohttp.FormData()
+                form.add_field(
+                    "frames",
+                    archive_stream,
+                    filename="frames.zip",
+                    content_type="application/zip",
+                )
+                form.add_field("request_id", request_id)
+                form.add_field("angle_id", angle_id)
+                temporary = destination.with_suffix(destination.suffix + ".tmp")
+                temporary.unlink(missing_ok=True)
+                await self._request_binary_to_file(
+                    "/api/v1/segmentation/video",
+                    data=form,
+                    destination=temporary,
+                    timeout_seconds=timeout_seconds,
+                )
+            temporary.replace(destination)
+            return destination
+        finally:
+            request_archive.unlink(missing_ok=True)
+            destination.with_suffix(destination.suffix + ".tmp").unlink(missing_ok=True)
 
     async def require_indexing_extract_capability(self) -> None:
         """在批量索引前确认模型服务具备聚合提取能力。"""

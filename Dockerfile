@@ -18,6 +18,7 @@ RUN sed -i "s@deb.debian.org@${APT_MIRROR}@g; s@security.debian.org@${APT_MIRROR
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    ffmpeg \
     git \
     tzdata \
     libgl1 \
