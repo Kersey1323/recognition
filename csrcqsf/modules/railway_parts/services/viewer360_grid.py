@@ -20,8 +20,16 @@ from csrcqsf.modules.railway_parts.services.viewer360_models import (
 
 
 class ViewerGridValidationError(ValueError):
-    def __init__(self, failures: Sequence[str]):
+    def __init__(
+        self,
+        failures: Sequence[str],
+        *,
+        user_message: str | None = None,
+    ):
         self.failures = tuple(failures)
+        self.user_message = user_message or (
+            "Viewer360 图像处理结果未通过校验，请重新采集后重试"
+        )
         super().__init__("; ".join(self.failures))
 
 
@@ -69,6 +77,7 @@ def _sequence(directory: Path, suffix: str) -> list[Path]:
 
 def _preflight(rows: Sequence[ViewerRow]) -> tuple[list[ViewerRow], int, tuple[int, int]]:
     failures: list[str] = []
+    empty_mask_counts: dict[int, int] = {}
     ordered = sorted(rows, key=lambda item: item.row_index)
     if not ordered:
         failures.append("Viewer Grid requires at least one row")
@@ -98,6 +107,9 @@ def _preflight(rows: Sequence[ViewerRow]) -> tuple[list[ViewerRow], int, tuple[i
                 continue
             if not np.any(mask):
                 failures.append(f"empty mask: {mask_path}")
+                empty_mask_counts[row.row_index] = (
+                    empty_mask_counts.get(row.row_index, 0) + 1
+                )
             if rgba_size != (mask.shape[1], mask.shape[0]):
                 failures.append(f"RGBA/mask dimensions differ: {rgba_path}")
             if image_size is None:
@@ -105,7 +117,18 @@ def _preflight(rows: Sequence[ViewerRow]) -> tuple[list[ViewerRow], int, tuple[i
             elif rgba_size != image_size:
                 failures.append(f"Viewer image dimensions differ: {rgba_path}")
     if failures:
-        raise ViewerGridValidationError(failures)
+        empty_mask_total = sum(empty_mask_counts.values())
+        user_message = None
+        if empty_mask_total and empty_mask_total == len(failures):
+            # 前端只需要知道失败角度和数量；本地文件路径保留在异常明细中供日志排查。
+            angle_summary = "、".join(
+                f"第{row_index}个角度有{count}帧未识别到配件"
+                for row_index, count in sorted(empty_mask_counts.items())
+            )
+            user_message = (
+                f"配件分割不完整：{angle_summary}，请重新采集对应角度后重试"
+            )
+        raise ViewerGridValidationError(failures, user_message=user_message)
     return ordered, int(frame_count or 0), image_size or (0, 0)
 
 

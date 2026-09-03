@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import logging
 from pathlib import Path
 import shutil
 import subprocess
@@ -16,7 +17,10 @@ from csrcqsf.infra.external.model_client import ModelServiceClient, get_model_cl
 from csrcqsf.modules.railway_parts.services.viewer360_archive import (
     extract_segmentation_archive,
 )
-from csrcqsf.modules.railway_parts.services.viewer360_grid import export_viewer_grid
+from csrcqsf.modules.railway_parts.services.viewer360_grid import (
+    ViewerGridValidationError,
+    export_viewer_grid,
+)
 from csrcqsf.modules.railway_parts.services.viewer360_models import (
     Viewer360Cancelled,
     Viewer360Config,
@@ -36,6 +40,8 @@ ProbeDuration = Callable[[Path], float]
 ExtractSegment = Callable[
     [Path, ViewerSegment, Path, Viewer360Config], tuple[Path, ...]
 ]
+
+logger = logging.getLogger(__name__)
 
 
 class Viewer360PipelineError(RuntimeError):
@@ -435,6 +441,16 @@ class Viewer360Pipeline:
                     target_center=target_center,
                 )
             )
+        except ViewerGridValidationError as exc:
+            logger.warning(
+                "Viewer360 后处理校验失败: task_id=%s, details=%s",
+                task_id,
+                "; ".join(exc.failures),
+            )
+            raise Viewer360PipelineError(
+                "postprocess",
+                exc.user_message,
+            ) from exc
         except Exception as exc:
             raise Viewer360PipelineError("postprocess", str(exc)) from exc
 

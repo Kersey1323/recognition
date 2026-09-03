@@ -11,6 +11,9 @@ from csrcqsf.modules.railway_parts.services.viewer360_models import (
     Viewer360Config,
     ViewerSegment,
 )
+from csrcqsf.modules.railway_parts.services.viewer360_grid import (
+    ViewerGridValidationError,
+)
 from csrcqsf.modules.railway_parts.services.viewer360_pipeline import (
     Viewer360Pipeline,
     Viewer360PipelineError,
@@ -232,6 +235,38 @@ def test_pipeline_reports_extraction_failure_stage(tmp_path: Path):
 
     assert exc_info.value.stage == "extracting"
     assert exc_info.value.row_index == 1
+
+
+def test_pipeline_exposes_business_message_for_grid_validation(
+    tmp_path: Path,
+    monkeypatch,
+):
+    def fail_grid(*_args, **_kwargs):
+        raise ViewerGridValidationError(
+            ["empty mask: /app/state/viewer360-tasks/task-new/frame_0001.png"],
+            user_message="配件分割不完整：第1个角度有1帧未识别到配件，请重新采集对应角度后重试",
+        )
+
+    monkeypatch.setattr(
+        "csrcqsf.modules.railway_parts.services.viewer360_pipeline.export_viewer_grid",
+        fail_grid,
+    )
+    pipeline = Viewer360Pipeline(
+        _config(tmp_path),
+        storage=FakeStorage(),
+        model_client=FakeModelClient(),
+        probe_duration=lambda _path: 2.0,
+        extract_segment=_extract,
+    )
+
+    with pytest.raises(Viewer360PipelineError) as exc_info:
+        asyncio.run(pipeline.run(_task()))
+
+    assert exc_info.value.stage == "postprocess"
+    assert str(exc_info.value) == (
+        "配件分割不完整：第1个角度有1帧未识别到配件，请重新采集对应角度后重试"
+    )
+    assert "/app/state" not in str(exc_info.value)
 
 
 def test_pipeline_rejects_incomplete_source_manifest_for_row_retry(tmp_path: Path):

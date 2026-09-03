@@ -182,3 +182,18 @@ def test_export_rejects_invalid_grid(tmp_path: Path, options: dict, message: str
             _config(tmp_path, row_count=2, row_directions=(1, -1), fps=1.0),
             fingerprint="invalid",
         )
+
+
+def test_empty_mask_error_provides_concise_frontend_message(tmp_path: Path):
+    with pytest.raises(ViewerGridValidationError) as exc_info:
+        export_viewer_grid(
+            _rows(tmp_path / "input", empty_mask=True),
+            tmp_path / "publish",
+            _config(tmp_path, row_count=2, row_directions=(1, -1), fps=1.0),
+            fingerprint="invalid",
+        )
+
+    assert exc_info.value.user_message == (
+        "配件分割不完整：第1个角度有1帧未识别到配件，请重新采集对应角度后重试"
+    )
+    assert str(tmp_path) not in exc_info.value.user_message
