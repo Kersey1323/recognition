@@ -17,6 +17,8 @@ from csrcqsf.modules.railway_parts.schemas.viewer360 import (
     Viewer360TaskListRes,
     Viewer360TaskStartRes,
     Viewer360TaskStatusRes,
+    Viewer360StatisticsReq,
+    Viewer360StatisticsRes,
 )
 from csrcqsf.modules.railway_parts.services.viewer360_task_manager import (
     Viewer360ConflictError,
@@ -440,6 +442,25 @@ async def list_viewer360_tasks(req: Viewer360TaskListReq):
         pageSize=req.per_page,
         records=[Viewer360TaskStatusRes(**record) for record in records],
     )
+
+
+@parts_router.post(
+    "/v2/viewer360/tasks/statistics",
+    tags=[TAG],
+    summary="统计 Viewer360 任务",
+    response_model=Viewer360StatisticsRes,
+)
+async def get_viewer360_statistics(_req: Viewer360StatisticsReq):
+    """
+    汇总全部 Viewer360 任务，响应字段与三维重构统计接口保持一致。
+
+    统计口径：
+    - `running_tasks`：pending、running、cancelling
+    - `failed_tasks`：failed、interrupted
+    - `success_rate`：success / (success + failed)，不计运行中和取消任务
+    - 成功耗时：completed_at - started_at，单位秒
+    """
+    return Viewer360StatisticsRes(**await viewer360_task_manager.statistics())
 
 
 @parts_router.get(

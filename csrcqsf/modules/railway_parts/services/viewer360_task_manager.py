@@ -196,6 +196,20 @@ class Viewer360TaskManager:
             finally:
                 self._queue.task_done()
 
+    async def _attach_item_brief(self, task: dict[str, Any] | None) -> dict[str, Any] | None:
+        """把配件名称/编码实时补充到任务对象上；列表接口已在仓储层批量补齐。"""
+        if task is None:
+            return None
+        brief = None
+        item_id = task.get("item_id")
+        if item_id is not None:
+            get_brief = getattr(self.repository, "get_item_brief", None)
+            if get_brief is not None:
+                brief = await get_brief(int(item_id))
+        task["item_name"] = (brief or {}).get("item_name")
+        task["item_code"] = (brief or {}).get("item_code")
+        return task
+
     async def submit(self, *, item_id: int, rebuild_existing: bool) -> dict[str, Any]:
         if not self.enabled:
             raise Viewer360ConflictError("Viewer360 功能未启用")
@@ -216,7 +230,7 @@ class Viewer360TaskManager:
                 record = await self.repository.get_task(str(current["task_id"])) or dict(current)
                 record.setdefault("status", "success")
                 record["reused_existing"] = True
-                return _serialize_task(record)
+                return _serialize_task(await self._attach_item_brief(record))
             # 仅在确实需要创建新任务时探测源对象，已有结果复用不依赖源视频在线。
             await self.storage.ensure_source_readable(source["source_video_object"])
             record = await self._create_task(
@@ -230,7 +244,7 @@ class Viewer360TaskManager:
                 retry_from_task_id=None,
             )
             self._queue.put_nowait(str(record["task_id"]))
-            return _serialize_task(record)
+            return _serialize_task(await self._attach_item_brief(record))
 
     async def _create_task(
         self,
@@ -490,35 +504,38 @@ class Viewer360TaskManager:
                 raise Viewer360ConflictError("任务状态已变化，请刷新后重试")
             retried["reused_existing"] = False
             self._queue.put_nowait(task_id)
-            return _serialize_task(retried)
+            return _serialize_task(await self._attach_item_brief(retried))
 
     async def cancel(self, task_id: str, reason: str | None = None) -> dict[str, Any]:
         record = await self.repository.get_task(task_id)
         if record is None:
             raise Viewer360NotFoundError(f"Viewer360 任务不存在: task_id={task_id}")
         if record["status"] == "pending":
-            return _serialize_task(await self.repository.transition_task(
+            record = await self.repository.transition_task(
                 task_id,
                 ("pending",),
                 status="cancelled",
                 cancel_reason=reason,
                 completed_at=datetime.now(),
                 heartbeat_at=datetime.now(),
-            ))
-        if record["status"] == "running":
-            return _serialize_task(await self.repository.transition_task(
+            )
+        elif record["status"] == "running":
+            record = await self.repository.transition_task(
                 task_id,
                 ("running",),
                 status="cancelling",
                 cancel_reason=reason,
                 heartbeat_at=datetime.now(),
-            ))
-        if record["status"] in {"cancelling", "cancelled"}:
-            return _serialize_task(record)
-        raise Viewer360ConflictError(f"终态 Viewer360 任务不可取消: status={record['status']}")
+            )
+        elif record["status"] not in {"cancelling", "cancelled"}:
+            raise Viewer360ConflictError(f"终态 Viewer360 任务不可取消: status={record['status']}")
+        return _serialize_task(await self._attach_item_brief(record))
 
     async def get(self, task_id: str) -> dict[str, Any] | None:
-        return _serialize_task(await self.repository.get_task(task_id))
+        record = await self.repository.get_task(task_id)
+        if record is None:
+            return None
+        return _serialize_task(await self._attach_item_brief(record))
 
     async def list(
         self,
@@ -535,6 +552,17 @@ class Viewer360TaskManager:
             item_id=item_id,
         )
         return [_serialize_task(record) for record in records], total
+
+    async def statistics(self) -> dict[str, float | int | None]:
+        """返回 Viewer360 任务统计；成功率不受排队、运行和取消任务影响。"""
+        summary = await self.repository.summarize_tasks()
+        success_base = summary["success_tasks"] + summary["failed_tasks"]
+        return {
+            **summary,
+            "success_rate": (
+                summary["success_tasks"] / success_base if success_base else 0
+            ),
+        }
 
     async def list_failures(
         self,
@@ -555,9 +583,15 @@ class Viewer360TaskManager:
 
     async def get_current_result(self, item_id: int) -> dict[str, Any]:
         current = await self.repository.get_current(item_id)
+        item_brief = None
+        get_brief = getattr(self.repository, "get_item_brief", None)
+        if get_brief is not None:
+            item_brief = await get_brief(item_id) or {}
         if current is None:
             return {
                 "item_id": str(item_id),
+                "item_name": (item_brief or {}).get("item_name"),
+                "item_code": (item_brief or {}).get("item_code"),
                 "task_id": None,
                 "has_viewer360": False,
                 "manifest_url": None,
@@ -568,6 +602,8 @@ class Viewer360TaskManager:
         updated = current.get("time_updated")
         return {
             "item_id": str(item_id),
+            "item_name": (item_brief or {}).get("item_name"),
+            "item_code": (item_brief or {}).get("item_code"),
             "task_id": str(current["task_id"]),
             "has_viewer360": True,
             "manifest_url": self.storage.public_url(current["manifest_object"]),
@@ -588,7 +624,7 @@ class Viewer360TaskManager:
                 task_id=task_id,
             )
             record = await self.repository.mark_result_deleted(task_id) or record
-        return _serialize_task(record)
+        return _serialize_task(await self._attach_item_brief(record))
 
 
 viewer360_task_manager = Viewer360TaskManager(

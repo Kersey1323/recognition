@@ -33,7 +33,8 @@ key_vars = [
     "MILVUS_HOST",
     "MILVUS_PORT",
     "MINIO_ENDPOINT",
-    "BASIS_API_HTTP_URL",
+    "AUTH_PROVIDER",
+    "SGO_SSO_AUTH_URL",
     "MODEL_SERVICE_URL",
     "RECONSTRUCTION_SERVER_URL",
 ]
@@ -49,7 +50,9 @@ try:
     print(f"  temp_dir: {settings.temp_dir}")
     print(f"  model_service_url: {settings.model_service_url}")
     print(f"  reconstruction_server_url: {settings.reconstruction_server_url}")
-    print(f"  basis_api_http_url: {settings.basis_api_http_url or '未配置'}")
+    auth_settings = settings.load_auth_settings()
+    print(f"  auth_provider: {auth_settings.provider}")
+    print(f"  sgo_sso_auth_url: {auth_settings.sgo_auth_url or '未配置'}")
 except Exception as exc:
     print(f"✗ settings.py 加载失败: {exc}")
     import traceback

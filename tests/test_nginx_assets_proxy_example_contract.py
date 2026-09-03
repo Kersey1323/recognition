@@ -16,6 +16,7 @@ def test_nginx_assets_proxy_example_contains_required_locations():
     assert "internal;" in text
     assert "proxy_pass http://host.docker.internal:65432;" in text
     assert "proxy_pass http://192.168.100.2:9000/;" in text
-    assert "proxy_set_header U-Token $http_u_token;" in text
+    assert "proxy_set_header Authorization $http_authorization;" in text
+    assert "U-Token" not in text
     assert "X-Asset-Proxy-Skip-Auth" not in text
     assert "try_files $uri $uri/ =404;" in text

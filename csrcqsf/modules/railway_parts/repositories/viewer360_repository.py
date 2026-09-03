@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import case, delete, func, literal_column, select, update
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 
 from csrcqsf.infra.db.main_db import SessionLocal
@@ -41,6 +41,17 @@ class Viewer360Repository:
                 "item_name": item.item_name,
                 "source_video_object": item.source_video_path,
                 "source_video_updated_at": item.source_video_updated_at,
+            }
+
+    async def get_item_brief(self, item_id: int) -> dict[str, Any] | None:
+        """返回配件的展示信息（名称/编码），供任务类接口随响应返回。"""
+        async with SessionLocal() as session:
+            item = await session.scalar(select(Items).where(Items.id == item_id))
+            if item is None:
+                return None
+            return {
+                "item_name": item.item_name,
+                "item_code": item.item_code,
             }
 
     async def create_task(self, **values) -> dict[str, Any]:
@@ -152,7 +163,59 @@ class Viewer360Repository:
                 .limit(per_page)
                 .offset((page - 1) * per_page)
             )
-            return [viewer360_task_to_dict(record) for record in records], total
+            tasks = [viewer360_task_to_dict(record) for record in records]
+            # 列表页需要直接展示配件名称与编码：按本页任务涉及的配件 ID 批量补齐。
+            item_ids = {task["item_id"] for task in tasks if task.get("item_id") is not None}
+            if item_ids:
+                items = (
+                    await session.scalars(select(Items).where(Items.id.in_(item_ids)))
+                ).all()
+                item_map = {item.id: item for item in items}
+                for task in tasks:
+                    item = item_map.get(task["item_id"])
+                    task["item_name"] = item.item_name if item is not None else None
+                    task["item_code"] = item.item_code if item is not None else None
+            return tasks, total
+
+    async def summarize_tasks(self) -> dict[str, float | int | None]:
+        """按 Viewer360 状态汇总任务，并统计成功任务最近一次执行耗时。"""
+        running_statuses = ("pending", "running", "cancelling")
+        failed_statuses = ("failed", "interrupted")
+        elapsed_seconds = func.timestampdiff(
+            literal_column("SECOND"),
+            Viewer360Task.started_at,
+            Viewer360Task.completed_at,
+        )
+        stmt = select(
+            func.count(Viewer360Task.id),
+            func.sum(case((Viewer360Task.status.in_(running_statuses), 1), else_=0)),
+            func.sum(case((Viewer360Task.status == "success", 1), else_=0)),
+            func.sum(case((Viewer360Task.status.in_(failed_statuses), 1), else_=0)),
+            func.sum(case((Viewer360Task.status == "cancelled", 1), else_=0)),
+            func.avg(case((Viewer360Task.status == "success", elapsed_seconds), else_=None)),
+            func.min(case((Viewer360Task.status == "success", elapsed_seconds), else_=None)),
+            func.max(case((Viewer360Task.status == "success", elapsed_seconds), else_=None)),
+        )
+        async with SessionLocal() as session:
+            total, running, success, failed, cancelled, avg_elapsed, min_elapsed, max_elapsed = (
+                await session.execute(stmt)
+            ).one()
+        return {
+            "total_tasks": int(total or 0),
+            "running_tasks": int(running or 0),
+            "success_tasks": int(success or 0),
+            "failed_tasks": int(failed or 0),
+            "cancelled_tasks": int(cancelled or 0),
+            "avg_success_elapsed_sec": (
+                float(avg_elapsed) if avg_elapsed is not None else None
+            ),
+            "min_success_elapsed_sec": (
+                float(min_elapsed) if min_elapsed is not None else None
+            ),
+            "max_success_elapsed_sec": (
+                float(max_elapsed) if max_elapsed is not None else None
+            ),
+        }
 
     async def add_failure(self, **values) -> dict[str, Any]:
         async with SessionLocal() as session:

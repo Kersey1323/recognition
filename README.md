@@ -97,8 +97,8 @@ cp .env.example .env
 - 主业务 MySQL：`MAIN_DB_*`
 - MinIO：`MINIO_*`
 - Milvus：`MILVUS_*`
-- Redis：`REDIS_*`
-- 基础服务 HTTP 鉴权地址：`BASIS_API_HTTP_URL`
+- Token 验证缓存：`AUTH_REDIS_URL`
+- SGO 全局鉴权：`AUTH_*`、`SGO_SSO_*`
 - 模型推理服务：`MODEL_SERVICE_URL`
 - 询码语义索引：`INQUIRY_TEXT_*`
 - 三维重构服务：`RECONSTRUCTION_SERVER_URL`
@@ -235,18 +235,20 @@ PYTHONPATH=. .venv/bin/pytest tests/ -q
 
 这个页面会：
 
-- 带 `U-Token` 发起 `fetch`
+- 带 `Authorization: Bearer <SGO_TOKEN>` 发起 `fetch`
 - 请求主业务返回的 `bucket/object` 路径
 - 自动预览图片/视频，或生成下载链接
 
-如果鉴权服务尚未接通，可仅在隔离的联调环境中配置：
+如果 SGO 鉴权服务尚未接通，可仅在本地开发环境中配置：
 
 ```env
-ASSET_PROXY_SKIP_AUTH=true
+APP_ENV=development
+AUTH_ENABLED=true
+AUTH_PROVIDER=mock
+AUTH_MOCK_TOKEN=recognition-dev-token
 ```
 
-这会让下载代理跳过 `U-Token` 校验。鉴权服务接通后必须改回
-`ASSET_PROXY_SKIP_AUTH=false`，并配置 `BASIS_API_HTTP_URL`。该开关只读取服务端环境变量，客户端不能通过请求头绕过鉴权。
+业务接口和文件资源共用全局鉴权开关与 Provider，不再保留文件代理专用免鉴权配置。生产环境禁止关闭鉴权或使用 Mock Provider。
 
 如果本机没有安装 Nginx，可直接使用 Docker 启动一个本地代理容器：
 
@@ -268,7 +270,7 @@ bash scripts/deployment/run_assets_proxy_debug.sh
 
 - 前端只访问主业务返回的 `bucket/object`
 - 下载时直接拼接代理域名，例如 `http://127.0.0.1:8080/bfr-3d-videos/raw-videos/...`
-- 主业务接口校验 `U-Token` 后，返回 `X-Accel-Redirect: /recognition_oss/<bucket>/<object>`
+- 主业务全局校验 Bearer Token 后，文件代理返回 `X-Accel-Redirect: /recognition_oss/<bucket>/<object>`
 - Nginx 配置 `location ^~ /recognition_oss { internal; proxy_pass http://<minio>; }`
 - Nginx 再把 `/bfr-3d-videos/`、`/bfr-reconstruction-files/`、`/bfr-search-history-files/` 代理到主业务服务
 

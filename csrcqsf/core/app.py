@@ -16,6 +16,11 @@ from bfrcommon.middlewares.auth import add_process_time_header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from csrcqsf.core.logging_config import logger
+from csrcqsf.core.auth.middleware import (
+    GlobalAuthMiddleware,
+    build_auth_service,
+    configure_openapi_security,
+)
 from csrcqsf.core.runtime import ensure_segment_model_enabled, segment_model_enabled
 from csrcqsf.core.startup_logging import run_startup_step
 from csrcqsf.modules.doc_parse.routes import parts_docs_router
@@ -42,6 +47,7 @@ from csrcqsf.modules.railway_parts.services.viewer360_task_manager import (
 from csrcqsf.core.scheduler import register_main_async_loop
 from csrcqsf.core.settings import (
     ai_settings,
+    load_auth_settings,
     main_db_env_configured,
     main_db_database,
     milvus_env_configured,
@@ -56,12 +62,10 @@ from csrcqsf.core.settings import (
 
 API_PREFIX = ""
 
-# 导入 scheduler 以启动定时任务（包括重建任务状态同步）
+auth_settings = load_auth_settings()
+auth_service, auth_token_cache = build_auth_service(auth_settings)
 
-# CORS配置：允许所有来源
-origins = [
-    "*",
-]
+# 导入 scheduler 以启动定时任务（包括重建任务状态同步）
 
 
 @asynccontextmanager
@@ -193,6 +197,8 @@ async def lifespan(app: FastAPI):
         await auto_index_scheduler.stop()
         await inquiry_text_index_task_manager.stop_worker()
         await viewer360_task_manager.stop_workers()
+        if auth_token_cache is not None:
+            await auth_token_cache.close()
 
 
 # 创建FastAPI应用实例
@@ -222,15 +228,6 @@ async def validation_exception_handler(request, exc):
 # 中间件配置
 # ============================================
 
-# CORS中间件：允许跨域请求
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # 异常捕获中间件
 app.middleware('http')(catch_exceptions_middleware(logger=logger, limit=4))
 
@@ -239,6 +236,22 @@ app.middleware('http')(add_process_time_header(logger))
 
 # GZip压缩中间件：响应大于1000字节时启用压缩
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# 鉴权位于旧异常包装器外侧，保证 401/403/503 保留真实 HTTP 状态码。
+app.add_middleware(
+    GlobalAuthMiddleware,
+    settings=auth_settings,
+    auth_service=auth_service,
+)
+
+# CORS 位于最外层，使浏览器能够读取鉴权失败响应并完成 OPTIONS 预检。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=list(auth_settings.allowed_origins),
+    allow_credentials="*" not in auth_settings.allowed_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # 注释掉自定义doc_router，使用FastAPI默认的Swagger UI
@@ -279,3 +292,6 @@ async def simpe_segment(req:SimpleSegmentReq):
     res = SimpleSegmentRes()
     res.mask = await SegmentBiz.mask(req.file_url)
     return res
+
+
+configure_openapi_security(app, health_path=f"{API_PREFIX}/health")

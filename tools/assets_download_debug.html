@@ -220,7 +220,7 @@
       <h1>文件下载代理调试页</h1>
       <p>
         这个页面用于验证 <code>/{bucket}/{object}</code> 下载链路是否可用。
-        页面会带上 <code>U-Token</code> 发起 <code>fetch</code>，
+        页面会带上 <code>Authorization: Bearer</code> 发起 <code>fetch</code>，
         经过主业务鉴权，再由 Nginx 按 <code>X-Accel-Redirect</code> 内部回源 MinIO。
       </p>
     </section>
@@ -241,8 +241,8 @@
         </div>
 
         <div class="field">
-          <label for="uToken">U-Token</label>
-          <input id="uToken" value="">
+          <label for="authToken">SGO Token</label>
+          <input id="authToken" value="">
         </div>
 
         <div class="actions">
@@ -282,7 +282,7 @@
 
     const baseUrlEl = document.getElementById("baseUrl");
     const assetPathEl = document.getElementById("assetPath");
-    const uTokenEl = document.getElementById("uToken");
+    const authTokenEl = document.getElementById("authToken");
     const previewBtn = document.getElementById("previewBtn");
     const downloadBtn = document.getElementById("downloadBtn");
     const clearBtn = document.getElementById("clearBtn");
@@ -342,9 +342,9 @@
       const headers = {
         "accept": "*/*",
       };
-      const token = uTokenEl.value.trim();
+      const token = authTokenEl.value.trim();
       if (token) {
-        headers["U-Token"] = token;
+        headers["Authorization"] = `Bearer ${token}`;
       }
       return headers;
     }
@@ -353,7 +353,7 @@
       const url = normalizeUrl(baseUrlEl.value, assetPathEl.value);
       const headers = buildHeaders();
       resolvedUrlEl.textContent = url;
-      log("请求文件", { url, headers });
+      log("请求文件", { url });
       const response = await fetch(url, {
         method: "GET",
         headers,

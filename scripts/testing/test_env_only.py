@@ -47,7 +47,8 @@ print(
 )
 
 print("\n【外部服务】")
-print(f"  BASIS_API_HTTP_URL: {os.getenv('BASIS_API_HTTP_URL', '未设置')}")
+print(f"  AUTH_PROVIDER: {os.getenv('AUTH_PROVIDER', '未设置')}")
+print(f"  SGO_SSO_AUTH_URL: {os.getenv('SGO_SSO_AUTH_URL', '未设置')}")
 print(f"  MODEL_SERVICE_URL: {os.getenv('MODEL_SERVICE_URL', '未设置')}")
 print(f"  RECONSTRUCTION_SERVER_URL: {os.getenv('RECONSTRUCTION_SERVER_URL', '未设置')}")
 print(

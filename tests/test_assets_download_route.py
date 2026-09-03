@@ -18,7 +18,6 @@ def test_assets_download_route_returns_x_accel_redirect_header():
                 bucket="bfr-reconstruction-files",
                 asset_path="results/demo/point_cloud.ply",
                 response=Response(),
-                u_token="ok",
             )
         )
 

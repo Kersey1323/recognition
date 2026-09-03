@@ -9,7 +9,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from csrcqsf.core.settings import (  # noqa: E402
     ai_settings,
-    basis_api_http_url,
+    load_auth_settings,
     main_db_database,
     minio_bucket,
     minio_endpoint,
@@ -56,7 +56,9 @@ def test_environment_variables():
 
     print("\n【外部服务】")
     print(f"  BASIS_API_GRPC_URL: {ai_settings.basis_api_grpc_url}")
-    print(f"  BASIS_API_HTTP_URL: {basis_api_http_url or '未设置'}")
+    auth_settings = load_auth_settings()
+    print(f"  AUTH_PROVIDER: {auth_settings.provider}")
+    print(f"  SGO_SSO_AUTH_URL: {auth_settings.sgo_auth_url or '未设置'}")
     print(f"  RECONSTRUCTION_SERVER_URL: {reconstruction_server_url}")
     print(f"  RECONSTRUCTION_SERVER_TIMEOUT_SEC: {reconstruction_server_timeout_sec}")
 
@@ -91,8 +93,9 @@ def test_configuration_warnings():
     print("=" * 60)
 
     warnings = []
-    if not basis_api_http_url:
-        warnings.append("未配置 BASIS_API_HTTP_URL，下载代理鉴权接口会不可用")
+    auth_settings = load_auth_settings()
+    if auth_settings.enabled and auth_settings.provider == "sgo" and not auth_settings.sgo_auth_url:
+        warnings.append("未配置 SGO_SSO_AUTH_URL，全局 Token 鉴权会不可用")
     if reconstruction_server_url.strip() == "":
         warnings.append("未配置 RECONSTRUCTION_SERVER_URL，三维重构接口会禁用")
 

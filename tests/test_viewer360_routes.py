@@ -15,6 +15,7 @@ from csrcqsf.modules.railway_parts.schemas.viewer360 import (
     Viewer360TaskCreateReq,
     Viewer360TaskListReq,
     Viewer360TaskStatusRes,
+    Viewer360StatisticsReq,
 )
 
 
@@ -81,6 +82,7 @@ def test_viewer360_routes_are_registered():
     assert {
         "/railway/parts/v2/viewer360/tasks",
         "/railway/parts/v2/viewer360/tasks/list",
+        "/railway/parts/v2/viewer360/tasks/statistics",
         "/railway/parts/v2/viewer360/tasks/{task_id}",
         "/railway/parts/v2/viewer360/tasks/{task_id}/failures/list",
         "/railway/parts/v2/viewer360/tasks/{task_id}/cancel",
@@ -88,6 +90,32 @@ def test_viewer360_routes_are_registered():
         "/railway/parts/v2/viewer360/items/{item_id}/result",
         "/railway/parts/v2/viewer360/tasks/{task_id}/result",
     }.issubset(paths)
+
+
+def test_viewer360_statistics_route_returns_stable_statistics(monkeypatch):
+    _prepare_sgo_import()
+    from csrcqsf.modules.railway_parts.routes import viewer360_routes
+
+    async def statistics():
+        return {
+            "total_tasks": 8,
+            "running_tasks": 1,
+            "success_tasks": 5,
+            "failed_tasks": 1,
+            "cancelled_tasks": 1,
+            "success_rate": 5 / 6,
+            "avg_success_elapsed_sec": 120.0,
+            "min_success_elapsed_sec": 100.0,
+            "max_success_elapsed_sec": 150.0,
+        }
+
+    monkeypatch.setattr(viewer360_routes.viewer360_task_manager, "statistics", statistics)
+    result = asyncio.run(
+        viewer360_routes.get_viewer360_statistics(Viewer360StatisticsReq())
+    )
+
+    assert result.total_tasks == 8
+    assert result.success_rate == 5 / 6
 
 
 def test_create_route_returns_stable_start_response(monkeypatch):

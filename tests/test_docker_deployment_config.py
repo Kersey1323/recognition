@@ -160,12 +160,16 @@ def test_env_templates_do_not_expose_removed_legacy_vars():
         assert "CELERY_TASK_SOFT_TIME_LIMIT" not in values
 
 
-def test_asset_proxy_auth_switch_has_safe_template_default():
+def test_global_auth_templates_use_safe_environment_specific_defaults():
     example_values = _parse_env_file(Path(".env.example"))
     deployment_values = _parse_env_file(Path(".env.deployment"))
 
-    assert example_values["ASSET_PROXY_SKIP_AUTH"] == "false"
-    assert deployment_values["ASSET_PROXY_SKIP_AUTH"] == "true"
+    assert example_values["APP_ENV"] == "development"
+    assert example_values["AUTH_ENABLED"] == "false"
+    assert example_values["AUTH_PROVIDER"] == "mock"
+    assert deployment_values["APP_ENV"] == "production"
+    assert deployment_values["AUTH_ENABLED"] == "true"
+    assert deployment_values["AUTH_PROVIDER"] == "sgo"
 
 
 def test_vector_env_config_no_longer_reads_pg_or_model_dir_contract():
@@ -179,13 +183,12 @@ def test_vector_env_config_no_longer_reads_pg_or_model_dir_contract():
     assert "get_async_pg_dsn" not in text
 
 
-def test_settings_and_app_no_longer_keep_redis_runtime_contract():
+def test_settings_only_restore_redis_for_auth_cache_not_celery():
     settings_text = Path("csrcqsf/core/settings.py").read_text(encoding="utf-8")
     app_text = Path("csrcqsf/core/app.py").read_text(encoding="utf-8")
 
     assert "def redis_env_configured" not in settings_text
     assert '"CELERY_BROKER_URL"' not in settings_text
     assert '"CELERY_RESULT_BACKEND"' not in settings_text
-    assert '"REDIS_HOST"' not in settings_text
-    assert '"REDIS_PORT"' not in settings_text
+    assert '"AUTH_REDIS_URL"' in settings_text
     assert "redis_env_configured" not in app_text

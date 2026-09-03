@@ -15,7 +15,8 @@ print("=" * 60)
 print("\n【环境变量】")
 print(f"MODEL_SERVICE_URL: {os.getenv('MODEL_SERVICE_URL', '未设置')}")
 print(f"RECONSTRUCTION_SERVER_URL: {os.getenv('RECONSTRUCTION_SERVER_URL', '未设置')}")
-print(f"BASIS_API_HTTP_URL: {os.getenv('BASIS_API_HTTP_URL', '未设置')}")
+print(f"AUTH_PROVIDER: {os.getenv('AUTH_PROVIDER', '未设置')}")
+print(f"SGO_SSO_AUTH_URL: {os.getenv('SGO_SSO_AUTH_URL', '未设置')}")
 print(f"TEMP_DIR: {os.getenv('TEMP_DIR', '未设置')}")
 print(f"LOCAL_IMAGE_ROOT: {os.getenv('LOCAL_IMAGE_ROOT', '未设置')}")
 
@@ -25,7 +26,9 @@ try:
 
     print(f"model_service_url: {settings.model_service_url}")
     print(f"reconstruction_server_url: {settings.reconstruction_server_url}")
-    print(f"basis_api_http_url: {settings.basis_api_http_url or '未配置'}")
+    auth_settings = settings.load_auth_settings()
+    print(f"auth_provider: {auth_settings.provider}")
+    print(f"sgo_sso_auth_url: {auth_settings.sgo_auth_url or '未配置'}")
     print(f"temp_dir: {settings.temp_dir}")
 except Exception as exc:
     print(f"❌ 加载 settings.py 失败: {exc}")

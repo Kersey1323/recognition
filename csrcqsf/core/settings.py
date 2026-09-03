@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from urllib.parse import quote_plus
 import os
 
@@ -42,6 +43,90 @@ def _bounded_env_int(
     if maximum is not None:
         value = min(maximum, value)
     return value
+
+
+@dataclass(frozen=True)
+class AuthSettings:
+    """Recognition 全局访问鉴权配置。"""
+
+    app_env: str
+    enabled: bool
+    provider: str
+    mock_token: str
+    docs_public: bool
+    allowed_origins: tuple[str, ...]
+    sgo_auth_url: str
+    sgo_service: str
+    sgo_mode: str
+    sgo_timeout_seconds: float
+    redis_url: str
+    token_cache_ttl_seconds: int
+    invalid_token_cache_ttl_seconds: int
+
+
+def _comma_separated_env(name: str, *, default: str = "") -> tuple[str, ...]:
+    raw_value = os.getenv(name, default)
+    return tuple(value.strip() for value in raw_value.split(",") if value.strip())
+
+
+def load_auth_settings() -> AuthSettings:
+    """读取鉴权配置，并阻止生产环境以免鉴权或 Mock 模式启动。"""
+    app_env = os.getenv("APP_ENV", "development").strip().lower()
+    provider = os.getenv("AUTH_PROVIDER", "sgo").strip().lower()
+    enabled = _env_bool("AUTH_ENABLED", False)
+    docs_public = _env_bool("AUTH_DOCS_PUBLIC", app_env == "development")
+    allowed_origins = _comma_separated_env(
+        "AUTH_ALLOWED_ORIGINS",
+        default="*" if app_env == "development" else "",
+    )
+
+    if app_env not in {"development", "production"}:
+        raise ValueError("APP_ENV 仅支持 development 或 production")
+    if provider not in {"sgo", "mock"}:
+        raise ValueError("AUTH_PROVIDER 仅支持 sgo 或 mock")
+
+    settings = AuthSettings(
+        app_env=app_env,
+        enabled=enabled,
+        provider=provider,
+        mock_token=os.getenv("AUTH_MOCK_TOKEN", "").strip(),
+        docs_public=docs_public,
+        allowed_origins=allowed_origins,
+        sgo_auth_url=os.getenv("SGO_SSO_AUTH_URL", "").strip(),
+        sgo_service=os.getenv("SGO_SSO_SERVICE", "sgo").strip() or "sgo",
+        sgo_mode=os.getenv("SGO_SSO_MODE", "").strip(),
+        sgo_timeout_seconds=float(os.getenv("SGO_SSO_TIMEOUT_SECONDS", "5")),
+        redis_url=os.getenv("AUTH_REDIS_URL", "").strip(),
+        token_cache_ttl_seconds=_bounded_env_int(
+            "AUTH_TOKEN_CACHE_TTL_SECONDS",
+            default=300,
+            minimum=1,
+        ),
+        invalid_token_cache_ttl_seconds=_bounded_env_int(
+            "AUTH_INVALID_TOKEN_CACHE_TTL_SECONDS",
+            default=10,
+            minimum=1,
+        ),
+    )
+
+    if app_env == "production":
+        if not enabled:
+            raise ValueError("AUTH_ENABLED must be true in production")
+        if provider != "sgo":
+            raise ValueError("AUTH_PROVIDER must be sgo in production")
+        if docs_public:
+            raise ValueError("AUTH_DOCS_PUBLIC must be false in production")
+        if not allowed_origins or "*" in allowed_origins:
+            raise ValueError("AUTH_ALLOWED_ORIGINS must list explicit production origins")
+        if not settings.redis_url:
+            raise ValueError("AUTH_REDIS_URL must be configured in production")
+        if not settings.sgo_auth_url:
+            raise ValueError("SGO_SSO_AUTH_URL must be configured in production")
+    if enabled and provider == "mock" and not settings.mock_token:
+        raise ValueError("AUTH_MOCK_TOKEN must be configured for mock authentication")
+    if enabled and provider == "sgo" and not settings.sgo_auth_url:
+        raise ValueError("SGO_SSO_AUTH_URL must be configured for SGO authentication")
+    return settings
 
 
 def env_is_explicit(name: str) -> bool:
@@ -295,7 +380,6 @@ def _apply_runtime_connection_overrides(settings: AISettings) -> None:
 ai_settings = AISettings()
 _apply_runtime_connection_overrides(ai_settings)
 
-basis_api_http_url = _first_non_empty_env("BASIS_API_HTTP_URL", default="")
 model_service_url = os.getenv("MODEL_SERVICE_URL", "http://localhost:5555")
 model_service_index_timeout_sec = int(
     os.getenv("MODEL_SERVICE_INDEX_TIMEOUT_SEC", "120")
