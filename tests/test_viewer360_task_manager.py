@@ -109,6 +109,8 @@ class FakePipeline:
             target_center=(800.0, 800.0),
             total_frames=200,
             row_states=[{"row_index": 1, "status": "success"}],
+            render_mode="segmented",
+            fallback_reason=None,
         )
 
 
@@ -197,6 +199,10 @@ def test_task_detail_exposes_frontend_image_path_for_each_row():
         "output_bucket": "bfr-reconstruction-files",
         "manifest_object": "viewer360/12/completed/manifest.json",
         "amount_x": 72,
+        "pipeline_metadata_json": {
+            "render_mode": "original",
+            "fallback_reason": "分割结果不完整",
+        },
         "row_states_json": [
             {"row_index": 1, "status": "success"},
             {"row_index": 2, "status": "success"},
@@ -218,6 +224,8 @@ def test_task_detail_exposes_frontend_image_path_for_each_row():
             "row_01/frame_{frame_no}.webp"
         ),
     }
+    assert result["render_mode"] == "original"
+    assert result["fallback_reason"] == "分割结果不完整"
 
 
 def test_run_pending_task_publishes_current_pointer():
@@ -234,6 +242,9 @@ def test_run_pending_task_publishes_current_pointer():
 
     assert repository.tasks[submitted["task_id"]]["status"] == "success"
     assert repository.current[12]["task_id"] == submitted["task_id"]
+    metadata = repository.tasks[submitted["task_id"]]["pipeline_metadata_json"]
+    assert metadata["render_mode"] == "segmented"
+    assert metadata["fallback_reason"] is None
 
 
 def test_successful_task_removes_local_work_directory(tmp_path: Path):

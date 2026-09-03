@@ -1,4 +1,4 @@
-"""将分割结果整理为前端可直接加载的 Viewer360 图片 Grid。"""
+"""将分割结果或兜底原图整理为前端可直接加载的 Viewer360 图片 Grid。"""
 
 from __future__ import annotations
 
@@ -129,6 +129,50 @@ def _preflight(rows: Sequence[ViewerRow]) -> tuple[list[ViewerRow], int, tuple[i
                 f"配件分割不完整：{angle_summary}，请重新采集对应角度后重试"
             )
         raise ViewerGridValidationError(failures, user_message=user_message)
+    return ordered, int(frame_count or 0), image_size or (0, 0)
+
+
+def _preflight_original_rows(
+    rows: Sequence[ViewerRow],
+) -> tuple[list[ViewerRow], int, tuple[int, int]]:
+    failures: list[str] = []
+    ordered = sorted(rows, key=lambda item: item.row_index)
+    if not ordered:
+        failures.append("Viewer original Grid requires at least one row")
+    row_indexes = [item.row_index for item in ordered]
+    if len(row_indexes) != len(set(row_indexes)):
+        failures.append("Viewer original row indexes must be unique")
+
+    frame_count: int | None = None
+    image_size: tuple[int, int] | None = None
+    for row in ordered:
+        original_paths = (
+            _sequence(row.original_dir, ".jpg") if row.original_dir is not None else []
+        )
+        if frame_count is None:
+            frame_count = len(original_paths)
+        if not original_paths or len(original_paths) != frame_count:
+            failures.append(f"{row.row_id} original frame sequence is incomplete")
+            continue
+        expected_names = [
+            f"frame_{index:04d}.jpg" for index in range(1, frame_count + 1)
+        ]
+        if [path.name for path in original_paths] != expected_names:
+            failures.append(f"{row.row_id} original frame sequence is not contiguous")
+        for path in original_paths:
+            try:
+                with Image.open(path) as image:
+                    size = image.size
+                    image.verify()
+            except Exception:
+                failures.append(f"unreadable original frame: {path}")
+                continue
+            if image_size is None:
+                image_size = size
+            elif size != image_size:
+                failures.append(f"Viewer original image dimensions differ: {path}")
+    if failures:
+        raise ValueError("; ".join(failures))
     return ordered, int(frame_count or 0), image_size or (0, 0)
 
 
@@ -291,6 +335,8 @@ def export_viewer_grid(
         manifest = {
             "schema_version": 1,
             "pipeline": "viewer360",
+            "render_mode": "segmented",
+            "fallback_reason": None,
             "amount_x": frame_count,
             "amount_y": len(ordered),
             "index_base": 0,
@@ -332,5 +378,93 @@ def export_viewer_grid(
         )
     except Exception:
         # 未通过完整校验的目录不允许被后续发布阶段误识别为正式结果。
+        shutil.rmtree(output, ignore_errors=True)
+        raise
+
+
+def export_original_viewer_grid(
+    rows: Sequence[ViewerRow],
+    output_dir: Path,
+    config: Viewer360Config,
+    *,
+    fingerprint: str,
+    fallback_reason: str,
+) -> ViewerGridResult:
+    """分割结果不可用时，将全部角度的原始帧作为一套完整结果发布。"""
+    ordered, frame_count, image_size = _preflight_original_rows(rows)
+    output = Path(output_dir)
+    if output.exists():
+        raise FileExistsError(f"Viewer output already exists: {output}")
+    output.mkdir(parents=True)
+
+    row_payloads: list[dict[str, object]] = []
+    image_paths: list[str] = []
+    try:
+        for row in ordered:
+            original_paths = _sequence(row.original_dir, ".jpg")
+            source_indices = build_source_indices(
+                frame_count, phase_direction=row.phase_direction
+            )
+            row_output = output / "images" / row.row_id
+            row_output.mkdir(parents=True)
+            for grid_index, source_index in enumerate(source_indices, start=1):
+                target = row_output / f"frame_{grid_index:04d}.webp"
+                with Image.open(original_paths[source_index]) as source:
+                    source.convert("RGB").save(
+                        target,
+                        format="WEBP",
+                        quality=config.webp_quality,
+                        method=6,
+                    )
+                relative = f"images/{row.row_id}/{target.name}"
+                image_paths.append(relative)
+            row_payloads.append(
+                {
+                    "id": row.row_id,
+                    "row_index": row.row_index,
+                    "start_seconds": row.start_seconds,
+                    "end_seconds": row.end_seconds,
+                    "phase_direction": row.phase_direction,
+                    "source_indices": source_indices,
+                }
+            )
+
+        manifest = {
+            "schema_version": 1,
+            "pipeline": "viewer360",
+            "render_mode": "original",
+            "fallback_reason": fallback_reason,
+            "amount_x": frame_count,
+            "amount_y": len(ordered),
+            "index_base": 0,
+            "rows": row_payloads,
+            "image_list_grid": image_paths,
+            "fingerprint": fingerprint,
+        }
+        manifest_path = output / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        target_center = (image_size[0] / 2.0, image_size[1] / 2.0)
+        return ViewerGridResult(
+            output_dir=output,
+            manifest_path=manifest_path,
+            amount_x=frame_count,
+            amount_y=len(ordered),
+            target_center=target_center,
+            validation={
+                "passed": True,
+                "render_mode": "original",
+                "fallback_reason": fallback_reason,
+                "amount_x": frame_count,
+                "amount_y": len(ordered),
+                "image_count": len(image_paths),
+                "image_size": {"width": image_size[0], "height": image_size[1]},
+                "rows": row_payloads,
+            },
+        )
+    except Exception:
+        # 原图兜底也必须整套生成成功，残缺目录不能进入 OSS 发布阶段。
         shutil.rmtree(output, ignore_errors=True)
         raise

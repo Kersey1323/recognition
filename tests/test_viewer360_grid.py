@@ -9,6 +9,7 @@ from PIL import Image
 from csrcqsf.modules.railway_parts.services.viewer360_grid import (
     ViewerGridValidationError,
     build_source_indices,
+    export_original_viewer_grid,
     export_viewer_grid,
 )
 from csrcqsf.modules.railway_parts.services.viewer360_models import (
@@ -21,11 +22,10 @@ from csrcqsf.modules.railway_parts.services.viewer360_models import (
 def _config(tmp_path: Path, **overrides) -> Viewer360Config:
     values = {
         "work_root": tmp_path,
-        "rotation_seconds": 25.0,
         "transition_seconds": 2.0,
         "row_count": 4,
         "row_directions": (1, -1, 1, -1),
-        "fps": 2.0,
+        "frames_per_row": 72,
         "image_size": 1600,
         "webp_quality": 90,
         "center_p95_ratio": 0.015,
@@ -48,8 +48,10 @@ def _rows(
         row_root = root / f"row_{row_index:02d}"
         rgba_dir = row_root / "rgba"
         mask_dir = row_root / "masks"
+        original_dir = row_root / "original"
         rgba_dir.mkdir(parents=True)
         mask_dir.mkdir(parents=True)
+        original_dir.mkdir(parents=True)
         for frame_index in range(1, frame_count + 1):
             height = 22 if mismatched_size and row_index == 2 and frame_index == 3 else 20
             width = 30
@@ -67,6 +69,9 @@ def _rows(
             rgba[:, :, :3] = (40 * row_index, 100, 180)
             rgba[:, :, 3] = mask
             Image.fromarray(rgba).save(rgba_dir / f"frame_{frame_index:04d}.png")
+            Image.fromarray(rgba[:, :, :3]).save(
+                original_dir / f"frame_{frame_index:04d}.jpg"
+            )
             assert cv2.imwrite(str(mask_dir / f"frame_{frame_index:04d}.png"), mask)
         rows.append(
             ViewerRow(
@@ -76,12 +81,13 @@ def _rows(
                 phase_direction=1 if row_index == 1 else -1,
                 rgba_dir=rgba_dir,
                 mask_dir=mask_dir,
+                original_dir=original_dir,
             )
         )
     return rows
 
 
-def test_resolve_viewer_segments_uses_fixed_capture_protocol(tmp_path: Path):
+def test_resolve_viewer_segments_uses_dynamic_capture_protocol(tmp_path: Path):
     segments, ignored_tail = resolve_viewer_segments(_config(tmp_path), 106.0)
 
     assert [(item.start_seconds, item.end_seconds) for item in segments] == [
@@ -90,14 +96,34 @@ def test_resolve_viewer_segments_uses_fixed_capture_protocol(tmp_path: Path):
         (54.0, 79.0),
         (81.0, 106.0),
     ]
-    assert [item.expected_frames for item in segments] == [50, 50, 50, 50]
+    assert [item.expected_frames for item in segments] == [72, 72, 72, 72]
     assert [item.phase_direction for item in segments] == [1, -1, 1, -1]
     assert ignored_tail == 0.0
 
 
+def test_resolve_viewer_segments_derives_rotation_from_video_duration(tmp_path: Path):
+    segments, ignored_tail = resolve_viewer_segments(_config(tmp_path), 118.33)
+
+    rotation_seconds = (118.33 - 3 * 2.0) / 4
+    assert [item.start_seconds for item in segments] == pytest.approx(
+        [
+            0.0,
+            rotation_seconds + 2.0,
+            2 * (rotation_seconds + 2.0),
+            3 * (rotation_seconds + 2.0),
+        ]
+    )
+    assert [item.end_seconds - item.start_seconds for item in segments] == pytest.approx(
+        [rotation_seconds] * 4
+    )
+    assert [item.expected_frames for item in segments] == [72, 72, 72, 72]
+    assert segments[-1].end_seconds == pytest.approx(118.33)
+    assert ignored_tail == 0.0
+
+
 def test_resolve_viewer_segments_rejects_short_video(tmp_path: Path):
-    with pytest.raises(ValueError, match="shorter than required"):
-        resolve_viewer_segments(_config(tmp_path), 105.0)
+    with pytest.raises(ValueError, match="视频时长"):
+        resolve_viewer_segments(_config(tmp_path), 6.0)
 
 
 def test_alternating_rows_cover_same_circle_in_opposite_order():
@@ -109,13 +135,14 @@ def test_export_writes_only_frontend_assets_and_cleans_mask_noise(tmp_path: Path
     result = export_viewer_grid(
         _rows(tmp_path / "input", detached_noise=True),
         tmp_path / "publish",
-        _config(tmp_path, row_count=2, row_directions=(1, -1), fps=1.0),
+        _config(tmp_path, row_count=2, row_directions=(1, -1)),
         fingerprint="fixture",
     )
 
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["amount_x"] == 3
     assert manifest["amount_y"] == 2
+    assert manifest["render_mode"] == "segmented"
     assert manifest["rows"][1]["source_indices"] == [0, 2, 1]
     assert len(manifest["image_list_grid"]) == 6
     assert sorted(
@@ -128,11 +155,37 @@ def test_export_writes_only_frontend_assets_and_cleans_mask_noise(tmp_path: Path
     assert image.getchannel("A").getextrema() == (0, 255)
 
 
+def test_export_original_grid_keeps_all_rows_and_frontend_paths(tmp_path: Path):
+    reason = "配件分割不完整：第1个角度未识别到配件"
+    result = export_original_viewer_grid(
+        _rows(tmp_path / "input"),
+        tmp_path / "publish",
+        _config(tmp_path, row_count=2, row_directions=(1, -1)),
+        fingerprint="fallback",
+        fallback_reason=reason,
+    )
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["render_mode"] == "original"
+    assert manifest["fallback_reason"] == reason
+    assert manifest["rows"][1]["source_indices"] == [0, 2, 1]
+    assert manifest["image_list_grid"] == [
+        "images/row_01/frame_0001.webp",
+        "images/row_01/frame_0002.webp",
+        "images/row_01/frame_0003.webp",
+        "images/row_02/frame_0001.webp",
+        "images/row_02/frame_0002.webp",
+        "images/row_02/frame_0003.webp",
+    ]
+    with Image.open(result.output_dir / manifest["image_list_grid"][0]) as image:
+        assert image.mode == "RGB"
+
+
 def test_export_reuses_fixed_alignment_center(tmp_path: Path):
     result = export_viewer_grid(
         _rows(tmp_path / "input"),
         tmp_path / "publish",
-        _config(tmp_path, row_count=2, row_directions=(1, -1), fps=1.0),
+        _config(tmp_path, row_count=2, row_directions=(1, -1)),
         fingerprint="retry",
         target_center=(15.0, 10.0),
     )
@@ -147,7 +200,7 @@ def test_export_allows_rotation_shape_center_variation_with_aligned_row_axes(
     result = export_viewer_grid(
         _rows(tmp_path / "input", varying_frame_center=True),
         tmp_path / "publish",
-        _config(tmp_path, row_count=2, row_directions=(1, -1), fps=1.0),
+        _config(tmp_path, row_count=2, row_directions=(1, -1)),
         fingerprint="rotating-shape",
     )
 
@@ -161,7 +214,7 @@ def test_export_still_rejects_misaligned_row_axes(tmp_path: Path):
         export_viewer_grid(
             _rows(tmp_path / "input"),
             tmp_path / "publish",
-            _config(tmp_path, row_count=2, row_directions=(1, -1), fps=1.0),
+            _config(tmp_path, row_count=2, row_directions=(1, -1)),
             fingerprint="misaligned",
             target_center=(0.0, 0.0),
         )
@@ -179,7 +232,7 @@ def test_export_rejects_invalid_grid(tmp_path: Path, options: dict, message: str
         export_viewer_grid(
             _rows(tmp_path / "input", **options),
             tmp_path / "publish",
-            _config(tmp_path, row_count=2, row_directions=(1, -1), fps=1.0),
+            _config(tmp_path, row_count=2, row_directions=(1, -1)),
             fingerprint="invalid",
         )
 
@@ -189,7 +242,7 @@ def test_empty_mask_error_provides_concise_frontend_message(tmp_path: Path):
         export_viewer_grid(
             _rows(tmp_path / "input", empty_mask=True),
             tmp_path / "publish",
-            _config(tmp_path, row_count=2, row_directions=(1, -1), fps=1.0),
+            _config(tmp_path, row_count=2, row_directions=(1, -1)),
             fingerprint="invalid",
         )
 

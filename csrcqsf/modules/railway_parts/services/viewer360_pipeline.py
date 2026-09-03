@@ -19,6 +19,7 @@ from csrcqsf.modules.railway_parts.services.viewer360_archive import (
 )
 from csrcqsf.modules.railway_parts.services.viewer360_grid import (
     ViewerGridValidationError,
+    export_original_viewer_grid,
     export_viewer_grid,
 )
 from csrcqsf.modules.railway_parts.services.viewer360_models import (
@@ -93,6 +94,7 @@ def extract_video_segment(
     if any(original.iterdir()):
         raise RuntimeError(f"Incomplete extraction checkpoint: {original}")
     duration = segment.end_seconds - segment.start_seconds
+    effective_fps = segment.expected_frames / duration
     scale = (
         f"scale='min(iw,{config.image_size})':'min(ih,{config.image_size})':"
         "force_original_aspect_ratio=decrease"
@@ -115,7 +117,7 @@ def extract_video_segment(
             "-qmin",
             "1",
             "-vf",
-            f"fps={config.fps:g},{scale}",
+            f"fps={effective_fps:.12g},{scale}",
             str(original / "frame_%04d.jpg"),
         ],
         check=True,
@@ -134,14 +136,13 @@ def _fingerprint(task: dict[str, Any], config: Viewer360Config) -> str:
     payload = {
         "source_video_object": task["source_video_object"],
         "source_video_updated_at": task.get("source_video_updated_at"),
-        "rotation_seconds": config.rotation_seconds,
         "transition_seconds": config.transition_seconds,
         "row_count": config.row_count,
         "row_directions": config.row_directions,
-        "fps": config.fps,
+        "frames_per_row": config.frames_per_row,
         "image_size": config.image_size,
         "webp_quality": config.webp_quality,
-        "pipeline_version": 1,
+        "pipeline_version": 2,
     }
     encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -264,6 +265,7 @@ class Viewer360Pipeline:
                 phase_direction=segment.phase_direction,
                 rgba_dir=row_dir / "segmentation" / "rgba",
                 mask_dir=row_dir / "segmentation" / "masks",
+                original_dir=row_dir / "original",
             )
         try:
             frames = await anyio.to_thread.run_sync(
@@ -315,7 +317,46 @@ class Viewer360Pipeline:
             phase_direction=segment.phase_direction,
             rgba_dir=segmentation.rgba_paths[0].parent,
             mask_dir=segmentation.mask_paths[0].parent,
+            original_dir=frames[0].parent,
         )
+
+    async def _prepare_original_rows(
+        self,
+        *,
+        video_path: Path,
+        segments: list[ViewerSegment],
+        work_dir: Path,
+    ) -> list[ViewerRow]:
+        """补齐全部采集角度的原始帧，确保兜底结果不混入分割图片。"""
+        rows: list[ViewerRow] = []
+        for segment in segments:
+            row_dir = work_dir / "rows" / f"row_{segment.row_index:02d}"
+            try:
+                frames = await anyio.to_thread.run_sync(
+                    self.extract_segment,
+                    video_path,
+                    segment,
+                    row_dir,
+                    self.config,
+                )
+            except Exception as exc:
+                raise Viewer360PipelineError(
+                    "extracting",
+                    str(exc),
+                    row_index=segment.row_index,
+                ) from exc
+            rows.append(
+                ViewerRow(
+                    row_index=segment.row_index,
+                    start_seconds=segment.start_seconds,
+                    end_seconds=segment.end_seconds,
+                    phase_direction=segment.phase_direction,
+                    rgba_dir=row_dir / "segmentation" / "rgba",
+                    mask_dir=row_dir / "segmentation" / "masks",
+                    original_dir=frames[0].parent,
+                )
+            )
+        return rows
 
     async def run(
         self,
@@ -327,8 +368,17 @@ class Viewer360Pipeline:
     ) -> Viewer360PipelineResult:
         task_id = str(task["task_id"])
         item_id = int(task["item_id"])
+        retry_mode = task.get("retry_mode") or "none"
         fingerprint = _fingerprint(task, self.config)
         work_dir = self.config.work_root / task_id
+        if (
+            retry_mode == "resume"
+            and source_task is not None
+            and source_task.get("fingerprint") != fingerprint
+            and work_dir.exists()
+        ):
+            # 切段协议变化后旧帧不能继续复用，否则新旧帧数会在分割或发布阶段混用。
+            await anyio.to_thread.run_sync(shutil.rmtree, work_dir)
         work_dir.mkdir(parents=True, exist_ok=True)
         # fingerprint 先于耗时阶段落库，失败任务恢复时才能判断本地断点是否仍匹配源视频。
         await self._emit(
@@ -349,11 +399,14 @@ class Viewer360Pipeline:
         except Exception as exc:
             raise Viewer360PipelineError("source_video", str(exc)) from exc
 
-        retry_mode = task.get("retry_mode") or "none"
         if retry_mode == "resegment_rows":
             selected = set(int(value) for value in (task.get("retry_rows_json") or []))
             if source_task is None:
                 raise Viewer360PipelineError("preparing", "resegment_rows requires a source task")
+            source_metadata = source_task.get("pipeline_metadata_json") or {}
+            if source_metadata.get("render_mode") == "original":
+                # 原图兜底结果没有可复用的透明分割行；要恢复透明模式必须重新校验全部角度。
+                selected = {segment.row_index for segment in segments}
         else:
             selected = {segment.row_index for segment in segments}
         row_states = [
@@ -430,6 +483,8 @@ class Viewer360Pipeline:
                 raise Viewer360PipelineError("postprocess", "source alignment center is missing")
             target_center = (float(center[0]), float(center[1]))
         await self._emit(progress_callback, stage="postprocessing", progress=75)
+        render_mode = "segmented"
+        fallback_reason: str | None = None
         try:
             selected_output = work_dir / "selected_grid"
             grid = await anyio.to_thread.run_sync(
@@ -443,14 +498,49 @@ class Viewer360Pipeline:
             )
         except ViewerGridValidationError as exc:
             logger.warning(
-                "Viewer360 后处理校验失败: task_id=%s, details=%s",
+                "Viewer360 分割结果校验失败，整套切换为原始帧: task_id=%s, details=%s",
                 task_id,
                 "; ".join(exc.failures),
             )
-            raise Viewer360PipelineError(
-                "postprocess",
-                exc.user_message,
-            ) from exc
+            render_mode = "original"
+            fallback_reason = exc.user_message
+            try:
+                # 任一角度分割不可用时统一发布全部原图，避免前端混合两种视觉结果。
+                original_rows = await self._prepare_original_rows(
+                    video_path=video_path,
+                    segments=segments,
+                    work_dir=work_dir,
+                )
+                grid = await anyio.to_thread.run_sync(
+                    lambda: export_original_viewer_grid(
+                        original_rows,
+                        selected_output,
+                        self.config,
+                        fingerprint=fingerprint,
+                        fallback_reason=fallback_reason,
+                    )
+                )
+            except Viewer360PipelineError:
+                raise
+            except Exception as fallback_exc:
+                raise Viewer360PipelineError(
+                    "postprocess",
+                    f"分割结果不可用，原图兜底生成失败: {fallback_exc}",
+                ) from fallback_exc
+            row_states = [
+                {"row_index": segment.row_index, "status": "fallback"}
+                for segment in segments
+            ]
+            total_frames = sum(segment.expected_frames for segment in segments)
+            await self._emit(
+                progress_callback,
+                stage="postprocessing",
+                progress=85,
+                total_frames=total_frames,
+                processed_frames=total_frames,
+                reused_row_count=0,
+                row_states_json=row_states,
+            )
         except Exception as exc:
             raise Viewer360PipelineError("postprocess", str(exc)) from exc
 
@@ -458,7 +548,7 @@ class Viewer360Pipeline:
         publish_dir = work_dir / "publish"
         if publish_dir.exists():
             shutil.rmtree(publish_dir)
-        if retry_mode == "resegment_rows":
+        if retry_mode == "resegment_rows" and render_mode != "original":
             source_amount_x = int(source_task["amount_x"])
             source_amount_y = int(source_task["amount_y"])
             if source_amount_y != len(segments):
@@ -489,6 +579,8 @@ class Viewer360Pipeline:
                 rows=merged_rows,
                 amount_x=source_amount_x,
                 amount_y=source_amount_y,
+                render_mode="segmented",
+                fallback_reason=None,
             )
             publish_dir.mkdir(parents=True, exist_ok=True)
             (publish_dir / "manifest.json").write_text(
@@ -537,4 +629,6 @@ class Viewer360Pipeline:
             total_frames=total_frames,
             row_states=row_states,
             manifest_object=manifest_object,
+            render_mode=render_mode,
+            fallback_reason=fallback_reason,
         )

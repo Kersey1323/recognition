@@ -455,9 +455,8 @@ if (
     or any(value not in {-1, 1} for value in viewer360_row_directions)
 ):
     raise ValueError("VIEWER360_ROW_DIRECTIONS must contain one -1/1 value per row")
-viewer360_rotation_seconds = float(os.getenv("VIEWER360_ROTATION_SECONDS", "25"))
 viewer360_transition_seconds = float(os.getenv("VIEWER360_TRANSITION_SECONDS", "2"))
-viewer360_fps = float(os.getenv("VIEWER360_FPS", "2"))
+viewer360_frames_per_row = max(1, int(os.getenv("VIEWER360_FRAMES_PER_ROW", "72")))
 viewer360_image_size = max(1, int(os.getenv("VIEWER360_IMAGE_SIZE", "1600")))
 viewer360_webp_quality = int(os.getenv("VIEWER360_WEBP_QUALITY", "90"))
 viewer360_center_p95_ratio = float(os.getenv("VIEWER360_CENTER_P95_RATIO", "0.015"))

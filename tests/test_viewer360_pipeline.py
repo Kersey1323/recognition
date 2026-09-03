@@ -17,6 +17,7 @@ from csrcqsf.modules.railway_parts.services.viewer360_grid import (
 from csrcqsf.modules.railway_parts.services.viewer360_pipeline import (
     Viewer360Pipeline,
     Viewer360PipelineError,
+    extract_video_segment,
 )
 
 
@@ -77,11 +78,10 @@ class FakeModelClient:
 def _config(tmp_path):
     return Viewer360Config(
         work_root=tmp_path / "work",
-        rotation_seconds=1,
         transition_seconds=0,
         row_count=2,
         row_directions=(1, -1),
-        fps=1,
+        frames_per_row=1,
         image_size=30,
         webp_quality=90,
         center_p95_ratio=0.05,
@@ -110,6 +110,43 @@ def _task(task_id="task-new", retry_mode="none", rows=None):
     }
 
 
+def test_extract_video_segment_derives_fps_from_target_frame_count(
+    tmp_path: Path,
+    monkeypatch,
+):
+    commands = []
+    segment = ViewerSegment(
+        row_index=1,
+        start_seconds=0.0,
+        end_seconds=28.0825,
+        expected_frames=72,
+        phase_direction=1,
+    )
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        output_pattern = Path(command[-1])
+        for index in range(1, segment.expected_frames + 1):
+            Path(str(output_pattern).replace("%04d", f"{index:04d}")).touch()
+
+    monkeypatch.setattr(
+        "csrcqsf.modules.railway_parts.services.viewer360_pipeline.subprocess.run",
+        fake_run,
+    )
+
+    paths = extract_video_segment(
+        tmp_path / "source.mp4",
+        segment,
+        tmp_path / "row_01",
+        _config(tmp_path),
+    )
+
+    video_filter = commands[0][commands[0].index("-vf") + 1]
+    effective_fps = float(video_filter.split(",", 1)[0].split("=", 1)[1])
+    assert effective_fps == pytest.approx(72 / 28.0825)
+    assert len(paths) == 72
+
+
 def test_resume_reuses_checkpoint_from_same_task_directory(tmp_path: Path):
     pipeline = Viewer360Pipeline(_config(tmp_path))
     row_dir = tmp_path / "work" / "task-new" / "rows" / "row_01"
@@ -127,6 +164,27 @@ def test_resume_reuses_checkpoint_from_same_task_directory(tmp_path: Path):
     )
 
     assert pipeline._reuse_resume_row("task-new", row_dir, segment) is True
+
+
+def test_resume_discards_checkpoint_when_pipeline_protocol_changes(tmp_path: Path):
+    work_dir = tmp_path / "work" / "task-new"
+    stale_original = work_dir / "rows" / "row_01" / "original"
+    stale_original.mkdir(parents=True)
+    (stale_original / "stale.jpg").write_bytes(b"stale")
+    pipeline = Viewer360Pipeline(
+        _config(tmp_path),
+        storage=FakeStorage(),
+        model_client=FakeModelClient(),
+        probe_duration=lambda _path: 2.0,
+        extract_segment=_extract,
+    )
+    task = _task(retry_mode="resume")
+    source_task = {**task, "fingerprint": "old-protocol"}
+
+    result = asyncio.run(pipeline.run(task, source_task=source_task))
+
+    assert result.amount_x == 1
+    assert not (stale_original / "stale.jpg").exists()
 
 
 def test_pipeline_builds_and_publishes_complete_grid(tmp_path: Path):
@@ -237,7 +295,7 @@ def test_pipeline_reports_extraction_failure_stage(tmp_path: Path):
     assert exc_info.value.row_index == 1
 
 
-def test_pipeline_exposes_business_message_for_grid_validation(
+def test_pipeline_falls_back_to_original_frames_when_grid_validation_fails(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -259,14 +317,130 @@ def test_pipeline_exposes_business_message_for_grid_validation(
         extract_segment=_extract,
     )
 
-    with pytest.raises(Viewer360PipelineError) as exc_info:
-        asyncio.run(pipeline.run(_task()))
+    result = asyncio.run(pipeline.run(_task()))
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
 
-    assert exc_info.value.stage == "postprocess"
-    assert str(exc_info.value) == (
+    assert result.render_mode == "original"
+    assert result.fallback_reason == (
         "配件分割不完整：第1个角度有1帧未识别到配件，请重新采集对应角度后重试"
     )
-    assert "/app/state" not in str(exc_info.value)
+    assert result.row_states == [
+        {"row_index": 1, "status": "fallback"},
+        {"row_index": 2, "status": "fallback"},
+    ]
+    assert manifest["render_mode"] == "original"
+    assert manifest["amount_x"] == 1
+    assert manifest["amount_y"] == 2
+    assert len(manifest["image_list_grid"]) == 2
+
+
+def test_row_retry_fallback_publishes_original_frames_for_every_angle(
+    tmp_path: Path,
+    monkeypatch,
+):
+    extracted_rows = []
+
+    def track_extract(video, segment, row_dir, config):
+        extracted_rows.append(segment.row_index)
+        return _extract(video, segment, row_dir, config)
+
+    def fail_grid(*_args, **_kwargs):
+        raise ViewerGridValidationError(
+            ["empty mask: row_02/frame_0001.png"],
+            user_message="配件分割不完整：第2个角度有1帧未识别到配件",
+        )
+
+    monkeypatch.setattr(
+        "csrcqsf.modules.railway_parts.services.viewer360_pipeline.export_viewer_grid",
+        fail_grid,
+    )
+    pipeline = Viewer360Pipeline(
+        _config(tmp_path),
+        storage=FakeStorage(),
+        model_client=FakeModelClient(),
+        probe_duration=lambda _path: 2.0,
+        extract_segment=track_extract,
+    )
+    source_task = {
+        "task_id": "task-new",
+        "item_id": 12,
+        "manifest_object": "viewer360/12/task-new/manifest.json",
+        "amount_x": 1,
+        "amount_y": 2,
+        "pipeline_metadata_json": {
+            "target_center": [15.0, 10.0],
+            "render_mode": "segmented",
+        },
+    }
+
+    result = asyncio.run(
+        pipeline.run(
+            _task(retry_mode="resegment_rows", rows=[2]),
+            source_task=source_task,
+        )
+    )
+
+    assert extracted_rows == [2, 1, 2]
+    assert result.render_mode == "original"
+    assert result.amount_y == 2
+    assert result.row_states == [
+        {"row_index": 1, "status": "fallback"},
+        {"row_index": 2, "status": "fallback"},
+    ]
+
+
+def test_retrying_original_fallback_resegments_every_angle(tmp_path: Path):
+    pipeline = Viewer360Pipeline(
+        _config(tmp_path),
+        storage=FakeStorage(),
+        model_client=FakeModelClient(),
+        probe_duration=lambda _path: 2.0,
+        extract_segment=_extract,
+    )
+    source_task = {
+        "task_id": "task-new",
+        "item_id": 12,
+        "manifest_object": "viewer360/12/task-new/manifest.json",
+        "amount_x": 1,
+        "amount_y": 2,
+        "pipeline_metadata_json": {
+            "target_center": [15.0, 10.0],
+            "render_mode": "original",
+        },
+    }
+    pipeline.storage.source_manifest = {
+        "schema_version": 1,
+        "pipeline": "viewer360",
+        "render_mode": "original",
+        "fallback_reason": "旧分割结果不完整",
+        "amount_x": 1,
+        "amount_y": 2,
+        "index_base": 0,
+        "rows": [
+            {"id": "row_01", "row_index": 1},
+            {"id": "row_02", "row_index": 2},
+        ],
+        "image_list_grid": [
+            "images/row_01/frame_0001.webp",
+            "images/row_02/frame_0001.webp",
+        ],
+        "fingerprint": "old",
+    }
+
+    result = asyncio.run(
+        pipeline.run(
+            _task(retry_mode="resegment_rows", rows=[2]),
+            source_task=source_task,
+        )
+    )
+
+    assert [call[1] for call in pipeline.model_client.calls] == ["angle_01", "angle_02"]
+    assert result.render_mode == "segmented"
+    assert result.fallback_reason is None
+    assert result.row_states == [
+        {"row_index": 1, "status": "success"},
+        {"row_index": 2, "status": "success"},
+    ]
 
 
 def test_pipeline_rejects_incomplete_source_manifest_for_row_retry(tmp_path: Path):

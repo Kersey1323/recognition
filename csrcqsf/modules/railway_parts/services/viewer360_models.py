@@ -1,4 +1,4 @@
-"""Viewer360 Pipeline 的纯业务模型与固定采集协议。"""
+"""Viewer360 Pipeline 的纯业务模型与动态视频切段协议。"""
 
 from __future__ import annotations
 
@@ -17,11 +17,10 @@ class Viewer360Cancelled(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class Viewer360Config:
     work_root: Path
-    rotation_seconds: float
     transition_seconds: float
     row_count: int = 4
     row_directions: tuple[int, ...] = (1, -1, 1, -1)
-    fps: float = 2.0
+    frames_per_row: int = 72
     image_size: int = 1600
     webp_quality: int = 90
     center_p95_ratio: float = 0.015
@@ -29,8 +28,6 @@ class Viewer360Config:
     task_timeout_seconds: int = 1800
 
     def __post_init__(self) -> None:
-        if self.rotation_seconds <= 0:
-            raise ValueError("rotation_seconds must be positive")
         if self.transition_seconds < 0:
             raise ValueError("transition_seconds must not be negative")
         if self.row_count < 2:
@@ -39,8 +36,8 @@ class Viewer360Config:
             direction not in {-1, 1} for direction in self.row_directions
         ):
             raise ValueError("row_directions must contain one -1/1 value per row")
-        if self.fps <= 0 or self.image_size <= 0:
-            raise ValueError("fps and image_size must be positive")
+        if self.frames_per_row < 1 or self.image_size <= 0:
+            raise ValueError("frames_per_row and image_size must be positive")
         if not 1 <= self.webp_quality <= 100:
             raise ValueError("webp_quality must be in [1, 100]")
         if not 0 < self.center_p95_ratio < 1:
@@ -64,6 +61,7 @@ class ViewerRow:
     phase_direction: int
     rgba_dir: Path
     mask_dir: Path
+    original_dir: Path | None = None
 
     @property
     def row_id(self) -> str:
@@ -99,38 +97,36 @@ class Viewer360PipelineResult:
     total_frames: int
     row_states: list[dict[str, Any]]
     manifest_object: str
+    render_mode: str = "segmented"
+    fallback_reason: str | None = None
 
 
 def resolve_viewer_segments(
     config: Viewer360Config,
     video_duration: float,
 ) -> tuple[list[ViewerSegment], float]:
-    """按 C 端固定节拍把连续视频切成多个完整垂直角度。"""
+    """扣除角度切换时间后，将视频剩余时长平均分配给每个采集角度。"""
     if video_duration < 0:
         raise ValueError("video_duration must not be negative")
-    required_duration = (
-        config.row_count * config.rotation_seconds
-        + (config.row_count - 1) * config.transition_seconds
-    )
-    if video_duration + 0.25 < required_duration:
+    transition_duration = (config.row_count - 1) * config.transition_seconds
+    rotation_seconds = (video_duration - transition_duration) / config.row_count
+    if rotation_seconds <= 0:
         raise ValueError(
-            f"Video duration {video_duration:.3f}s is shorter than required duration "
-            f"{required_duration:.3f}s"
+            f"视频时长 {video_duration:.3f} 秒不足以按 {config.row_count} 个角度和 "
+            f"{config.transition_seconds:.3f} 秒过渡时间进行处理"
         )
-    expected_frames = round(config.rotation_seconds * config.fps)
-    if expected_frames < 1:
-        raise ValueError("rotation_seconds and fps must produce at least one frame")
+    expected_frames = config.frames_per_row
 
     segments = []
     for offset in range(config.row_count):
-        start = offset * (config.rotation_seconds + config.transition_seconds)
+        start = offset * (rotation_seconds + config.transition_seconds)
         segments.append(
             ViewerSegment(
                 row_index=offset + 1,
                 start_seconds=start,
-                end_seconds=start + config.rotation_seconds,
+                end_seconds=start + rotation_seconds,
                 expected_frames=expected_frames,
                 phase_direction=config.row_directions[offset],
             )
         )
-    return segments, max(0.0, video_duration - required_duration)
+    return segments, max(0.0, video_duration - segments[-1].end_seconds)

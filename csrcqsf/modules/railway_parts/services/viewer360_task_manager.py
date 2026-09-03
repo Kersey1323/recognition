@@ -68,6 +68,9 @@ def _serialize_task(record: dict[str, Any] | None) -> dict[str, Any] | None:
     payload["manifest_url"] = (
         f"/{payload.get('output_bucket')}/{manifest}" if manifest else None
     )
+    metadata = payload.get("pipeline_metadata_json") or {}
+    payload["render_mode"] = metadata.get("render_mode")
+    payload["fallback_reason"] = metadata.get("fallback_reason")
     rows = [dict(row) for row in (payload.get("row_states_json") or [])]
     frame_count = int(payload.get("amount_x") or 0)
     bucket = payload.get("output_bucket")
@@ -93,11 +96,10 @@ def _default_pipeline() -> Viewer360Pipeline:
 
     config = Viewer360Config(
         work_root=Path(settings.viewer360_work_dir),
-        rotation_seconds=settings.viewer360_rotation_seconds,
         transition_seconds=settings.viewer360_transition_seconds,
         row_count=settings.viewer360_row_count,
         row_directions=settings.viewer360_row_directions,
-        fps=settings.viewer360_fps,
+        frames_per_row=settings.viewer360_frames_per_row,
         image_size=settings.viewer360_image_size,
         webp_quality=settings.viewer360_webp_quality,
         center_p95_ratio=settings.viewer360_center_p95_ratio,
@@ -368,7 +370,9 @@ class Viewer360TaskManager:
                 fingerprint=result.fingerprint,
                 pipeline_metadata_json={
                     "target_center": list(result.target_center),
-                    "pipeline_version": 1,
+                    "pipeline_version": 2,
+                    "render_mode": getattr(result, "render_mode", "segmented"),
+                    "fallback_reason": getattr(result, "fallback_reason", None),
                 },
                 total_frames=result.total_frames,
                 processed_frames=result.total_frames,
