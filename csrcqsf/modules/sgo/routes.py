@@ -29,7 +29,13 @@ sgo_router = APIRouter(
 
 
 class ListInqueryReq(PageReq):
-    has_indexed: int = Field(default=1, description='1. 做过索引了 2. 没做过索引 0 不要这个条件', example=0)
+    query: str | None = Field(
+        default=None,
+        max_length=200,
+        description='搜索关键词，模糊匹配询码单号、名称描述、车型、车号、所属部件、供应商及提报信息',
+        example='监控室对面窗帘',
+    )
+    has_indexed: int = Field(default=0, description='1. 做过索引了 2. 没做过索引 0 不要这个条件', example=0)
     current_status: str = Field(
         default='FINISH',
         description='询码的状态.FINISH 已结束 CREATE:技术部待回复 CONFIRMAUDIT:编码确认审核中 BACKAUDIT:驳回审核中 REGING:编码注册中',
@@ -41,6 +47,7 @@ class ListInqueryReq(PageReq):
             "example": {
                 "page": 1,
                 "pageSize": 20,
+                "query": "监控室对面窗帘",
                 "has_indexed": 0,
                 "current_status": "FINISH",
             }
@@ -259,7 +266,13 @@ async def sgo_inquery_list(req: ListInqueryReq):
     if req.has_indexed not in (0, 1, 2):
         raise Exception('has_indexed只能为0,1或者2')
 
-    inquery_list = await SGOBiz.list_inquery(req.page, req.per_page, req.current_status, req.has_indexed)
+    inquery_list = await SGOBiz.list_inquery(
+        req.page,
+        req.per_page,
+        req.current_status,
+        req.has_indexed,
+        req.query,
+    )
     res = ListInqueryRes(total=inquery_list.total)
 
     raw_url_list: list[str] = []

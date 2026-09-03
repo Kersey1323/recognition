@@ -1342,11 +1342,22 @@ class SGOBiz:
         return await cls.sync_images(item_id_list=[], sync_scope="all")
 
     @classmethod
-    async def list_inquery(cls, page: int, per_page: int, status: str, has_indexed: int):
+    async def list_inquery(
+        cls,
+        page: int,
+        per_page: int,
+        status: str,
+        has_indexed: int,
+        query: str | None = None,
+    ):
         item_id_list: list[int] = []
         item_code_list: list[str] = []
         if has_indexed in (1, 2):
-            item_id_list = MilvusStateManagerV2().get_all_indexed_item_id_list(page, per_page)
+            # 索引状态属于整库条件，不能只用当前页的索引配件过滤询码记录。
+            item_id_list = MilvusStateManagerV2().get_all_indexed_item_id_list(
+                page=-1,
+                limit=0,
+            )
 
         if item_id_list:
             async with SessionLocal() as session:
@@ -1370,6 +1381,7 @@ class SGOBiz:
                 status,
                 has_indexed,
                 inquery_id_list,
+                query,
             )
 
     @classmethod

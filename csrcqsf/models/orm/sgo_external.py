@@ -2,7 +2,7 @@ from typing import Optional
 import datetime
 import decimal
 
-from sqlalchemy import BigInteger, Computed, DECIMAL, Date, DateTime, Double, ForeignKeyConstraint, Index, Integer, SmallInteger, String, TIMESTAMP, cast, select, text
+from sqlalchemy import BigInteger, Computed, DECIMAL, Date, DateTime, Double, ForeignKeyConstraint, Index, Integer, SmallInteger, String, TIMESTAMP, cast, false, or_, select, text
 from sqlalchemy.dialects.mysql import CHAR, LONGBLOB, LONGTEXT, TEXT, TINYINT, VARCHAR
 from sqlalchemy.orm import DeclarativeBase, Mapped, load_only, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -923,7 +923,8 @@ class SgoCodeInquiry(Base):
 
     @classmethod
     async def list_code_inquiry(cls, session: AsyncSession, page: int = 0, per_page: int = 20,
-                                status: str = 'FINISH',has_index:int = 0, inquiry_id_list: list[str] = []):
+                                status: str = 'FINISH',has_index:int = 0, inquiry_id_list: list[str] = [],
+                                query: str | None = None):
         """
         has_index 为1时必须做过索引的
         has_index 为2时没有做过索引
@@ -953,11 +954,36 @@ class SgoCodeInquiry(Base):
         stmt = select(*columns)
         if status is not None and status != '' and status != 'all':
             stmt = stmt.where(cls.current_status == status)
-        if len(inquiry_id_list) > 0:
-            if has_index == 1:
+        normalized_query = str(query or '').strip()
+        if normalized_query:
+            # 列表关键词覆盖前端可见业务字段，多个字段任一命中即可返回该询码记录。
+            escaped_query = (
+                normalized_query.replace('!', '!!')
+                .replace('%', '!%')
+                .replace('_', '!_')
+            )
+            keyword = f'%{escaped_query}%'
+            stmt = stmt.where(or_(
+                cls.inquiry_num.ilike(keyword, escape='!'),
+                cls.item_name.ilike(keyword, escape='!'),
+                cls.vehicle.ilike(keyword, escape='!'),
+                cls.train_no.ilike(keyword, escape='!'),
+                cls.car_num.ilike(keyword, escape='!'),
+                cls.subordinate_component.ilike(keyword, escape='!'),
+                cls.supplier_code.ilike(keyword, escape='!'),
+                cls.supplier_name.ilike(keyword, escape='!'),
+                cls.creater.ilike(keyword, escape='!'),
+                cls.creater_org_name.ilike(keyword, escape='!'),
+                cls.remark.ilike(keyword, escape='!'),
+            ))
+        if has_index == 1:
+            # 明确筛选“已索引”且索引集合为空时，应返回空结果而不是放开条件。
+            if inquiry_id_list:
                 stmt = stmt.where(cls.id.in_(inquiry_id_list))
-            elif has_index == 2:
-                stmt = stmt.where(cls.id.not_in(inquiry_id_list))
+            else:
+                stmt = stmt.where(false())
+        elif has_index == 2 and inquiry_id_list:
+            stmt = stmt.where(cls.id.not_in(inquiry_id_list))
 
         count = await async_get_count(session, stmt)
         stmt = stmt.order_by(cls.create_time.desc())

@@ -162,6 +162,7 @@ def test_inquiry_list_only_selects_driver_safe_response_columns():
                 page=1,
                 per_page=10,
                 status="FINISH",
+                query="厕所_100%",
             )
         )
 
@@ -176,6 +177,50 @@ def test_inquiry_list_only_selects_driver_safe_response_columns():
     assert "CAST(sgo_code_inquiry.submission_date AS VARCHAR) AS submission_date" in selected_columns
     assert "sgo_code_inquiry.create_time" not in selected_columns
     assert "ORDER BY sgo_code_inquiry.create_time DESC" in compiled
+    assert "sgo_code_inquiry.inquiry_num" in compiled
+    assert "sgo_code_inquiry.item_name" in compiled
+    assert "sgo_code_inquiry.vehicle" in compiled
+    assert "sgo_code_inquiry.train_no" in compiled
+    assert "sgo_code_inquiry.subordinate_component" in compiled
+    assert "sgo_code_inquiry.supplier_name" in compiled
+    assert "厕所!_100!%" in compiled
+    assert "ESCAPE '!'" in compiled
+
+
+def test_indexed_inquiry_filter_with_empty_index_set_returns_no_rows():
+    from csrcqsf.infra.db.kingbase_dialect import KingbaseAsyncpgDialect
+    from csrcqsf.models.orm.sgo_external import SgoCodeInquiry
+
+    class EmptyRows:
+        @staticmethod
+        def all():
+            return []
+
+    class Session:
+        statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return EmptyRows()
+
+    session = Session()
+    with patch(
+        "csrcqsf.models.orm.sgo_external.async_get_count",
+        AsyncMock(return_value=0),
+    ):
+        asyncio.run(
+            SgoCodeInquiry.list_code_inquiry(
+                session,
+                page=1,
+                per_page=10,
+                status="all",
+                has_index=1,
+                inquiry_id_list=[],
+            )
+        )
+
+    compiled = str(session.statement.compile(dialect=KingbaseAsyncpgDialect()))
+    assert "WHERE false" in compiled
 
 
 def test_indexed_inquiry_lookup_does_not_select_kingbase_datetime_columns():

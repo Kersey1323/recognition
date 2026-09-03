@@ -359,6 +359,9 @@ class MilvusStateManagerV2:
             for item_id, state in snapshot.items()
             if int(state.get("has_v2_index", 0) or 0) == 1
         )
+        # 询码列表按索引状态筛选时需要完整集合，page=-1 表示关闭分页。
+        if page == -1:
+            return item_ids if limit <= 0 else item_ids[:limit]
         start = max(page - 1, 0) * per_page
         end = min(start + per_page, limit)
         return item_ids[start:end]

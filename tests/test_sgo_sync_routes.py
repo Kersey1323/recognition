@@ -9,6 +9,12 @@ import pytest
 from csrcqsf.modules.sgo import routes
 
 
+def test_inquiry_list_does_not_filter_index_state_by_default():
+    request = routes.ListInqueryReq(page=1, pageSize=10, query="CX221203001")
+
+    assert request.has_indexed == 0
+
+
 def test_parts_sync_route_submits_background_task_without_awaiting_runner():
     manager = MagicMock()
     manager.start = AsyncMock(return_value={
