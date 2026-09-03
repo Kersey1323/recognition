@@ -263,6 +263,31 @@ def test_successful_task_removes_local_work_directory(tmp_path: Path):
     assert not asyncio.run(run()).exists()
 
 
+def test_failed_task_keeps_local_work_directory_for_retry(tmp_path: Path):
+    repository = FakeRepository()
+
+    class FailingPipeline(FakePipeline):
+        async def run(self, task, **_kwargs):
+            task_dir = self.config.work_root / task["task_id"]
+            task_dir.mkdir()
+            (task_dir / "source_video").write_bytes(b"video")
+            raise RuntimeError("segmentation failed")
+
+    pipeline = FailingPipeline(work_root=tmp_path)
+    manager = Viewer360TaskManager(repository=repository, pipeline=pipeline)
+
+    async def run():
+        task = await manager.submit(item_id=12, rebuild_existing=True)
+        await manager.run_task(task["task_id"])
+        return task["task_id"], tmp_path / task["task_id"]
+
+    task_id, task_dir = asyncio.run(run())
+
+    assert repository.tasks[task_id]["status"] == "failed"
+    assert task_dir.is_dir()
+    assert (task_dir / "source_video").is_file()
+
+
 def test_start_workers_removes_expired_work_directories(tmp_path: Path):
     old_dir = tmp_path / "old-task"
     recent_dir = tmp_path / "recent-task"
@@ -286,6 +311,54 @@ def test_start_workers_removes_expired_work_directories(tmp_path: Path):
 
     assert not old_dir.exists()
     assert recent_dir.exists()
+
+
+def test_startup_cleanup_keeps_failed_checkpoint_and_removes_success_residue(
+    tmp_path: Path,
+):
+    repository = FakeRepository()
+    failed_dir = tmp_path / "failed-task"
+    success_dir = tmp_path / "success-task"
+    failed_dir.mkdir()
+    success_dir.mkdir()
+    repository.tasks["failed-task"] = {
+        "task_id": "failed-task",
+        "item_id": 12,
+        "status": "failed",
+    }
+    repository.tasks["success-task"] = {
+        "task_id": "success-task",
+        "item_id": 12,
+        "status": "success",
+    }
+    manager = Viewer360TaskManager(
+        repository=repository,
+        pipeline=FakePipeline(work_root=tmp_path),
+    )
+
+    asyncio.run(manager._cleanup_expired_work_dirs())
+
+    assert failed_dir.is_dir()
+    assert not success_dir.exists()
+
+
+def test_cancel_pending_task_removes_local_work_directory(tmp_path: Path):
+    repository = FakeRepository()
+    pipeline = FakePipeline(work_root=tmp_path)
+    manager = Viewer360TaskManager(repository=repository, pipeline=pipeline)
+
+    async def run():
+        task = await manager.submit(item_id=12, rebuild_existing=True)
+        task_dir = tmp_path / task["task_id"]
+        task_dir.mkdir()
+        (task_dir / "source_video").write_bytes(b"video")
+        cancelled = await manager.cancel(task["task_id"], reason="用户取消")
+        return cancelled, task_dir
+
+    cancelled, task_dir = asyncio.run(run())
+
+    assert cancelled["status"] == "cancelled"
+    assert not task_dir.exists()
 
 
 def test_retry_selected_rows_reuses_original_task_id():
@@ -362,7 +435,9 @@ def test_resume_failed_task_reuses_original_task_as_checkpoint_source():
     assert pipeline.calls[0][1]["fingerprint"] == "fp"
 
 
-def test_cancelled_row_retry_does_not_delete_existing_result():
+def test_cancelled_row_retry_keeps_oss_result_but_removes_local_work(
+    tmp_path: Path,
+):
     repository = FakeRepository()
     repository.tasks["existing"] = {
         "task_id": "existing",
@@ -382,11 +457,14 @@ def test_cancelled_row_retry_does_not_delete_existing_result():
 
     class CancelAfterPipeline(FakePipeline):
         async def run(self, task, **kwargs):
+            task_dir = self.config.work_root / task["task_id"]
+            task_dir.mkdir()
+            (task_dir / "source_video").write_bytes(b"video")
             result = await super().run(task, **kwargs)
             repository.tasks[task["task_id"]]["status"] = "cancelling"
             return result
 
-    pipeline = CancelAfterPipeline()
+    pipeline = CancelAfterPipeline(work_root=tmp_path)
     manager = Viewer360TaskManager(repository=repository, pipeline=pipeline)
 
     async def run():
@@ -401,3 +479,4 @@ def test_cancelled_row_retry_does_not_delete_existing_result():
 
     assert pipeline.storage.deleted_results == []
     assert repository.tasks["existing"]["status"] == "cancelled"
+    assert not (tmp_path / "existing").exists()

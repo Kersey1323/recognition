@@ -163,21 +163,39 @@ class Viewer360TaskManager:
     async def _cleanup_expired_work_dirs(self) -> None:
         work_root = self._work_root()
         cutoff = time.time() - self.work_retention_days * 86400
-
-        def cleanup() -> None:
-            if not work_root.is_dir():
-                return
-            for child in work_root.iterdir():
-                if child.is_dir() and child.stat().st_mtime < cutoff:
-                    shutil.rmtree(child)
-
-        await anyio.to_thread.run_sync(cleanup)
+        if not work_root.is_dir():
+            return
+        for child in work_root.iterdir():
+            if not child.is_dir():
+                continue
+            record = await self.repository.get_task(child.name)
+            if record is not None and record.get("status") not in {
+                "success",
+                "cancelled",
+            }:
+                # 失败、中断和活动任务均可能继续执行，保留其抽帧及分割断点。
+                continue
+            if record is None and child.stat().st_mtime >= cutoff:
+                continue
+            # 成功任务应在发布后立即清理；数据库无记录的孤儿目录按保留期兜底清理。
+            await anyio.to_thread.run_sync(shutil.rmtree, child)
 
     async def _cleanup_task_work_dir(self, task_id: str) -> None:
         task_dir = self._work_root() / task_id
         await anyio.to_thread.run_sync(
             lambda: shutil.rmtree(task_dir) if task_dir.exists() else None
         )
+
+    async def _cleanup_terminal_work_dir(self, task_id: str, status: str) -> None:
+        try:
+            await self._cleanup_task_work_dir(task_id)
+        except Exception:
+            logger.warning(
+                "Viewer360 %s 任务本地目录清理失败: task_id=%s",
+                status,
+                task_id,
+                exc_info=True,
+            )
 
     async def stop_workers(self) -> None:
         workers, self._workers = self._workers, []
@@ -360,6 +378,7 @@ class Viewer360TaskManager:
                     completed_at=datetime.now(),
                     heartbeat_at=datetime.now(),
                 )
+                await self._cleanup_terminal_work_dir(task_id, "取消")
                 return
             await self.repository.publish_success(
                 task_id,
@@ -379,14 +398,7 @@ class Viewer360TaskManager:
                 row_states_json=result.row_states,
             )
             # 数据库已经原子切换到新版本后，本地中间文件才可以安全删除。
-            try:
-                await self._cleanup_task_work_dir(task_id)
-            except Exception:
-                logger.warning(
-                    "Viewer360 成功任务本地目录清理失败: task_id=%s",
-                    task_id,
-                    exc_info=True,
-                )
+            await self._cleanup_terminal_work_dir(task_id, "成功")
         except Viewer360Cancelled:
             await self.repository.transition_task(
                 task_id,
@@ -395,6 +407,7 @@ class Viewer360TaskManager:
                 completed_at=datetime.now(),
                 heartbeat_at=datetime.now(),
             )
+            await self._cleanup_terminal_work_dir(task_id, "取消")
         except asyncio.CancelledError:
             # 服务关闭丢失执行上下文属于可恢复中断，不等同于用户主动取消。
             await self.repository.transition_task(
@@ -416,6 +429,7 @@ class Viewer360TaskManager:
                     completed_at=datetime.now(),
                     heartbeat_at=datetime.now(),
                 )
+                await self._cleanup_terminal_work_dir(task_id, "取消")
                 return
             stage = exc.stage if isinstance(exc, Viewer360PipelineError) else "pipeline"
             row_index = exc.row_index if isinstance(exc, Viewer360PipelineError) else None
@@ -533,6 +547,9 @@ class Viewer360TaskManager:
             )
         elif record["status"] not in {"cancelling", "cancelled"}:
             raise Viewer360ConflictError(f"终态 Viewer360 任务不可取消: status={record['status']}")
+        if record is not None and record.get("status") == "cancelled":
+            # pending 可立即清理；running 必须等待工作线程停止并转为 cancelled 后再清理。
+            await self._cleanup_terminal_work_dir(task_id, "取消")
         return _serialize_task(await self._attach_item_brief(record))
 
     async def get(self, task_id: str) -> dict[str, Any] | None:
