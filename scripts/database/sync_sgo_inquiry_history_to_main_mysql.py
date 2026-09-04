@@ -88,22 +88,9 @@ def history_payload_from_source_row(row: dict[str, Any], *, item_id: int | None)
 def build_history_upsert_sql() -> str:
     columns = ", ".join(f"`{column}`" for column in INSERT_COLUMNS)
     placeholders = ", ".join("%s" for _ in INSERT_COLUMNS)
-    updates = ", ".join(
-        f"`{column}` = new.`{column}`"
-        for column in INSERT_COLUMNS
-        if column
-        not in {
-            "id",
-            "time_created",
-            "time_updated",
-            "inquiry_id",
-            "return_item_code",
-            "source",
-        }
-    )
     return (
         f"INSERT INTO `item_inquiry_history` ({columns}) VALUES ({placeholders}) AS new "
-        f"ON DUPLICATE KEY UPDATE {updates}, `time_updated` = CURRENT_TIMESTAMP"
+        "ON DUPLICATE KEY UPDATE `id` = `item_inquiry_history`.`id`"
     )
 
 
@@ -191,6 +178,56 @@ async def fetch_item_id_map(connection, item_codes: set[str], *, batch_size: int
     return result
 
 
+async def fetch_existing_inquiry_keys(
+    connection,
+    inquiry_keys: set[tuple[str, str, str]],
+    *,
+    batch_size: int,
+) -> set[tuple[str, str, str]]:
+    existing: set[tuple[str, str, str]] = set()
+    async with connection.cursor(asyncmy.cursors.DictCursor) as cursor:
+        for batch in _chunks(sorted(inquiry_keys), batch_size):
+            placeholders = ", ".join("(%s, %s, %s)" for _ in batch)
+            params = tuple(value for key in batch for value in key)
+            await cursor.execute(
+                "SELECT `source`, `inquiry_id`, `return_item_code` "
+                "FROM `item_inquiry_history` "
+                f"WHERE (`source`, `inquiry_id`, `return_item_code`) IN ({placeholders})",
+                params,
+            )
+            existing.update(
+                (
+                    str(row["source"]),
+                    str(row["inquiry_id"]),
+                    str(row["return_item_code"]),
+                )
+                for row in await cursor.fetchall()
+            )
+    return existing
+
+
+def select_new_history_payloads(
+    payloads: list[dict[str, Any]],
+    *,
+    existing_keys: set[tuple[str, str, str]],
+) -> tuple[list[dict[str, Any]], int]:
+    """按来源、询码 ID 和返回编码保留主库尚不存在的闭环结果。"""
+    unique_payloads: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for payload in payloads:
+        key = (
+            str(payload["source"]),
+            str(payload["inquiry_id"]),
+            str(payload["return_item_code"]),
+        )
+        unique_payloads.setdefault(key, payload)
+    new_payloads = [
+        payload
+        for key, payload in unique_payloads.items()
+        if key not in existing_keys
+    ]
+    return new_payloads, len(payloads) - len(new_payloads)
+
+
 async def upsert_history_rows(connection, payloads: list[dict[str, Any]], *, batch_size: int) -> int:
     if not payloads:
         return 0
@@ -210,9 +247,9 @@ async def upsert_history_rows(connection, payloads: list[dict[str, Any]], *, bat
                     **payload,
                 }
                 rows.append(tuple(insert_payload[column] for column in INSERT_COLUMNS))
-            # 一次询码可能返回多个编码，业务唯一键使用 inquiry_id + return_item_code + source。
+            # 同一询码可返回多个配件；仅相同来源、询码 ID 和返回编码的重复写入保持原记录。
             await cursor.executemany(statement, rows)
-            inserted += len(rows)
+            inserted += max(int(cursor.rowcount), 0)
     await connection.commit()
     return inserted
 
@@ -239,7 +276,28 @@ async def sync_inquiry_history(*, batch_size: int, limit: int | None = None) -> 
             )
             for row in source_rows
         ]
-        return await upsert_history_rows(target_connection, payloads, batch_size=batch_size)
+        inquiry_keys = {
+            (
+                str(payload["source"]),
+                str(payload["inquiry_id"]),
+                str(payload["return_item_code"]),
+            )
+            for payload in payloads
+        }
+        existing_keys = await fetch_existing_inquiry_keys(
+            target_connection,
+            inquiry_keys,
+            batch_size=batch_size,
+        )
+        new_payloads, _skipped_count = select_new_history_payloads(
+            payloads,
+            existing_keys=existing_keys,
+        )
+        return await upsert_history_rows(
+            target_connection,
+            new_payloads,
+            batch_size=batch_size,
+        )
     except Exception:
         await target_connection.rollback()
         raise

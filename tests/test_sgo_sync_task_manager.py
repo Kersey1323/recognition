@@ -162,6 +162,7 @@ def test_inquiry_sync_receives_task_id_and_persists_semantic_follow_up():
                 "skipped_count": 0,
                 "synced_image_count": 0,
                 "failure_details": [],
+                "semantic_index_triggered": True,
                 "semantic_index_task_id": "semantic-1",
                 "semantic_index_warning": None,
             }
@@ -171,6 +172,7 @@ def test_inquiry_sync_receives_task_id_and_persists_semantic_follow_up():
 
         assert received["_sync_task_id"] == started["task_id"]
         assert completed["status"] == "success"
+        assert completed["semantic_index_triggered"] is True
         assert completed["semantic_index_task_id"] == "semantic-1"
 
     asyncio.run(scenario())

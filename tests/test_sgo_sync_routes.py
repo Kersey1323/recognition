@@ -15,6 +15,13 @@ def test_inquiry_list_does_not_filter_index_state_by_default():
     assert request.has_indexed == 0
 
 
+def test_sgo_sync_status_schema_exposes_semantic_trigger_flag():
+    properties = routes.SgoSyncTaskStatusRes.schema()["properties"]
+
+    assert properties["semantic_index_triggered"]["type"] == "boolean"
+    assert "创建或合并" in properties["semantic_index_triggered"]["description"]
+
+
 def test_parts_sync_route_submits_background_task_without_awaiting_runner():
     manager = MagicMock()
     manager.start = AsyncMock(return_value={

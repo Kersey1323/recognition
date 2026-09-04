@@ -40,6 +40,44 @@ class InquiryTextIndexTaskRepository:
             )
             return _record_to_dict(record) if record is not None else None
 
+    async def merge_pending_incremental(
+        self,
+        history_ids: list[int],
+        source_sync_task_id: str,
+    ) -> dict[str, Any] | None:
+        """把新同步样本合入最早待执行的自动增量任务。"""
+        async with SessionLocal() as session:
+            record = await session.scalar(
+                select(InquiryTextIndexTask)
+                .where(
+                    InquiryTextIndexTask.status == "pending",
+                    InquiryTextIndexTask.task_scope == "incremental",
+                    InquiryTextIndexTask.trigger_source == "sgo_inquiry_sync",
+                )
+                .order_by(InquiryTextIndexTask.time_created.asc())
+                .limit(1)
+                .with_for_update()
+            )
+            if record is None:
+                await session.rollback()
+                return None
+
+            # pending 任务尚未被 worker 读取，可以安全追加本次新增询码并保留全部来源。
+            record.history_ids_json = list(
+                dict.fromkeys([*(record.history_ids_json or []), *history_ids])
+            )
+            record.source_sync_task_ids_json = list(
+                dict.fromkeys(
+                    [
+                        *(record.source_sync_task_ids_json or []),
+                        source_sync_task_id,
+                    ]
+                )
+            )
+            await session.commit()
+            await session.refresh(record)
+            return _record_to_dict(record)
+
     async def update(self, task_id: str, **values) -> dict[str, Any] | None:
         async with SessionLocal() as session:
             record = await session.scalar(

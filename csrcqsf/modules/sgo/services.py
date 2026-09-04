@@ -21,6 +21,7 @@ from urllib3.util import create_urllib3_context
 
 from csrcqsf.core.scheduler import scheduler, submit_coroutine_to_main_loop
 from csrcqsf.core.settings import (
+    inquiry_text_auto_index_enabled,
     sgo_image_download_concurrency,
     sgo_image_download_retries,
     sgo_image_download_timeout_seconds,
@@ -193,26 +194,13 @@ def _inquiry_history_payload_from_source_row(row: dict, item_id: int | None) -> 
 
 
 def _build_inquiry_history_upsert_sql() -> str:
-    # 询码编号、返回编码和来源共同保证幂等；重复同步只刷新可变化的业务字段。
+    # 已闭环询码记录只允许首次落库；并发重复写入命中唯一键时保持原记录不变。
     columns = ", ".join(f"`{column}`" for column in INQUIRY_HISTORY_COLUMNS)
     placeholders = ", ".join(f":{column}" for column in INQUIRY_HISTORY_COLUMNS)
-    updates = ", ".join(
-        f"`{column}` = new.`{column}`"
-        for column in INQUIRY_HISTORY_COLUMNS
-        if column
-        not in {
-            "id",
-            "time_created",
-            "time_updated",
-            "inquiry_id",
-            "return_item_code",
-            "source",
-        }
-    )
     return (
         f"INSERT INTO `{ItemInquiryHistory.__tablename__}` ({columns}) "
         f"VALUES ({placeholders}) AS new "
-        f"ON DUPLICATE KEY UPDATE {updates}, `time_updated` = CURRENT_TIMESTAMP"
+        f"ON DUPLICATE KEY UPDATE `id` = `{ItemInquiryHistory.__tablename__}`.`id`"
     )
 
 
@@ -940,6 +928,8 @@ class SGOBiz:
             batch_size=batch_size,
         )
         processed_count = int(upsert_result["processed_count"])
+        created_count = int(upsert_result["created_count"])
+        skipped_count = int(upsert_result["skipped_count"])
 
         if progress_callback is not None:
             await _notify_progress(
@@ -950,8 +940,8 @@ class SGOBiz:
                     "processed_items": total_items,
                     "success_count": processed_count,
                     "fail_count": 0,
-                    "created_count": processed_count,
-                    "skipped_count": 0,
+                    "created_count": created_count,
+                    "skipped_count": skipped_count,
                     "synced_image_count": 0,
                     "current_item_id": source_rows[-1]["inquiry_id"] if source_rows else None,
                     "estimated_remaining_seconds": 0,
@@ -964,17 +954,18 @@ class SGOBiz:
             "processed_items": total_items,
             "success_count": processed_count,
             "fail_count": 0,
-            "created_count": processed_count,
-            "skipped_count": 0,
+            "created_count": created_count,
+            "skipped_count": skipped_count,
             "synced_image_count": 0,
             "failed_item_ids": [],
         }
 
         if _sync_task_id is not None:
+            result["semantic_index_triggered"] = False
             result["semantic_index_task_id"] = None
             result["semantic_index_warning"] = None
             history_ids = list(upsert_result["history_ids"])
-            if history_ids:
+            if history_ids and inquiry_text_auto_index_enabled:
                 try:
                     # 询码主数据已经提交后再创建语义索引任务；任务创建失败只记录告警，
                     # 不回滚已经成功写入的询码记录，也不改变 SGO 同步任务的成功状态。
@@ -982,6 +973,7 @@ class SGOBiz:
                         history_ids,
                         source_sync_task_id=_sync_task_id,
                     )
+                    result["semantic_index_triggered"] = True
                     result["semantic_index_task_id"] = semantic_task["task_id"]
                 except Exception as exc:
                     warning = str(exc) or repr(exc)
@@ -1061,21 +1053,67 @@ class SGOBiz:
         batch_size: int,
     ) -> dict[str, int | list[int]]:
         if not payloads:
-            return {"processed_count": 0, "history_ids": []}
+            return {
+                "processed_count": 0,
+                "created_count": 0,
+                "skipped_count": 0,
+                "history_ids": [],
+            }
 
         statement = text(_build_inquiry_history_upsert_sql())
-        processed_count = 0
+        created_count = 0
+        skipped_count = 0
         history_ids: list[int] = []
         async with SessionLocal() as session:
             for offset in range(0, len(payloads), batch_size):
                 batch = payloads[offset : offset + batch_size]
-                rows = []
+                unique_payloads: dict[tuple[str, str, str], dict] = {}
                 for payload in batch:
+                    key = (
+                        str(payload["source"]),
+                        str(payload["inquiry_id"]),
+                        str(payload["return_item_code"]),
+                    )
+                    if key in unique_payloads:
+                        skipped_count += 1
+                        continue
+                    unique_payloads[key] = payload
+
+                unique_keys = list(unique_payloads)
+                existing_result = await session.execute(
+                    select(
+                        ItemInquiryHistory.source,
+                        ItemInquiryHistory.inquiry_id,
+                        ItemInquiryHistory.return_item_code,
+                    ).where(
+                        tuple_(
+                            ItemInquiryHistory.source,
+                            ItemInquiryHistory.inquiry_id,
+                            ItemInquiryHistory.return_item_code,
+                        ).in_(unique_keys)
+                    )
+                )
+                existing_keys = {
+                    (str(source), str(inquiry_id), str(return_item_code))
+                    for source, inquiry_id, return_item_code in existing_result
+                }
+                new_payloads = [
+                    payload
+                    for key, payload in unique_payloads.items()
+                    if key not in existing_keys
+                ]
+                skipped_count += len(unique_payloads) - len(new_payloads)
+
+                rows = []
+                generated_ids = []
+                for payload in new_payloads:
                     now = datetime.now()
+                    history_id = get_id()
+                    generated_ids.append(history_id)
                     # 询码历史由外部 SGO 回填结果驱动，直接 SQL upsert 需补齐主库 Base 审计字段。
                     rows.append(
                         {
-                            "id": get_id(),
+                            "id": history_id,
                             "created_by": 0,
                             "updated_by": 0,
                             "time_created": now,
@@ -1083,48 +1121,27 @@ class SGOBiz:
                             **payload,
                         }
                     )
+                if not rows:
+                    continue
                 await session.execute(statement, rows)
-                processed_count += len(rows)
                 await session.flush()
 
-                # upsert 可能更新已有记录，不能使用本次生成的 Snowflake ID；按业务唯一键
-                # 回查数据库中的真实主键，供后续增量语义索引准确定位本批询码样本。
-                unique_keys = list(
-                    dict.fromkeys(
-                        (
-                            str(payload["inquiry_id"]),
-                            str(payload["return_item_code"]),
-                            str(payload["source"]),
-                        )
-                        for payload in batch
+                # 候选记录可能在预查询后被并发任务抢先插入；只有仍保留本次生成主键的
+                # 行才算真正新增，并进入后续 BGE 增量索引。
+                inserted_result = await session.execute(
+                    select(ItemInquiryHistory.id).where(
+                        ItemInquiryHistory.id.in_(generated_ids)
                     )
                 )
-                id_result = await session.execute(
-                    select(
-                        ItemInquiryHistory.id,
-                        ItemInquiryHistory.inquiry_id,
-                        ItemInquiryHistory.return_item_code,
-                        ItemInquiryHistory.source,
-                    ).where(
-                        tuple_(
-                            ItemInquiryHistory.inquiry_id,
-                            ItemInquiryHistory.return_item_code,
-                            ItemInquiryHistory.source,
-                        ).in_(unique_keys)
-                    )
-                )
-                id_by_key = {
-                    (str(inquiry_id), str(return_item_code), str(source)): int(history_id)
-                    for history_id, inquiry_id, return_item_code, source in id_result
-                }
-                history_ids.extend(
-                    id_by_key[key]
-                    for key in unique_keys
-                    if key in id_by_key
-                )
+                inserted_ids = [int(history_id) for history_id in inserted_result.scalars()]
+                history_ids.extend(inserted_ids)
+                created_count += len(inserted_ids)
+                skipped_count += len(rows) - len(inserted_ids)
             await session.commit()
         return {
-            "processed_count": processed_count,
+            "processed_count": len(payloads),
+            "created_count": created_count,
+            "skipped_count": skipped_count,
             "history_ids": list(dict.fromkeys(history_ids)),
         }
 

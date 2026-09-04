@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import DateTime, Index, Integer, JSON, String, Text, select
+from sqlalchemy import Boolean, DateTime, Index, Integer, JSON, String, Text, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -70,6 +70,11 @@ class SgoSyncTask(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     cancel_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     semantic_index_task_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    semantic_index_triggered: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
     semantic_index_warning: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 询码同步成功后可异步触发语义索引；警告不改变同步任务本身的成功状态。
 

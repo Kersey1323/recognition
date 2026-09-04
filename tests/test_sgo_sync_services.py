@@ -453,7 +453,12 @@ def test_sync_inquiry_history_maps_item_codes_and_reports_progress():
         assert payloads[0]["vehicle_batch"] == "SFE27"
         assert payloads[1]["item_id"] is None
         assert payloads[1]["vehicle_batch"] == "SFE28"
-        return {"processed_count": len(payloads), "history_ids": [501, 502]}
+        return {
+            "processed_count": len(payloads),
+            "created_count": 1,
+            "skipped_count": 1,
+            "history_ids": [501],
+        }
 
     with patch.object(
         SGOBiz,
@@ -481,8 +486,8 @@ def test_sync_inquiry_history_maps_item_codes_and_reports_progress():
         "processed_items": 2,
         "success_count": 2,
         "fail_count": 0,
-        "created_count": 2,
-        "skipped_count": 0,
+        "created_count": 1,
+        "skipped_count": 1,
         "synced_image_count": 0,
         "failed_item_ids": [],
     }
@@ -521,7 +526,14 @@ def test_sync_inquiry_history_enqueues_semantic_index_after_commit():
     ), patch.object(
         SGOBiz,
         "_upsert_inquiry_history_payloads",
-        AsyncMock(return_value={"processed_count": 1, "history_ids": [501]}),
+        AsyncMock(
+            return_value={
+                "processed_count": 1,
+                "created_count": 1,
+                "skipped_count": 0,
+                "history_ids": [501],
+            }
+        ),
     ), patch.object(
         SGOBiz,
         "_enqueue_inquiry_semantic_index",
@@ -532,8 +544,217 @@ def test_sync_inquiry_history_enqueues_semantic_index_after_commit():
         )
 
     assert result["semantic_index_task_id"] == "semantic-task-1"
+    assert result["semantic_index_triggered"] is True
     assert result["semantic_index_warning"] is None
     enqueue_semantic.assert_awaited_once_with(
         [501],
         source_sync_task_id="sync-task-1",
     )
+
+
+def test_inquiry_history_insert_sql_does_not_update_closed_records():
+    statement = sgo_services._build_inquiry_history_upsert_sql()
+    update_clause = statement.split("ON DUPLICATE KEY UPDATE", 1)[1].strip()
+
+    assert update_clause == "`id` = `item_inquiry_history`.`id`"
+    assert "CURRENT_TIMESTAMP" not in update_clause
+    assert "new.`inquiry_item_name`" not in update_clause
+
+
+def test_upsert_inquiry_history_returns_only_rows_inserted_by_current_sync():
+    class Result:
+        def __init__(self, rows=(), scalar_values=()):
+            self.rows = list(rows)
+            self.scalar_values = list(scalar_values)
+
+        def __iter__(self):
+            return iter(self.rows)
+
+        def scalars(self):
+            return iter(self.scalar_values)
+
+    class Session:
+        inserted_rows = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def execute(self, statement, params=None):
+            sql = str(statement)
+            if sql.startswith("SELECT item_inquiry_history.source"):
+                return Result(rows=[("sgo", "inq-existing", "code-1")])
+            if sql.startswith("INSERT INTO `item_inquiry_history`"):
+                self.inserted_rows.extend(params)
+                return Result()
+            if sql.startswith("SELECT item_inquiry_history.id"):
+                return Result(scalar_values=[501, 502])
+            raise AssertionError(f"unexpected SQL: {sql}")
+
+        async def flush(self):
+            return None
+
+        async def commit(self):
+            return None
+
+    payloads = [
+        {
+            "source": "sgo",
+            "inquiry_id": "inq-existing",
+            "return_item_code": "code-1",
+        },
+        {
+            "source": "sgo",
+            "inquiry_id": "inq-existing",
+            "return_item_code": "code-2",
+        },
+        {
+            "source": "sgo",
+            "inquiry_id": "inq-new",
+            "return_item_code": "code-3",
+        },
+        {
+            "source": "sgo",
+            "inquiry_id": "inq-new",
+            "return_item_code": "code-3",
+        },
+    ]
+
+    with patch.object(sgo_services, "SessionLocal", side_effect=Session), patch.object(
+        sgo_services,
+        "get_id",
+        side_effect=[501, 502],
+    ):
+        result = asyncio.run(
+            SGOBiz._upsert_inquiry_history_payloads(payloads, batch_size=10)
+        )
+
+    assert result == {
+        "processed_count": 4,
+        "created_count": 2,
+        "skipped_count": 2,
+        "history_ids": [501, 502],
+    }
+    assert len(Session.inserted_rows) == 2
+    assert {
+        (row["inquiry_id"], row["return_item_code"])
+        for row in Session.inserted_rows
+    } == {("inq-existing", "code-2"), ("inq-new", "code-3")}
+
+
+def test_sync_inquiry_history_does_not_enqueue_semantic_task_without_new_rows():
+    source_rows = [{"inquiry_id": "inq-1", "return_item_code": "code-1"}]
+    enqueue_semantic = AsyncMock()
+
+    with patch.object(
+        SGOBiz,
+        "_list_sgo_inquiry_history_source_rows",
+        AsyncMock(return_value=source_rows),
+    ), patch.object(
+        SGOBiz,
+        "_list_main_item_ids_by_codes",
+        AsyncMock(return_value={"code-1": 101}),
+    ), patch.object(
+        SGOBiz,
+        "_upsert_inquiry_history_payloads",
+        AsyncMock(
+            return_value={
+                "processed_count": 1,
+                "created_count": 0,
+                "skipped_count": 1,
+                "history_ids": [],
+            }
+        ),
+    ), patch.object(
+        SGOBiz,
+        "_enqueue_inquiry_semantic_index",
+        enqueue_semantic,
+    ):
+        result = asyncio.run(
+            SGOBiz.sync_inquiry_history(_sync_task_id="sync-task-1")
+        )
+
+    enqueue_semantic.assert_not_awaited()
+    assert result["semantic_index_triggered"] is False
+    assert result["semantic_index_task_id"] is None
+    assert result["semantic_index_warning"] is None
+
+
+def test_sync_inquiry_history_respects_disabled_auto_index_switch():
+    source_rows = [{"inquiry_id": "inq-1", "return_item_code": "code-1"}]
+    enqueue_semantic = AsyncMock()
+
+    with patch.object(
+        SGOBiz,
+        "_list_sgo_inquiry_history_source_rows",
+        AsyncMock(return_value=source_rows),
+    ), patch.object(
+        SGOBiz,
+        "_list_main_item_ids_by_codes",
+        AsyncMock(return_value={"code-1": 101}),
+    ), patch.object(
+        SGOBiz,
+        "_upsert_inquiry_history_payloads",
+        AsyncMock(
+            return_value={
+                "processed_count": 1,
+                "created_count": 1,
+                "skipped_count": 0,
+                "history_ids": [501],
+            }
+        ),
+    ), patch.object(
+        SGOBiz,
+        "_enqueue_inquiry_semantic_index",
+        enqueue_semantic,
+    ), patch.object(
+        sgo_services,
+        "inquiry_text_auto_index_enabled",
+        False,
+        create=True,
+    ):
+        result = asyncio.run(
+            SGOBiz.sync_inquiry_history(_sync_task_id="sync-task-1")
+        )
+
+    enqueue_semantic.assert_not_awaited()
+    assert result["semantic_index_triggered"] is False
+    assert result["semantic_index_task_id"] is None
+
+
+def test_sync_inquiry_history_reports_semantic_enqueue_warning():
+    source_rows = [{"inquiry_id": "inq-1", "return_item_code": "code-1"}]
+
+    with patch.object(
+        SGOBiz,
+        "_list_sgo_inquiry_history_source_rows",
+        AsyncMock(return_value=source_rows),
+    ), patch.object(
+        SGOBiz,
+        "_list_main_item_ids_by_codes",
+        AsyncMock(return_value={"code-1": 101}),
+    ), patch.object(
+        SGOBiz,
+        "_upsert_inquiry_history_payloads",
+        AsyncMock(
+            return_value={
+                "processed_count": 1,
+                "created_count": 1,
+                "skipped_count": 0,
+                "history_ids": [501],
+            }
+        ),
+    ), patch.object(
+        SGOBiz,
+        "_enqueue_inquiry_semantic_index",
+        AsyncMock(side_effect=RuntimeError("queue unavailable")),
+    ):
+        result = asyncio.run(
+            SGOBiz.sync_inquiry_history(_sync_task_id="sync-task-1")
+        )
+
+    assert result["semantic_index_triggered"] is False
+    assert result["semantic_index_task_id"] is None
+    assert result["semantic_index_warning"] == "queue unavailable"

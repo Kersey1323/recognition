@@ -13,6 +13,8 @@ def test_inquiry_text_index_models_define_task_contract():
         "root_task_id",
         "retry_from_task_id",
         "source_sync_task_id",
+        "source_sync_task_ids_json",
+        "trigger_source",
         "task_scope",
         "history_ids_json",
         "status",
@@ -103,4 +105,8 @@ def test_sgo_sync_task_exposes_semantic_follow_up_fields():
     from csrcqsf.models.orm.sgo_sync_task import SgoSyncTask
 
     columns = set(SgoSyncTask.__table__.columns.keys())
-    assert {"semantic_index_task_id", "semantic_index_warning"}.issubset(columns)
+    assert {
+        "semantic_index_task_id",
+        "semantic_index_triggered",
+        "semantic_index_warning",
+    }.issubset(columns)

@@ -429,6 +429,12 @@ sgo_image_zip_max_bytes = _bounded_env_int(
     minimum=1024 * 1024,
 )
 
+# 询码记录提交后仅将本次新增样本送入 BGE 增量任务；关闭时保留人工全量重建能力。
+inquiry_text_auto_index_enabled = _env_bool(
+    "INQUIRY_TEXT_AUTO_INDEX_ENABLED",
+    True,
+)
+
 # Viewer360 使用固定采集节拍；部署环境可显式覆盖，但行数与方向必须一一对应。
 viewer360_enabled = _env_bool("VIEWER360_ENABLED", True)
 viewer360_auto_create_after_video_upload = _env_bool(

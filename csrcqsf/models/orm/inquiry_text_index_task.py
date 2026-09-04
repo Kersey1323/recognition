@@ -54,6 +54,16 @@ class InquiryTextIndexTask(Base):
     root_task_id: Mapped[str] = mapped_column(String(100), nullable=False)
     retry_from_task_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     source_sync_task_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_sync_task_ids_json: Mapped[list[str]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
+    trigger_source: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="manual",
+    )
     # 增量任务保存来源同步任务，便于从同步记录追溯后续语义索引结果。
     task_scope: Mapped[str] = mapped_column(String(20), nullable=False)
     history_ids_json: Mapped[list[int]] = mapped_column(JSON, nullable=False, default=list)

@@ -22,6 +22,9 @@ class FakeResult:
     def mappings(self):
         return FakeScalarResult(self._values)
 
+    def scalar(self):
+        return self._values[0] if self._values else None
+
 
 class FakeConn:
     def __init__(self):
@@ -129,3 +132,46 @@ def test_inquiry_text_index_migration_adds_sgo_relation_columns():
             "`semantic_index_warning` TEXT NULL",
         ),
     ]
+
+
+def test_inquiry_sync_text_index_linkage_migration_is_discoverable():
+    migrations = {
+        migration.version: migration
+        for migration in migration_runner.discover_migrations()
+    }
+
+    assert "20260904_001" in migrations
+    assert migrations["20260904_001"].name == "add_inquiry_sync_text_index_linkage"
+
+
+def test_inquiry_sync_linkage_migration_preserves_inquiry_return_unique_index():
+    migration = __import__(
+        "csrcqsf.infra.db.migrations.20260904_001_add_inquiry_sync_text_index_linkage",
+        fromlist=["upgrade"],
+    )
+
+    class Connection:
+        def __init__(self):
+            self.executed = []
+
+        async def execute(self, statement, params=None):
+            sql = str(statement)
+            self.executed.append(sql)
+            return FakeResult([])
+
+    async def fake_ensure_column(*_args):
+        return None
+
+    connection = Connection()
+    import csrcqsf.infra.db.main_db as main_db
+
+    original = main_db._ensure_column
+    main_db._ensure_column = fake_ensure_column
+    try:
+        asyncio.run(migration.upgrade(connection))
+    finally:
+        main_db._ensure_column = original
+
+    executed_sql = "\n".join(connection.executed)
+    assert "uq_item_inquiry_history_source_inquiry" not in executed_sql
+    assert "DROP INDEX `uq_item_inquiry_history_source_return`" not in executed_sql

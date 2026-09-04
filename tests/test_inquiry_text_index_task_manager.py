@@ -27,11 +27,34 @@ class FakeRepository:
             "completed_at": None,
             "error_message": None,
             "cancel_reason": None,
+            "trigger_source": "manual",
+            "source_sync_task_ids_json": [],
             "time_created": now,
             "time_updated": now,
             **values,
         }
         self.records[record["task_id"]] = record
+        return deepcopy(record)
+
+    async def merge_pending_incremental(self, history_ids, source_sync_task_id):
+        records = [
+            record
+            for record in self.records.values()
+            if record["status"] == "pending"
+            and record["task_scope"] == "incremental"
+            and record["trigger_source"] == "sgo_inquiry_sync"
+        ]
+        if not records:
+            return None
+        record = sorted(records, key=lambda item: item["time_created"])[0]
+        record["history_ids_json"] = list(
+            dict.fromkeys([*record["history_ids_json"], *history_ids])
+        )
+        record["source_sync_task_ids_json"] = list(
+            dict.fromkeys(
+                [*record["source_sync_task_ids_json"], source_sync_task_id]
+            )
+        )
         return deepcopy(record)
 
     async def get(self, task_id):
@@ -157,6 +180,59 @@ def test_manager_runs_queued_incremental_and_full_tasks_in_order():
     asyncio.run(scenario())
 
 
+def test_manager_merges_pending_auto_incremental_tasks():
+    from csrcqsf.modules.railway_parts.services.inquiry_text_index_task_manager import (
+        InquiryTextIndexTaskManager,
+    )
+
+    async def scenario():
+        manager = InquiryTextIndexTaskManager(
+            repository=FakeRepository(),
+            service=FakeService(),
+        )
+        first = await manager.enqueue_incremental(
+            [1, 2],
+            source_sync_task_id="sync-1",
+        )
+        second = await manager.enqueue_incremental(
+            [2, 3],
+            source_sync_task_id="sync-2",
+        )
+
+        assert second["task_id"] == first["task_id"]
+        assert second["history_ids_json"] == [1, 2, 3]
+        assert second["trigger_source"] == "sgo_inquiry_sync"
+        assert second["source_sync_task_ids"] == ["sync-1", "sync-2"]
+
+    asyncio.run(scenario())
+
+
+def test_manager_does_not_merge_into_running_auto_task():
+    from csrcqsf.modules.railway_parts.services.inquiry_text_index_task_manager import (
+        InquiryTextIndexTaskManager,
+    )
+
+    async def scenario():
+        repository = FakeRepository()
+        manager = InquiryTextIndexTaskManager(repository=repository, service=FakeService())
+        first = await manager.enqueue_incremental(
+            [1],
+            source_sync_task_id="sync-1",
+        )
+        repository.records[first["task_id"]]["status"] = "running"
+
+        second = await manager.enqueue_incremental(
+            [2],
+            source_sync_task_id="sync-2",
+        )
+
+        assert second["task_id"] != first["task_id"]
+        assert repository.records[first["task_id"]]["history_ids_json"] == [1]
+        assert second["source_sync_task_ids"] == ["sync-2"]
+
+    asyncio.run(scenario())
+
+
 def test_manager_cancels_pending_task_and_retries_terminal_task():
     from csrcqsf.modules.railway_parts.services.inquiry_text_index_task_manager import (
         InquiryTextIndexTaskManager,
@@ -173,6 +249,8 @@ def test_manager_cancels_pending_task_and_retries_terminal_task():
         assert retry["root_task_id"] == original["task_id"]
         assert retry["retry_from_task_id"] == original["task_id"]
         assert retry["history_ids_json"] == [7, 8]
+        assert retry["trigger_source"] == original["trigger_source"]
+        assert retry["source_sync_task_ids"] == original["source_sync_task_ids"]
 
     asyncio.run(scenario())
 

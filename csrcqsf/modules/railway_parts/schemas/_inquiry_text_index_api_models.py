@@ -31,6 +31,14 @@ class InquiryTextIndexTaskStatusRes(BaseModel):
     root_task_id: str
     retry_from_task_id: str | None = None
     source_sync_task_id: str | None = None
+    source_sync_task_ids: list[str] = Field(
+        default_factory=list,
+        description="触发或合并到当前任务的全部询码同步任务 ID",
+    )
+    trigger_source: Literal["sgo_inquiry_sync", "manual"] = Field(
+        "manual",
+        description="任务来源：询码同步自动触发或人工创建",
+    )
     task_scope: Literal["incremental", "full"]
     status: str = Field(
         ...,

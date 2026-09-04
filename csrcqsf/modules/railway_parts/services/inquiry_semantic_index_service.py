@@ -36,8 +36,10 @@ def _sha256(payload: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def build_document_key(source: str, inquiry_id: str) -> str:
-    return _sha256(f"{source.strip()}|{inquiry_id.strip()}")
+def build_document_key(source: str, inquiry_id: str, return_item_code: str) -> str:
+    return _sha256(
+        f"{source.strip()}|{inquiry_id.strip()}|{return_item_code.strip()}"
+    )
 
 
 def build_content_hash(item_id: int, item_code: str, description: str) -> str:
@@ -73,22 +75,27 @@ class InquirySemanticIndexService:
         self.config = config or get_config()
 
     @staticmethod
-    def _source_values(row) -> tuple[str, str, str]:
+    def _source_values(row) -> tuple[str, str, str, str]:
         source = str(getattr(row, "source", "sgo") or "sgo").strip()
         inquiry_id = str(getattr(row, "inquiry_id", "") or "").strip()
+        return_item_code = str(
+            getattr(row, "return_item_code", None)
+            or getattr(row, "item_code", "")
+            or ""
+        ).strip()
         description = normalize_inquiry_description(
             getattr(row, "inquiry_item_name", None)
         )
-        return source, inquiry_id, description
+        return source, inquiry_id, return_item_code, description
 
     @classmethod
     def _document_metadata(cls, row) -> tuple[str, str, str] | None:
         # 只索引名称描述并关联唯一返回配件；空描述或未匹配主数据的记录不进入向量库。
-        source, inquiry_id, description = cls._source_values(row)
+        source, inquiry_id, return_item_code, description = cls._source_values(row)
         item_id = getattr(row, "item_id", None)
-        if not inquiry_id or item_id is None or not description:
+        if not inquiry_id or not return_item_code or item_id is None or not description:
             return None
-        document_key = build_document_key(source, inquiry_id)
+        document_key = build_document_key(source, inquiry_id, return_item_code)
         content_hash = build_content_hash(
             int(item_id),
             str(getattr(row, "item_code", "") or ""),
@@ -126,14 +133,18 @@ class InquirySemanticIndexService:
         latest_by_key: dict[str, tuple[int, Any, tuple[str, str, str] | None]] = {}
         rows_without_key = []
         for position, row in enumerate(rows):
-            source, inquiry_id, _description = self._source_values(row)
-            key = build_document_key(source, inquiry_id) if inquiry_id else None
+            source, inquiry_id, return_item_code, _description = self._source_values(row)
+            key = (
+                build_document_key(source, inquiry_id, return_item_code)
+                if inquiry_id and return_item_code
+                else None
+            )
             entry = (position, row, self._document_metadata(row))
             if key is None:
                 rows_without_key.append(entry)
                 continue
 
-            # 同一来源询码只保留最新历史版本，避免一个批次向 Milvus 写入重复主键。
+            # 同一询码可以返回多个配件；仅合并返回编码也相同的重复历史版本。
             current = latest_by_key.get(key)
             if current is None or int(row.id) > int(current[1].id):
                 latest_by_key[key] = entry
@@ -147,8 +158,12 @@ class InquirySemanticIndexService:
         keyed_rows = []
         document_keys = []
         for _position, row, metadata in selected_rows:
-            source, inquiry_id, _description = self._source_values(row)
-            key = build_document_key(source, inquiry_id) if inquiry_id else None
+            source, inquiry_id, return_item_code, _description = self._source_values(row)
+            key = (
+                build_document_key(source, inquiry_id, return_item_code)
+                if inquiry_id and return_item_code
+                else None
+            )
             keyed_rows.append((row, key, metadata))
             if key:
                 document_keys.append(key)

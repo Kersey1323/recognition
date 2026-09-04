@@ -49,3 +49,9 @@ def test_inquiry_text_index_routes_are_registered_with_documented_contract():
         "incremental",
         "full",
     }
+    task_status = definitions["InquiryTextIndexTaskStatusRes"]
+    assert set(task_status["properties"]["trigger_source"]["enum"]) == {
+        "sgo_inquiry_sync",
+        "manual",
+    }
+    assert task_status["properties"]["source_sync_task_ids"]["type"] == "array"

@@ -74,6 +74,7 @@ def make_row(
     *,
     item_id=10,
     item_code="40001",
+    return_item_code=None,
     source="sgo",
 ):
     return SimpleNamespace(
@@ -82,6 +83,7 @@ def make_row(
         inquiry_item_name=description,
         item_id=item_id,
         item_code=item_code,
+        return_item_code=return_item_code or item_code,
         source=source,
     )
 
@@ -106,8 +108,12 @@ def test_description_normalization_and_hashes_are_deterministic():
     )
 
     assert normalize_inquiry_description(" 监控室\u3000对面\n窗帘 ") == "监控室 对面 窗帘"
-    assert build_document_key("sgo", "1001") == build_document_key("sgo", "1001")
-    assert build_document_key("sgo", "1001") != build_document_key("sgo", "1002")
+    assert build_document_key("sgo", "1001", "40001") == build_document_key(
+        "sgo", "1001", "40001"
+    )
+    assert build_document_key("sgo", "1001", "40001") != build_document_key(
+        "sgo", "1001", "40002"
+    )
     assert build_content_hash(10, "40001", "描述") != build_content_hash(11, "40001", "描述")
 
 
@@ -122,10 +128,10 @@ def test_incremental_index_skips_unchanged_updates_changed_and_deletes_invalid()
     changed = make_row(2, "1002", "底板螺栓", item_id=20, item_code="40002")
     invalid = make_row(3, "1003", " ", item_id=None, item_code="40003")
     store = FakeStore()
-    store.hashes[build_document_key("sgo", "1001")] = build_content_hash(
+    store.hashes[build_document_key("sgo", "1001", "40001")] = build_content_hash(
         10, "40001", "监控室对面窗帘"
     )
-    store.hashes[build_document_key("sgo", "1003")] = "old"
+    store.hashes[build_document_key("sgo", "1003", "40003")] = "old"
     model = FakeModelClient()
     service = InquirySemanticIndexService(
         repository=FakeRepository([unchanged, changed, invalid]),
@@ -144,7 +150,7 @@ def test_incremental_index_skips_unchanged_updates_changed_and_deletes_invalid()
     assert result["fail_count"] == 0
     assert model.calls == [["底板螺栓"]]
     assert store.upserts[0][1].inquiry_id == "1002"
-    assert store.deletes == [(None, [build_document_key("sgo", "1003")])]
+    assert store.deletes == [(None, [build_document_key("sgo", "1003", "40003")])]
 
 
 def test_full_build_switches_alias_only_after_success():
@@ -168,7 +174,7 @@ def test_full_build_switches_alias_only_after_success():
     assert store.upserts[0][0] == "build-task-1"
 
 
-def test_full_build_indexes_only_latest_history_for_each_inquiry():
+def test_full_build_indexes_each_distinct_return_for_the_same_inquiry():
     from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
         InquirySemanticIndexService,
         build_document_key,
@@ -179,9 +185,9 @@ def test_full_build_indexes_only_latest_history_for_each_inquiry():
     service = InquirySemanticIndexService(
         repository=FakeRepository(
             [
-                make_row(3, "1001", "旧描述"),
+                make_row(3, "1001", "同一询码描述", item_code="40001"),
                 make_row(1, "1002", "其他描述"),
-                make_row(5, "1001", "最新描述", item_id=20, item_code="40002"),
+                make_row(5, "1001", "同一询码描述", item_id=20, item_code="40002"),
             ]
         ),
         store=store,
@@ -193,19 +199,17 @@ def test_full_build_indexes_only_latest_history_for_each_inquiry():
 
     assert result["total_items"] == 3
     assert result["processed_items"] == 3
-    assert result["indexed_count"] == 2
-    assert result["skipped_count"] == 1
+    assert result["indexed_count"] == 3
+    assert result["skipped_count"] == 0
     assert result["fail_count"] == 0
     documents = [document for _collection, document in store.upserts]
-    assert len({document.document_key for document in documents}) == 2
-    latest = next(
-        document
+    assert len({document.document_key for document in documents}) == 3
+    assert {
+        document.item_code
         for document in documents
-        if document.document_key == build_document_key("sgo", "1001")
-    )
-    assert latest.history_id == 5
-    assert latest.description == "最新描述"
-    assert model.calls == [["其他描述"], ["最新描述"]]
+        if document.inquiry_id == "1001"
+    } == {"40001", "40002"}
+    assert model.calls == [["同一询码描述"], ["其他描述"], ["同一询码描述"]]
 
 
 def test_incremental_latest_invalid_history_deletes_existing_document():
@@ -217,7 +221,7 @@ def test_incremental_latest_invalid_history_deletes_existing_document():
     old_valid = make_row(3, "1001", "旧描述")
     latest_invalid = make_row(5, "1001", " ", item_id=None)
     store = FakeStore()
-    document_key = build_document_key("sgo", "1001")
+    document_key = build_document_key("sgo", "1001", "40001")
     store.hashes[document_key] = "old-content-hash"
     model = FakeModelClient()
     service = InquirySemanticIndexService(

@@ -89,6 +89,9 @@ def _decorate(record: dict[str, Any] | None) -> dict[str, Any] | None:
     if record is None:
         return None
     snapshot = dict(record)
+    snapshot["source_sync_task_ids"] = list(
+        snapshot.get("source_sync_task_ids_json") or []
+    )
     for field in (
         "heartbeat_at",
         "started_at",
@@ -110,6 +113,7 @@ class InquiryTextIndexTaskManager:
         self._worker: asyncio.Task | None = None
         self._active_execution: asyncio.Task | None = None
         self._active_task_id: str | None = None
+        self._enqueue_lock = asyncio.Lock()
 
     async def enqueue_incremental(
         self,
@@ -119,6 +123,22 @@ class InquiryTextIndexTaskManager:
         source: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         normalized = list(dict.fromkeys(int(history_id) for history_id in history_ids))
+        # SGO 连续同步产生的新样本合并到同一个 pending 任务；重试任务必须保留独立链路。
+        if source_sync_task_id is not None and source is None:
+            async with self._enqueue_lock:
+                merged = await self.repository.merge_pending_incremental(
+                    normalized,
+                    source_sync_task_id,
+                )
+                if merged is not None:
+                    self._wake.set()
+                    return _decorate(merged)
+                return await self._enqueue(
+                    task_scope="incremental",
+                    history_ids=normalized,
+                    source_sync_task_id=source_sync_task_id,
+                    source=None,
+                )
         return await self._enqueue(
             task_scope="incremental",
             history_ids=normalized,
@@ -144,11 +164,23 @@ class InquiryTextIndexTaskManager:
     ) -> dict[str, Any]:
         task_id = str(uuid4())
         source = source or {}
+        trigger_source = source.get("trigger_source") or (
+            "sgo_inquiry_sync" if source_sync_task_id is not None else "manual"
+        )
+        source_sync_task_ids = list(
+            source.get("source_sync_task_ids_json")
+            or ([source_sync_task_id] if source_sync_task_id is not None else [])
+        )
+        legacy_source_sync_task_id = source.get("source_sync_task_id") or (
+            source_sync_task_ids[0] if source_sync_task_ids else None
+        )
         record = await self.repository.create(
             task_id=task_id,
             root_task_id=source.get("root_task_id") or task_id,
             retry_from_task_id=source.get("task_id"),
-            source_sync_task_id=source_sync_task_id,
+            source_sync_task_id=legacy_source_sync_task_id,
+            source_sync_task_ids_json=source_sync_task_ids,
+            trigger_source=trigger_source,
             task_scope=task_scope,
             history_ids_json=history_ids,
             status="pending",
@@ -356,7 +388,15 @@ class InquiryTextIndexTaskManager:
             raise KeyError(task_id)
         if source["status"] not in RETRYABLE_STATUSES:
             raise RuntimeError(f"当前状态不可重试: status={source['status']}")
-        lineage = {"task_id": task_id, "root_task_id": source["root_task_id"]}
+        lineage = {
+            "task_id": task_id,
+            "root_task_id": source["root_task_id"],
+            "source_sync_task_id": source.get("source_sync_task_id"),
+            "source_sync_task_ids_json": list(
+                source.get("source_sync_task_ids_json") or []
+            ),
+            "trigger_source": source.get("trigger_source") or "manual",
+        }
         if source["task_scope"] == "full":
             return await self.enqueue_full(source=lineage)
         return await self.enqueue_incremental(

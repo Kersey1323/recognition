@@ -237,7 +237,11 @@ class SgoSyncTaskManager:
                 for field in PROGRESS_FIELDS
                 if field in result
             }
-            for field in ("semantic_index_task_id", "semantic_index_warning"):
+            for field in (
+                "semantic_index_triggered",
+                "semantic_index_task_id",
+                "semantic_index_warning",
+            ):
                 if field in result:
                     values[field] = result[field]
             values.update(

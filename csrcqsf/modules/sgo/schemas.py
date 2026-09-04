@@ -106,6 +106,10 @@ class SgoSyncTaskStatusRes(BaseModel):
         None,
         description="询码同步后创建的语义索引任务 ID；其他同步类型为空",
     )
+    semantic_index_triggered: bool = Field(
+        False,
+        description="本次询码同步是否创建或合并到 BGE 增量索引任务",
+    )
     semantic_index_warning: str | None = Field(
         None,
         description="语义索引任务创建失败原因；不影响询码同步成功状态",

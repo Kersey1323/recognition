@@ -21,3 +21,9 @@ def test_sgo_image_download_concurrency_defaults_to_four():
     from csrcqsf.core.settings import sgo_image_download_concurrency
 
     assert sgo_image_download_concurrency == 4
+
+
+def test_inquiry_text_auto_index_is_enabled_by_default():
+    from csrcqsf.core.settings import inquiry_text_auto_index_enabled
+
+    assert inquiry_text_auto_index_enabled is True
