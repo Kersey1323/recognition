@@ -209,15 +209,20 @@ def test_export_allows_rotation_shape_center_variation_with_aligned_row_axes(
     assert center["frame_bbox_center_p95_ratio"] > 0.015
 
 
-def test_export_still_rejects_misaligned_row_axes(tmp_path: Path):
-    with pytest.raises(ViewerGridValidationError, match="Normalized center P95 ratio"):
-        export_viewer_grid(
-            _rows(tmp_path / "input"),
-            tmp_path / "publish",
-            _config(tmp_path, row_count=2, row_directions=(1, -1)),
-            fingerprint="misaligned",
-            target_center=(0.0, 0.0),
-        )
+def test_export_keeps_segmented_grid_when_row_axes_exceed_limit(tmp_path: Path):
+    result = export_viewer_grid(
+        _rows(tmp_path / "input"),
+        tmp_path / "publish",
+        _config(tmp_path, row_count=2, row_directions=(1, -1)),
+        fingerprint="misaligned",
+        target_center=(0.0, 0.0),
+    )
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert result.validation["center"]["within_limit"] is False
+    assert result.validation["fallback_reason"].startswith("分割图中心对齐偏差较大")
+    assert manifest["render_mode"] == "segmented"
+    assert manifest["fallback_reason"] == result.validation["fallback_reason"]
 
 
 @pytest.mark.parametrize(

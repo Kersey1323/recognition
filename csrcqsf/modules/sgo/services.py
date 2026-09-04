@@ -1349,6 +1349,9 @@ class SGOBiz:
         status: str,
         has_indexed: int,
         query: str | None = None,
+        vehicle: str | None = None,
+        train_no: str | None = None,
+        car_num: str | None = None,
     ):
         item_id_list: list[int] = []
         item_code_list: list[str] = []
@@ -1382,6 +1385,9 @@ class SGOBiz:
                 has_indexed,
                 inquery_id_list,
                 query,
+                vehicle,
+                train_no,
+                car_num,
             )
 
     @classmethod

@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 import json
 from pathlib import Path
 from zipfile import ZipFile
@@ -13,6 +14,7 @@ from csrcqsf.modules.railway_parts.services.viewer360_models import (
 )
 from csrcqsf.modules.railway_parts.services.viewer360_grid import (
     ViewerGridValidationError,
+    export_viewer_grid,
 )
 from csrcqsf.modules.railway_parts.services.viewer360_pipeline import (
     Viewer360Pipeline,
@@ -332,6 +334,46 @@ def test_pipeline_falls_back_to_original_frames_when_grid_validation_fails(
     assert manifest["amount_x"] == 1
     assert manifest["amount_y"] == 2
     assert len(manifest["image_list_grid"]) == 2
+
+
+def test_pipeline_publishes_segmented_frames_with_alignment_fallback(
+    tmp_path: Path,
+    monkeypatch,
+):
+    config = replace(_config(tmp_path), center_p95_ratio=0.0001)
+
+    def export_with_misaligned_center(rows, output_dir, config, **kwargs):
+        return export_viewer_grid(
+            rows,
+            output_dir,
+            config,
+            fingerprint=kwargs["fingerprint"],
+            target_center=(0.0, 0.0),
+        )
+
+    monkeypatch.setattr(
+        "csrcqsf.modules.railway_parts.services.viewer360_pipeline.export_viewer_grid",
+        export_with_misaligned_center,
+    )
+    pipeline = Viewer360Pipeline(
+        config,
+        storage=FakeStorage(),
+        model_client=FakeModelClient(),
+        probe_duration=lambda _path: 2.0,
+        extract_segment=_extract,
+    )
+
+    result = asyncio.run(pipeline.run(_task()))
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+
+    assert result.render_mode == "segmented"
+    assert result.fallback_reason.startswith("分割图中心对齐偏差较大")
+    assert result.row_states == [
+        {"row_index": 1, "status": "fallback"},
+        {"row_index": 2, "status": "fallback"},
+    ]
+    assert manifest["render_mode"] == "segmented"
+    assert manifest["fallback_reason"] == result.fallback_reason
 
 
 def test_row_retry_fallback_publishes_original_frames_for_every_angle(

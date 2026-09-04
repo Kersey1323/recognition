@@ -67,7 +67,7 @@ class Viewer360RowState(BaseModel):
         description=(
             "该角度行状态：pending=待处理、segmenting=分割处理中、success=成功、"
             "failed=失败、reused=本次执行复用旧结果未重新处理、"
-            "fallback=分割校验未通过，本行使用原始帧兜底"
+            "fallback=结果已兜底发布，具体图片类型见 render_mode"
         ),
     )
     image_base_url: str | None = Field(
@@ -186,7 +186,10 @@ class Viewer360TaskStatusRes(BaseModel):
     )
     fallback_reason: str | None = Field(
         None,
-        description="切换为 original 的原因；正常透明分割结果或未发布时为 null",
+        description=(
+            "兜底发布原因；render_mode=segmented 时表示分割图带质量告警继续发布，"
+            "render_mode=original 时表示已切换原始帧；正常结果或未发布时为 null"
+        ),
     )
     error_message: str | None = Field(None, description="任务失败原因")
     cancel_reason: str | None = Field(None, description="取消原因")

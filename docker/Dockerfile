@@ -35,6 +35,7 @@ RUN python -m pip uninstall -y pip \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
+        ffmpeg \
         tzdata \
         libgomp1 \
     && ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \

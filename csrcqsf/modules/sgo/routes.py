@@ -35,6 +35,24 @@ class ListInqueryReq(PageReq):
         description='搜索关键词，模糊匹配询码单号、名称描述、车型、车号、所属部件、供应商及提报信息',
         example='监控室对面窗帘',
     )
+    vehicle: str | None = Field(
+        default=None,
+        max_length=100,
+        description='车型筛选，可单独使用，也可与列号/车厢号同时筛选；按包含关系模糊匹配',
+        example='CRH380B',
+    )
+    train_no: str | None = Field(
+        default=None,
+        max_length=100,
+        description='列号筛选，可单独使用，也可与车型/车厢号同时筛选；按包含关系模糊匹配',
+        example='D6521',
+    )
+    car_num: str | None = Field(
+        default=None,
+        max_length=100,
+        description='车厢号筛选，可单独使用，也可与车型/列号同时筛选；按包含关系模糊匹配',
+        example='05',
+    )
     has_indexed: int = Field(default=0, description='1. 做过索引了 2. 没做过索引 0 不要这个条件', example=0)
     current_status: str = Field(
         default='FINISH',
@@ -48,6 +66,9 @@ class ListInqueryReq(PageReq):
                 "page": 1,
                 "pageSize": 20,
                 "query": "监控室对面窗帘",
+                "vehicle": "CRH380B",
+                "train_no": "D6521",
+                "car_num": "05",
                 "has_indexed": 0,
                 "current_status": "FINISH",
             }
@@ -263,6 +284,17 @@ async def list_sgo_sync_task_failures(task_id: str, req: SgoSyncFailureListReq):
     }
 })
 async def sgo_inquery_list(req: ListInqueryReq):
+    """
+    获取询码记录列表。
+
+    请求体字段说明：
+    - `query`: 通用关键词，对询码单号/名称/车型/列号/车厢号/部件/供应商等多个字段任一命中
+    - `vehicle`（车型）、`train_no`（列号）、`car_num`（车厢号）: 三个独立检索字段，
+      可只传其中一个，也可任意两个或三个同时传入（同时传入时按 AND 叠加筛选，
+      互不依赖、无需级联），每个字段均按包含关系模糊匹配
+    - `has_indexed`: 1=已索引 2=未索引 0=不限
+    - `current_status`: 询码状态筛选
+    """
     if req.has_indexed not in (0, 1, 2):
         raise Exception('has_indexed只能为0,1或者2')
 
@@ -272,6 +304,9 @@ async def sgo_inquery_list(req: ListInqueryReq):
         req.current_status,
         req.has_indexed,
         req.query,
+        req.vehicle,
+        req.train_no,
+        req.car_num,
     )
     res = ListInqueryRes(total=inquery_list.total)
 

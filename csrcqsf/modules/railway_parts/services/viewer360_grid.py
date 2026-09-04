@@ -323,20 +323,20 @@ def export_viewer_grid(
         )
         frame_bbox_center_p95_ratio = frame_bbox_center_p95_pixels / diagonal
 
-        # 旋转时非对称配件的包围框中心会自然变化；发布校验只约束各采集行的
-        # 对齐中轴，逐帧中心偏移保留为诊断数据，避免把正常旋转误判为对齐失败。
-        if p95_ratio > config.center_p95_ratio:
-            raise ViewerGridValidationError(
-                [
-                    f"Normalized center P95 ratio {p95_ratio:.6f} exceeds "
-                    f"{config.center_p95_ratio:.6f}"
-                ]
+        # 中轴偏差可能来自正常视角变化，透明分割图仍可用于展示；超限结果带上
+        # fallback 标记供后续质量重建，不因这一项单独切换为原始帧。
+        alignment_within_limit = p95_ratio <= config.center_p95_ratio
+        fallback_reason = None
+        if not alignment_within_limit:
+            fallback_reason = (
+                f"分割图中心对齐偏差较大：P95={p95_ratio:.6f}，"
+                f"阈值={config.center_p95_ratio:.6f}；已继续发布分割结果"
             )
         manifest = {
             "schema_version": 1,
             "pipeline": "viewer360",
             "render_mode": "segmented",
-            "fallback_reason": None,
+            "fallback_reason": fallback_reason,
             "amount_x": frame_count,
             "amount_y": len(ordered),
             "index_base": 0,
@@ -351,6 +351,7 @@ def export_viewer_grid(
         )
         validation = {
             "passed": True,
+            "fallback_reason": fallback_reason,
             "amount_x": frame_count,
             "amount_y": len(ordered),
             "image_count": len(image_paths),
@@ -362,6 +363,7 @@ def export_viewer_grid(
                 "p95_pixels": p95_pixels,
                 "p95_ratio": p95_ratio,
                 "limit_ratio": config.center_p95_ratio,
+                "within_limit": alignment_within_limit,
                 "frame_bbox_center_p95_pixels": frame_bbox_center_p95_pixels,
                 "frame_bbox_center_p95_ratio": frame_bbox_center_p95_ratio,
             },

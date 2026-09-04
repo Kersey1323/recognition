@@ -544,6 +544,19 @@ class Viewer360Pipeline:
         except Exception as exc:
             raise Viewer360PipelineError("postprocess", str(exc)) from exc
 
+        if render_mode == "segmented" and grid.validation.get("fallback_reason"):
+            fallback_reason = str(grid.validation["fallback_reason"])
+            row_states = [
+                {"row_index": segment.row_index, "status": "fallback"}
+                for segment in segments
+            ]
+            await self._emit(
+                progress_callback,
+                stage="postprocessing",
+                progress=85,
+                row_states_json=row_states,
+            )
+
         await self._emit(progress_callback, stage="validating", progress=88)
         publish_dir = work_dir / "publish"
         if publish_dir.exists():
@@ -580,7 +593,7 @@ class Viewer360Pipeline:
                 amount_x=source_amount_x,
                 amount_y=source_amount_y,
                 render_mode="segmented",
-                fallback_reason=None,
+                fallback_reason=fallback_reason,
             )
             publish_dir.mkdir(parents=True, exist_ok=True)
             (publish_dir / "manifest.json").write_text(

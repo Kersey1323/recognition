@@ -924,12 +924,26 @@ class SgoCodeInquiry(Base):
     @classmethod
     async def list_code_inquiry(cls, session: AsyncSession, page: int = 0, per_page: int = 20,
                                 status: str = 'FINISH',has_index:int = 0, inquiry_id_list: list[str] = [],
-                                query: str | None = None):
+                                query: str | None = None,
+                                vehicle: str | None = None, train_no: str | None = None,
+                                car_num: str | None = None):
         """
         has_index 为1时必须做过索引的
         has_index 为2时没有做过索引
         has_index 为0时不关注
+
+        vehicle/train_no/car_num 为车型、列号、车厢号的独立检索条件：
+        可单独传，也可同时传（同时传按 AND 叠加，三个字段互不依赖），按包含关系模糊匹配。
         """
+        def _wrap_like(value: str) -> str:
+            escaped = (
+                value.strip()
+                .replace('!', '!!')
+                .replace('%', '!%')
+                .replace('_', '!_')
+            )
+            return f'%{escaped}%'
+
         offset = (page-1) * per_page
         # 甲方 Kingbase 表包含 sys.date/sys.datetime 等非 PostgreSQL 标准类型。
         # 列表只读取前端实际展示的字段，避免 asyncpg 解码无须返回的私有类型；日期按接口口径返回字符串。
@@ -957,12 +971,7 @@ class SgoCodeInquiry(Base):
         normalized_query = str(query or '').strip()
         if normalized_query:
             # 列表关键词覆盖前端可见业务字段，多个字段任一命中即可返回该询码记录。
-            escaped_query = (
-                normalized_query.replace('!', '!!')
-                .replace('%', '!%')
-                .replace('_', '!_')
-            )
-            keyword = f'%{escaped_query}%'
+            keyword = _wrap_like(normalized_query)
             stmt = stmt.where(or_(
                 cls.inquiry_num.ilike(keyword, escape='!'),
                 cls.item_name.ilike(keyword, escape='!'),
@@ -976,6 +985,17 @@ class SgoCodeInquiry(Base):
                 cls.creater_org_name.ilike(keyword, escape='!'),
                 cls.remark.ilike(keyword, escape='!'),
             ))
+        # 车型/列号/车厢号独立检索：三者可任意组合同时传入，按 AND 叠加；
+        # 各自可为空串时跳过该条件（与不传等价）。
+        vehicle_keyword = _wrap_like(vehicle) if vehicle and vehicle.strip() else None
+        if vehicle_keyword is not None:
+            stmt = stmt.where(cls.vehicle.ilike(vehicle_keyword, escape='!'))
+        train_no_keyword = _wrap_like(train_no) if train_no and train_no.strip() else None
+        if train_no_keyword is not None:
+            stmt = stmt.where(cls.train_no.ilike(train_no_keyword, escape='!'))
+        car_num_keyword = _wrap_like(car_num) if car_num and car_num.strip() else None
+        if car_num_keyword is not None:
+            stmt = stmt.where(cls.car_num.ilike(car_num_keyword, escape='!'))
         if has_index == 1:
             # 明确筛选“已索引”且索引集合为空时，应返回空结果而不是放开条件。
             if inquiry_id_list:
