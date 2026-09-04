@@ -152,11 +152,13 @@ def test_extract_video_segment_derives_fps_from_target_frame_count(
 def test_resume_reuses_checkpoint_from_same_task_directory(tmp_path: Path):
     pipeline = Viewer360Pipeline(_config(tmp_path))
     row_dir = tmp_path / "work" / "task-new" / "rows" / "row_01"
-    for directory in ("masks", "rgba"):
-        target = row_dir / "segmentation" / directory
-        target.mkdir(parents=True)
-        for index in range(1, 3):
-            (target / f"frame_{index:04d}.png").write_bytes(b"checkpoint")
+    mask_dir = row_dir / "segmentation" / "masks"
+    original_dir = row_dir / "original"
+    mask_dir.mkdir(parents=True)
+    original_dir.mkdir(parents=True)
+    for index in range(1, 3):
+        (mask_dir / f"frame_{index:04d}.png").write_bytes(b"checkpoint")
+        (original_dir / f"frame_{index:04d}.jpg").write_bytes(b"checkpoint")
     segment = ViewerSegment(
         row_index=1,
         start_seconds=0.0,

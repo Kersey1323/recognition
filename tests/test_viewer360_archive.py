@@ -20,11 +20,10 @@ def _result_archive(path: Path, *, frame_count: int = 2) -> None:
     with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
         archive.writestr("manifest.json", '{"frame_count": 2}')
         for index in range(1, frame_count + 1):
-            payload = np.zeros((8, 10, 4), dtype=np.uint8)
-            payload[2:6, 3:7, :] = 255
+            payload = np.zeros((8, 10), dtype=np.uint8)
+            payload[2:6, 3:7] = 255
             image_path = path.parent / f"payload-{index}.png"
             Image.fromarray(payload).save(image_path)
-            archive.write(image_path, f"rgba/frame_{index:04d}.png")
             archive.write(image_path, f"masks/frame_{index:04d}.png")
 
 
@@ -48,7 +47,6 @@ def test_extract_segmentation_archive_returns_required_sequences(tmp_path: Path)
     result = extract_segmentation_archive(archive_path, tmp_path / "result", expected_frames=2)
 
     assert [path.name for path in result.mask_paths] == ["frame_0001.png", "frame_0002.png"]
-    assert [path.name for path in result.rgba_paths] == ["frame_0001.png", "frame_0002.png"]
     assert result.manifest_path.is_file()
 
 

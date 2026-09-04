@@ -59,9 +59,8 @@ class ViewerRow:
     start_seconds: float
     end_seconds: float
     phase_direction: int
-    rgba_dir: Path
     mask_dir: Path
-    original_dir: Path | None = None
+    original_dir: Path
 
     @property
     def row_id(self) -> str:

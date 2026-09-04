@@ -88,19 +88,31 @@ def _preflight(rows: Sequence[ViewerRow]) -> tuple[list[ViewerRow], int, tuple[i
     frame_count: int | None = None
     image_size: tuple[int, int] | None = None
     for row in ordered:
-        rgba_paths = _sequence(row.rgba_dir, ".png")
+        original_paths = _sequence(row.original_dir, ".jpg")
         mask_paths = _sequence(row.mask_dir, ".png")
         if frame_count is None:
-            frame_count = len(rgba_paths)
-        if not rgba_paths or len(rgba_paths) != frame_count or len(mask_paths) != frame_count:
+            frame_count = len(original_paths)
+        if (
+            not original_paths
+            or len(original_paths) != frame_count
+            or len(mask_paths) != frame_count
+        ):
             failures.append(f"{row.row_id} frame sequence is incomplete")
             continue
-        expected_names = [f"frame_{index:04d}.png" for index in range(1, frame_count + 1)]
-        if [path.name for path in rgba_paths] != expected_names or [path.name for path in mask_paths] != expected_names:
+        expected_original_names = [
+            f"frame_{index:04d}.jpg" for index in range(1, frame_count + 1)
+        ]
+        expected_mask_names = [
+            f"frame_{index:04d}.png" for index in range(1, frame_count + 1)
+        ]
+        if (
+            [path.name for path in original_paths] != expected_original_names
+            or [path.name for path in mask_paths] != expected_mask_names
+        ):
             failures.append(f"{row.row_id} frame sequence is not contiguous")
-        for rgba_path, mask_path in zip(rgba_paths, mask_paths):
-            with Image.open(rgba_path) as rgba_image:
-                rgba_size = rgba_image.size
+        for original_path, mask_path in zip(original_paths, mask_paths):
+            with Image.open(original_path) as original_image:
+                original_size = original_image.size
             mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
             if mask is None:
                 failures.append(f"unreadable mask: {mask_path}")
@@ -110,12 +122,12 @@ def _preflight(rows: Sequence[ViewerRow]) -> tuple[list[ViewerRow], int, tuple[i
                 empty_mask_counts[row.row_index] = (
                     empty_mask_counts.get(row.row_index, 0) + 1
                 )
-            if rgba_size != (mask.shape[1], mask.shape[0]):
-                failures.append(f"RGBA/mask dimensions differ: {rgba_path}")
+            if original_size != (mask.shape[1], mask.shape[0]):
+                failures.append(f"original/mask dimensions differ: {original_path}")
             if image_size is None:
-                image_size = rgba_size
-            elif rgba_size != image_size:
-                failures.append(f"Viewer image dimensions differ: {rgba_path}")
+                image_size = original_size
+            elif original_size != image_size:
+                failures.append(f"Viewer image dimensions differ: {original_path}")
     if failures:
         empty_mask_total = sum(empty_mask_counts.values())
         user_message = None
@@ -220,7 +232,7 @@ def export_viewer_grid(
     image_paths: list[str] = []
     try:
         for row in ordered:
-            rgba_paths = _sequence(row.rgba_dir, ".png")
+            original_paths = _sequence(row.original_dir, ".jpg")
             mask_paths = _sequence(row.mask_dir, ".png")
             source_indices = build_source_indices(
                 frame_count, phase_direction=row.phase_direction
@@ -238,7 +250,10 @@ def export_viewer_grid(
             row_output.mkdir(parents=True)
             row_frame_centers: list[tuple[float, float]] = []
             for grid_index, source_index in enumerate(source_indices, start=1):
-                rgba = np.asarray(Image.open(rgba_paths[source_index]).convert("RGBA")).copy()
+                # 模型服务只返回 Mask；源帧保留在主服务本地，用于合成最终透明图。
+                rgba = np.asarray(
+                    Image.open(original_paths[source_index]).convert("RGBA")
+                ).copy()
                 mask = cv2.imread(str(mask_paths[source_index]), cv2.IMREAD_GRAYSCALE)
                 if mask is None:
                     raise ViewerGridValidationError([f"unreadable mask: {mask_paths[source_index]}"])

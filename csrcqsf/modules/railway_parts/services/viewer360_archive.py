@@ -25,7 +25,6 @@ class Viewer360ArchiveLimits:
 class Viewer360SegmentationFiles:
     root: Path
     mask_paths: tuple[Path, ...]
-    rgba_paths: tuple[Path, ...]
     manifest_path: Path
 
 
@@ -97,7 +96,7 @@ def extract_segmentation_archive(
     expected_frames: int,
     limits: Viewer360ArchiveLimits | None = None,
 ) -> Viewer360SegmentationFiles:
-    """受限解压模型结果，并确认 Mask/RGBA 与原始帧一一对应。"""
+    """受限解压模型结果，并确认 Mask 与主服务原始帧一一对应。"""
     active_limits = limits or Viewer360ArchiveLimits()
     archive_path = Path(archive_path)
     destination = Path(destination)
@@ -138,12 +137,10 @@ def extract_segmentation_archive(
         if not manifest_path.is_file():
             raise Viewer360ArchiveError("segmentation manifest.json is missing")
         masks = _required_sequence(temporary, "masks", expected_frames)
-        rgba = _required_sequence(temporary, "rgba", expected_frames)
         os.replace(temporary, destination)
         return Viewer360SegmentationFiles(
             root=destination,
             mask_paths=tuple(destination / path.relative_to(temporary) for path in masks),
-            rgba_paths=tuple(destination / path.relative_to(temporary) for path in rgba),
             manifest_path=destination / "manifest.json",
         )
     except Exception:

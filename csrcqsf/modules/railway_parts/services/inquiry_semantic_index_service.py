@@ -123,12 +123,33 @@ class InquirySemanticIndexService:
         deleted_count = 0
         failures: list[dict[str, Any]] = []
 
-        keyed_rows = []
-        document_keys = []
-        for row in rows:
+        latest_by_key: dict[str, tuple[int, Any, tuple[str, str, str] | None]] = {}
+        rows_without_key = []
+        for position, row in enumerate(rows):
             source, inquiry_id, _description = self._source_values(row)
             key = build_document_key(source, inquiry_id) if inquiry_id else None
-            keyed_rows.append((row, key, self._document_metadata(row)))
+            entry = (position, row, self._document_metadata(row))
+            if key is None:
+                rows_without_key.append(entry)
+                continue
+
+            # 同一来源询码只保留最新历史版本，避免一个批次向 Milvus 写入重复主键。
+            current = latest_by_key.get(key)
+            if current is None or int(row.id) > int(current[1].id):
+                latest_by_key[key] = entry
+
+        selected_rows = rows_without_key + list(latest_by_key.values())
+        selected_rows.sort(key=lambda entry: entry[0])
+        superseded_count = total_items - len(selected_rows)
+        processed_items += superseded_count
+        skipped_count += superseded_count
+
+        keyed_rows = []
+        document_keys = []
+        for _position, row, metadata in selected_rows:
+            source, inquiry_id, _description = self._source_values(row)
+            key = build_document_key(source, inquiry_id) if inquiry_id else None
+            keyed_rows.append((row, key, metadata))
             if key:
                 document_keys.append(key)
 

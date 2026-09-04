@@ -235,8 +235,10 @@ class Viewer360Pipeline:
             / f"row_{segment.row_index:02d}"
         )
         required = [
-            source / "segmentation" / directory / f"frame_{index:04d}.png"
-            for directory in ("masks", "rgba")
+            source / "segmentation" / "masks" / f"frame_{index:04d}.png"
+            for index in range(1, segment.expected_frames + 1)
+        ] + [
+            source / "original" / f"frame_{index:04d}.jpg"
             for index in range(1, segment.expected_frames + 1)
         ]
         if not all(path.is_file() for path in required):
@@ -263,7 +265,6 @@ class Viewer360Pipeline:
                 start_seconds=segment.start_seconds,
                 end_seconds=segment.end_seconds,
                 phase_direction=segment.phase_direction,
-                rgba_dir=row_dir / "segmentation" / "rgba",
                 mask_dir=row_dir / "segmentation" / "masks",
                 original_dir=row_dir / "original",
             )
@@ -315,7 +316,6 @@ class Viewer360Pipeline:
             start_seconds=segment.start_seconds,
             end_seconds=segment.end_seconds,
             phase_direction=segment.phase_direction,
-            rgba_dir=segmentation.rgba_paths[0].parent,
             mask_dir=segmentation.mask_paths[0].parent,
             original_dir=frames[0].parent,
         )
@@ -351,7 +351,6 @@ class Viewer360Pipeline:
                     start_seconds=segment.start_seconds,
                     end_seconds=segment.end_seconds,
                     phase_direction=segment.phase_direction,
-                    rgba_dir=row_dir / "segmentation" / "rgba",
                     mask_dir=row_dir / "segmentation" / "masks",
                     original_dir=frames[0].parent,
                 )

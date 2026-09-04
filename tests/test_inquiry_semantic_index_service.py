@@ -168,6 +168,77 @@ def test_full_build_switches_alias_only_after_success():
     assert store.upserts[0][0] == "build-task-1"
 
 
+def test_full_build_indexes_only_latest_history_for_each_inquiry():
+    from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+        InquirySemanticIndexService,
+        build_document_key,
+    )
+
+    store = FakeStore()
+    model = FakeModelClient()
+    service = InquirySemanticIndexService(
+        repository=FakeRepository(
+            [
+                make_row(3, "1001", "旧描述"),
+                make_row(1, "1002", "其他描述"),
+                make_row(5, "1001", "最新描述", item_id=20, item_code="40002"),
+            ]
+        ),
+        store=store,
+        model_client=model,
+        config=make_config(inquiry_text_index_batch_size=1),
+    )
+
+    result = asyncio.run(service.run_full("task-deduplicate"))
+
+    assert result["total_items"] == 3
+    assert result["processed_items"] == 3
+    assert result["indexed_count"] == 2
+    assert result["skipped_count"] == 1
+    assert result["fail_count"] == 0
+    documents = [document for _collection, document in store.upserts]
+    assert len({document.document_key for document in documents}) == 2
+    latest = next(
+        document
+        for document in documents
+        if document.document_key == build_document_key("sgo", "1001")
+    )
+    assert latest.history_id == 5
+    assert latest.description == "最新描述"
+    assert model.calls == [["其他描述"], ["最新描述"]]
+
+
+def test_incremental_latest_invalid_history_deletes_existing_document():
+    from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+        InquirySemanticIndexService,
+        build_document_key,
+    )
+
+    old_valid = make_row(3, "1001", "旧描述")
+    latest_invalid = make_row(5, "1001", " ", item_id=None)
+    store = FakeStore()
+    document_key = build_document_key("sgo", "1001")
+    store.hashes[document_key] = "old-content-hash"
+    model = FakeModelClient()
+    service = InquirySemanticIndexService(
+        repository=FakeRepository([old_valid, latest_invalid]),
+        store=store,
+        model_client=model,
+        config=make_config(),
+    )
+
+    result = asyncio.run(service.run_incremental([3, 5]))
+
+    assert result["total_items"] == 2
+    assert result["processed_items"] == 2
+    assert result["indexed_count"] == 0
+    assert result["skipped_count"] == 1
+    assert result["deleted_count"] == 1
+    assert result["fail_count"] == 0
+    assert model.calls == []
+    assert store.deletes == [(None, [document_key])]
+
+
 def test_search_applies_threshold_and_aggregates_by_best_item_hit():
     from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
         InquirySemanticIndexService,

@@ -46,10 +46,8 @@ def _rows(
     rows: list[ViewerRow] = []
     for row_index, center in enumerate(((8, 9), (20, 11)), start=1):
         row_root = root / f"row_{row_index:02d}"
-        rgba_dir = row_root / "rgba"
         mask_dir = row_root / "masks"
         original_dir = row_root / "original"
-        rgba_dir.mkdir(parents=True)
         mask_dir.mkdir(parents=True)
         original_dir.mkdir(parents=True)
         for frame_index in range(1, frame_count + 1):
@@ -65,11 +63,9 @@ def _rows(
                 mask[cy - 2 : cy + 3, cx - 2 : cx + 3] = 255
                 if detached_noise and row_index == 1 and frame_index == 1:
                     mask[9, 27] = 255
-            rgba = np.zeros((height, width, 4), dtype=np.uint8)
-            rgba[:, :, :3] = (40 * row_index, 100, 180)
-            rgba[:, :, 3] = mask
-            Image.fromarray(rgba).save(rgba_dir / f"frame_{frame_index:04d}.png")
-            Image.fromarray(rgba[:, :, :3]).save(
+            rgb = np.zeros((height, width, 3), dtype=np.uint8)
+            rgb[:, :, :] = (40 * row_index, 100, 180)
+            Image.fromarray(rgb).save(
                 original_dir / f"frame_{frame_index:04d}.jpg"
             )
             assert cv2.imwrite(str(mask_dir / f"frame_{frame_index:04d}.png"), mask)
@@ -79,7 +75,6 @@ def _rows(
                 start_seconds=float((row_index - 1) * 4),
                 end_seconds=float((row_index - 1) * 4 + 3),
                 phase_direction=1 if row_index == 1 else -1,
-                rgba_dir=rgba_dir,
                 mask_dir=mask_dir,
                 original_dir=original_dir,
             )
@@ -152,6 +147,20 @@ def test_export_writes_only_frontend_assets_and_cleans_mask_noise(tmp_path: Path
     ) == ["images/row_01/frame_0001.webp", "images/row_01/frame_0002.webp", "images/row_01/frame_0003.webp", "images/row_02/frame_0001.webp", "images/row_02/frame_0002.webp", "images/row_02/frame_0003.webp", "manifest.json"]
     assert result.validation["frames"][0]["mask_cleanup"]["removed_area"] == 1
     image = Image.open(result.output_dir / manifest["image_list_grid"][0]).convert("RGBA")
+    assert image.getchannel("A").getextrema() == (0, 255)
+
+
+def test_export_builds_segmented_grid_from_original_frames_and_masks(tmp_path: Path):
+    rows = _rows(tmp_path / "input")
+
+    result = export_viewer_grid(
+        rows,
+        tmp_path / "publish",
+        _config(tmp_path, row_count=2, row_directions=(1, -1)),
+        fingerprint="mask-only",
+    )
+
+    image = Image.open(result.output_dir / "images/row_01/frame_0001.webp").convert("RGBA")
     assert image.getchannel("A").getextrema() == (0, 255)
 
 
