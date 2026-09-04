@@ -71,6 +71,28 @@ class FakeRepository:
         start = (page - 1) * per_page
         return deepcopy(rows[start : start + per_page]), len(rows)
 
+    async def summarize_failure_types(self, task_id, *, limit=3):
+        rows = self.failures.get(task_id, [])
+        order = []
+        counts = {}
+        samples = {}
+        for row in rows:
+            key = (row["error_type"], str(row.get("stage") or "unknown"))
+            if key not in counts:
+                order.append(key)
+                samples[key] = row.get("error_message")
+            counts[key] = counts.get(key, 0) + 1
+        ordered = sorted(order, key=lambda key: (-counts[key], key[0]))
+        return [
+            {
+                "error_type": error_type,
+                "stage": stage,
+                "count": counts[(error_type, stage)],
+                "sample_message": samples[(error_type, stage)],
+            }
+            for error_type, stage in ordered[:limit]
+        ]
+
 
 class FakeService:
     def __init__(self):
@@ -192,6 +214,59 @@ def test_manager_marks_any_index_failure_as_failed():
         assert completed["status"] == "failed"
         assert completed["fail_count"] == 1
         assert repository.failures[task["task_id"]][0]["history_id"] == 8
+
+    asyncio.run(scenario())
+
+
+def test_manager_get_exposes_failure_types_summary_in_task_error_message():
+    from csrcqsf.modules.railway_parts.services.inquiry_text_index_task_manager import (
+        InquiryTextIndexTaskManager,
+    )
+
+    async def scenario():
+        repository = FakeRepository()
+        manager = InquiryTextIndexTaskManager(repository=repository, service=FakeService())
+        task = await manager.enqueue_full()
+        repository.records[task["task_id"]].update(
+            status="failed",
+            fail_count=3,
+            error_message="3 条询码语义索引失败，请查看失败明细",
+        )
+        repository.failures[task["task_id"]] = [
+            {
+                "history_id": 8,
+                "inquiry_id": "1008",
+                "item_id": 80,
+                "stage": "embedding_or_upsert",
+                "error_type": "RuntimeError",
+                "error_message": "BGE-M3 model service unavailable",
+            },
+            {
+                "history_id": 9,
+                "inquiry_id": "1009",
+                "item_id": 81,
+                "stage": "embedding_or_upsert",
+                "error_type": "RuntimeError",
+                "error_message": "BGE-M3 model service unavailable",
+            },
+            {
+                "history_id": 10,
+                "inquiry_id": "1010",
+                "item_id": 82,
+                "stage": "embedding_or_upsert",
+                "error_type": "TimeoutError",
+                "error_message": "request timed out",
+            },
+        ]
+
+        detail = await manager.get(task["task_id"])
+
+        assert detail["error_message"] == (
+            "3 条询码语义索引失败："
+            "RuntimeError×2（阶段 embedding_or_upsert，示例：BGE-M3 model service unavailable）；"
+            "TimeoutError×1（阶段 embedding_or_upsert，示例：request timed out）。"
+            "完整明细请查看失败明细接口"
+        )
 
     asyncio.run(scenario())
 

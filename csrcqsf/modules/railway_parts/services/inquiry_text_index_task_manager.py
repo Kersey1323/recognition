@@ -29,6 +29,62 @@ PROGRESS_FIELDS = (
 )
 
 
+_SAMPLE_MESSAGE_LIMIT = 240
+
+
+def _truncate_sample(message: Any) -> str:
+    text = str(message or "").strip()
+    if len(text) > _SAMPLE_MESSAGE_LIMIT:
+        text = f"{text[: _SAMPLE_MESSAGE_LIMIT]}..."
+    return text
+
+
+def _groups_from_failure_details(failure_details: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把内存中的失败明细按 (error_type, stage) 聚合成 TOP-N 摘要组。"""
+    order: list[tuple[str, str]] = []
+    counts: dict[tuple[str, str], int] = {}
+    samples: dict[tuple[str, str], Any] = {}
+    for failure in failure_details:
+        key = (
+            str(failure.get("error_type") or "Exception"),
+            str(failure.get("stage") or "unknown"),
+        )
+        if key not in counts:
+            order.append(key)
+            samples[key] = failure.get("error_message")
+        counts[key] = counts.get(key, 0) + 1
+    return sorted(
+        (
+            {
+                "error_type": error_type,
+                "stage": stage,
+                "count": counts[(error_type, stage)],
+                "sample_message": samples.get((error_type, stage)),
+            }
+            for error_type, stage in order
+        ),
+        key=lambda group: (-int(group["count"]), str(group["error_type"])),
+    )[:3]
+
+
+def _compose_failure_summary(fail_count: int, groups: list[dict[str, Any]]) -> str:
+    """生成可直接展示的失败原因摘要：TOP-N 异常类型 × 条数 + 示例消息。"""
+    summary = f"{fail_count} 条询码语义索引失败"
+    if not groups:
+        return f"{summary}，请查看失败明细"
+    parts: list[str] = []
+    for group in groups:
+        error_type = str(group.get("error_type") or "Exception")
+        stage = str(group.get("stage") or "unknown")
+        count = int(group.get("count") or 0)
+        sample = _truncate_sample(group.get("sample_message"))
+        text = f"{error_type}×{count}（阶段 {stage}"
+        if sample:
+            text += f"，示例：{sample}"
+        parts.append(f"{text}）")
+    return f"{summary}：{'；'.join(parts)}。完整明细请查看失败明细接口"
+
+
 def _decorate(record: dict[str, Any] | None) -> dict[str, Any] | None:
     if record is None:
         return None
@@ -180,6 +236,15 @@ class InquiryTextIndexTaskManager:
                 for field in PROGRESS_FIELDS
                 if field in result
             }
+            # 任务级 error_message 直接呈现 TOP-N 失败原因，联调无需翻看海量明细。
+            failure_groups = _groups_from_failure_details(
+                list(result.get("failure_details") or [])
+            )
+            if fail_count and not failure_groups:
+                failure_groups = await self.repository.summarize_failure_types(
+                    task_id,
+                    limit=3,
+                )
             values.update(
                 status="failed" if fail_count else "success",
                 progress=100,
@@ -187,7 +252,7 @@ class InquiryTextIndexTaskManager:
                 heartbeat_at=datetime.now(),
                 completed_at=datetime.now(),
                 error_message=(
-                    f"{fail_count} 条询码语义索引失败，请查看失败明细"
+                    _compose_failure_summary(fail_count, failure_groups)
                     if fail_count
                     else None
                 ),
@@ -222,7 +287,18 @@ class InquiryTextIndexTaskManager:
             )
 
     async def get(self, task_id: str) -> dict[str, Any] | None:
-        return _decorate(await self.repository.get(task_id))
+        record = await self.repository.get(task_id)
+        if record is None:
+            return None
+        if record.get("status") == "failed" and int(record.get("fail_count") or 0) > 0:
+            # 任务详情实时按异常类型聚合失败原因（对旧任务的通用文案同样生效），
+            # 完整失败样本仍通过 failures/list 分页查询。
+            groups = await self.repository.summarize_failure_types(task_id, limit=3)
+            record["error_message"] = _compose_failure_summary(
+                int(record["fail_count"]),
+                groups,
+            )
+        return _decorate(record)
 
     async def list(self, **filters) -> tuple[list[dict[str, Any]], int]:
         records, total = await self.repository.list(**filters)

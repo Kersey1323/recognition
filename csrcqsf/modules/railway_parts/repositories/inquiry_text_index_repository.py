@@ -175,6 +175,42 @@ class InquiryTextIndexTaskRepository:
             )
             return [_record_to_dict(record) for record in records], total
 
+    async def summarize_failure_types(
+        self,
+        task_id: str,
+        *,
+        limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        """按异常类型聚合失败明细，返回 TOP-N 类型及其条数与一条示例消息。
+
+        用于把“为什么失败”直接呈现到任务 error_message，避免翻看海量明细。
+        """
+        async with SessionLocal() as session:
+            rows = await session.execute(
+                select(
+                    InquiryTextIndexFailure.error_type,
+                    InquiryTextIndexFailure.stage,
+                    func.count().label("count"),
+                    func.min(InquiryTextIndexFailure.error_message).label("sample_message"),
+                )
+                .where(InquiryTextIndexFailure.task_id == task_id)
+                .group_by(
+                    InquiryTextIndexFailure.error_type,
+                    InquiryTextIndexFailure.stage,
+                )
+                .order_by(func.count().desc(), InquiryTextIndexFailure.error_type.asc())
+                .limit(max(1, int(limit)))
+            )
+            return [
+                {
+                    "error_type": str(row.error_type),
+                    "stage": str(row.stage),
+                    "count": int(row.count),
+                    "sample_message": row.sample_message,
+                }
+                for row in rows
+            ]
+
     async def mark_missing_active_task_interrupted(
         self,
         task_id: str,
