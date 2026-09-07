@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 from fastapi import FastAPI, Request
 from fastapi.openapi.utils import get_openapi
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -14,19 +16,35 @@ from .service import AuthService
 
 
 class GlobalAuthMiddleware(BaseHTTPMiddleware):
-    """在业务路由执行前统一校验 SGO Bearer Token。"""
+    """统一校验 SGO Token，文件代理额外兼容受限的查询参数入口。"""
 
-    def __init__(self, app, *, settings: AuthSettings, auth_service: AuthService | None):
+    def __init__(
+        self,
+        app,
+        *,
+        settings: AuthSettings,
+        auth_service: AuthService | None,
+        asset_query_token_prefixes: tuple[str, ...] = (),
+    ):
         super().__init__(app)
         self._settings = settings
         self._auth_service = auth_service
+        self._asset_query_token_prefixes = asset_query_token_prefixes
 
     async def dispatch(self, request: Request, call_next):
         if not self._settings.enabled or self._is_public_request(request):
             return await call_next(request)
 
         try:
-            token = parse_bearer_token(request.headers.get("Authorization"))
+            supports_query_token = self._supports_asset_query_token(request)
+            try:
+                token = self._read_request_token(
+                    request,
+                    supports_query_token=supports_query_token,
+                )
+            finally:
+                if supports_query_token:
+                    self._remove_asset_query_token(request)
             if self._auth_service is None:
                 raise AuthError(
                     500,
@@ -51,6 +69,45 @@ class GlobalAuthMiddleware(BaseHTTPMiddleware):
                 request_id=getattr(request.state, "request_id", None),
             )
         return await call_next(request)
+
+    def _read_request_token(
+        self,
+        request: Request,
+        *,
+        supports_query_token: bool,
+    ) -> str:
+        authorization = request.headers.get("Authorization")
+        if authorization is not None and authorization.strip() != "":
+            # 同时传入两种凭证时以请求头为准，避免攻击者用 Query 覆盖用户身份。
+            return parse_bearer_token(authorization)
+
+        if not supports_query_token:
+            return parse_bearer_token(authorization)
+
+        query_tokens = request.query_params.getlist("token")
+        if len(query_tokens) > 1:
+            raise AuthError(401, "AUTH_TOKEN_MALFORMED", "登录信息异常，请重新登录")
+        if not query_tokens or query_tokens[0].strip() == "":
+            return parse_bearer_token(None)
+        return query_tokens[0].strip()
+
+    @staticmethod
+    def _remove_asset_query_token(request: Request) -> None:
+        # SGO Token 只用于本层鉴权，不能继续进入文件路由、MinIO 或应用访问日志。
+        sanitized_items = [
+            (key, value)
+            for key, value in request.query_params.multi_items()
+            if key != "token"
+        ]
+        request.scope["query_string"] = urlencode(sanitized_items).encode("utf-8")
+
+    def _supports_asset_query_token(self, request: Request) -> bool:
+        if request.method.upper() not in {"GET", "HEAD"}:
+            return False
+        return any(
+            request.url.path.startswith(prefix)
+            for prefix in self._asset_query_token_prefixes
+        )
 
     def _is_public_request(self, request: Request) -> bool:
         if request.method.upper() == "OPTIONS" or request.url.path == "/health":

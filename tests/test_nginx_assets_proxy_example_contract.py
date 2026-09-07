@@ -14,6 +14,7 @@ def test_nginx_assets_proxy_example_contains_required_locations():
     assert "bfr-search-history-files" in text
     assert "location ^~ /recognition_oss/" in text
     assert "internal;" in text
+    assert 'set $args "";' in text
     assert "proxy_pass http://host.docker.internal:65432;" in text
     assert "proxy_pass http://192.168.100.2:9000/;" in text
     assert "proxy_set_header Authorization $http_authorization;" in text

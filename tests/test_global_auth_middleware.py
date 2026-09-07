@@ -54,10 +54,19 @@ def _app(service, *, settings=None):
     async def business_options():
         return {"status": "ok"}
 
+    @app.get("/bfr-ai-files/{asset_path:path}")
+    async def asset(asset_path: str, request: Request):
+        return {
+            "asset_path": asset_path,
+            "account": request.state.user.account,
+            "query": dict(request.query_params),
+        }
+
     app.add_middleware(
         GlobalAuthMiddleware,
         settings=settings or _settings(),
         auth_service=service,
+        asset_query_token_prefixes=("/bfr-ai-files/",),
     )
     return app
 
@@ -114,3 +123,76 @@ def test_development_can_expose_docs_without_token():
     )
 
     assert response.status_code == 200
+
+
+def test_asset_get_accepts_query_token_but_business_route_does_not():
+    service = _AuthService()
+    app = _app(service)
+
+    asset_response = asyncio.run(
+        _request(
+            app,
+            "GET",
+            "/bfr-ai-files/demo.jpg?width=150&token=query-token",
+        )
+    )
+    business_response = asyncio.run(
+        _request(app, "GET", "/business?token=query-token")
+    )
+
+    assert asset_response.status_code == 200
+    assert asset_response.json() == {
+        "asset_path": "demo.jpg",
+        "account": "tester",
+        "query": {"width": "150"},
+    }
+    assert business_response.status_code == 401
+    assert business_response.json()["code"] == "AUTH_TOKEN_MISSING"
+    assert service.tokens == ["query-token"]
+
+
+def test_asset_authorization_header_takes_precedence_over_query_token():
+    service = _AuthService()
+    app = _app(service)
+
+    response = asyncio.run(
+        _request(
+            app,
+            "GET",
+            "/bfr-ai-files/demo.jpg?token=query-token",
+            headers={"Authorization": "Bearer header-token"},
+        )
+    )
+
+    assert response.status_code == 200
+    assert service.tokens == ["header-token"]
+
+
+def test_asset_rejects_ambiguous_query_tokens():
+    service = _AuthService()
+    app = _app(service)
+
+    response = asyncio.run(
+        _request(
+            app,
+            "GET",
+            "/bfr-ai-files/demo.jpg?token=first&token=second",
+        )
+    )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "AUTH_TOKEN_MALFORMED"
+    assert service.tokens == []
+
+
+def test_asset_query_token_is_not_accepted_for_write_methods():
+    service = _AuthService()
+    app = _app(service)
+
+    response = asyncio.run(
+        _request(app, "POST", "/bfr-ai-files/demo.jpg?token=query-token")
+    )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "AUTH_TOKEN_MISSING"
+    assert service.tokens == []

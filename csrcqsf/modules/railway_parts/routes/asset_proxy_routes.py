@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Query, Response
 from fastapi.responses import JSONResponse
 
 from csrcqsf.modules.railway_parts.services.assets_service import (
@@ -37,6 +37,13 @@ def _register_bucket_download_route(bucket: str) -> None:
     async def endpoint(
         asset_path: str,
         response: Response,
+        token: str | None = Query(
+            default=None,
+            description=(
+                "文件代理兼容凭证。浏览器原生图片、视频或模型加载无法添加 "
+                "Authorization 请求头时传入 SGO Token；普通业务接口不支持该参数。"
+            ),
+        ),
     ):
         return await download_bucket_asset(
             bucket=bucket,
@@ -45,13 +52,17 @@ def _register_bucket_download_route(bucket: str) -> None:
         )
 
     endpoint.__name__ = f"download_asset_{bucket.replace('-', '_')}"
-    asset_proxy_router.add_api_route(
-        f"/{bucket}/{{asset_path:path}}",
-        endpoint,
-        methods=["GET", "HEAD"],
-        tags=["文件代理"],
-        summary=f"文件下载代理入口: {bucket}",
-    )
+    for method in ("GET", "HEAD"):
+        asset_proxy_router.add_api_route(
+            f"/{bucket}/{{asset_path:path}}",
+            endpoint,
+            methods=[method],
+            operation_id=(
+                f"download_asset_{bucket.replace('-', '_')}_{method.lower()}"
+            ),
+            tags=["文件代理"],
+            summary=f"文件下载代理入口: {bucket}",
+        )
 
 
 for _bucket in SUPPORTED_ASSET_BUCKETS:

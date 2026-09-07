@@ -30,6 +30,7 @@ from csrcqsf.modules.image.services import SegmentBiz
 from csrcqsf.modules.railway_parts.routes import asset_proxy_router, parts_router
 from csrcqsf.modules.railway_parts.services.auto_index_scheduler import auto_index_scheduler
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
+from csrcqsf.modules.railway_parts.utils.assets import SUPPORTED_ASSET_BUCKETS
 from csrcqsf.modules.sgo.routes import sgo_router
 from csrcqsf.infra.db.main_db import db_migrate
 from csrcqsf.models.orm.index_rebuild_task import recover_index_rebuild_tasks
@@ -242,6 +243,9 @@ app.add_middleware(
     GlobalAuthMiddleware,
     settings=auth_settings,
     auth_service=auth_service,
+    asset_query_token_prefixes=tuple(
+        f"{API_PREFIX}/{bucket}/" for bucket in SUPPORTED_ASSET_BUCKETS
+    ),
 )
 
 # CORS 位于最外层，使浏览器能够读取鉴权失败响应并完成 OPTIONS 预检。

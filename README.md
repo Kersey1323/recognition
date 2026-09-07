@@ -270,9 +270,11 @@ bash scripts/deployment/run_assets_proxy_debug.sh
 
 - 前端只访问主业务返回的 `bucket/object`
 - 下载时直接拼接代理域名，例如 `http://127.0.0.1:8080/bfr-3d-videos/raw-videos/...`
-- 主业务全局校验 Bearer Token 后，文件代理返回 `X-Accel-Redirect: /recognition_oss/<bucket>/<object>`
+- 文件请求优先携带 Bearer Token；原生图片和 Viewer360 可使用 `?token=<SGO_TOKEN>`
+- 主业务全局校验 Token 后，文件代理返回 `X-Accel-Redirect: /recognition_oss/<bucket>/<object>`
 - Nginx 配置 `location ^~ /recognition_oss { internal; proxy_pass http://<minio>; }`
 - Nginx 再把 `/bfr-3d-videos/`、`/bfr-reconstruction-files/`、`/bfr-search-history-files/` 代理到主业务服务
+- Nginx 文件访问日志不得记录查询字符串，避免原始 Token 落盘
 
 ## 说明
 
