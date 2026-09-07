@@ -148,6 +148,21 @@ def _fingerprint(task: dict[str, Any], config: Viewer360Config) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def build_model_request_id(task: dict[str, Any]) -> str:
+    """为同一 Viewer360 任务的每次执行生成稳定且互不冲突的模型请求 ID。"""
+    task_id = str(task["task_id"])
+    started_at = task.get("started_at")
+    if started_at is None:
+        return task_id
+    marker = (
+        started_at.isoformat()
+        if hasattr(started_at, "isoformat")
+        else str(started_at)
+    )
+    attempt_digest = hashlib.sha256(marker.encode("utf-8")).hexdigest()[:16]
+    return f"{task_id}:{attempt_digest}"
+
+
 def _validate_source_manifest(
     manifest: Any,
     *,
@@ -251,7 +266,7 @@ class Viewer360Pipeline:
     async def _prepare_row(
         self,
         *,
-        task_id: str,
+        model_request_id: str,
         video_path: Path,
         segment: ViewerSegment,
         row_dir: Path,
@@ -286,7 +301,7 @@ class Viewer360Pipeline:
         try:
             await self.model_client.segment_video_frames(
                 frames,
-                request_id=task_id,
+                request_id=model_request_id,
                 angle_id=f"angle_{segment.row_index:02d}",
                 destination=result_zip,
                 timeout_seconds=self.model_timeout_seconds,
@@ -366,6 +381,7 @@ class Viewer360Pipeline:
         is_cancelled: CancelCheck | None = None,
     ) -> Viewer360PipelineResult:
         task_id = str(task["task_id"])
+        model_request_id = build_model_request_id(task)
         item_id = int(task["item_id"])
         retry_mode = task.get("retry_mode") or "none"
         fingerprint = _fingerprint(task, self.config)
@@ -438,7 +454,9 @@ class Viewer360Pipeline:
             state["status"] = "segmenting"
             try:
                 row = await self._prepare_row(
-                    task_id=task_id,
+                    # 前端任务 ID 在重试时保持不变，但模型幂等键按本次执行隔离，
+                    # 允许重新抽帧后的 ZIP 内容与上一次不同。
+                    model_request_id=model_request_id,
                     video_path=video_path,
                     segment=segment,
                     row_dir=work_dir / "rows" / f"row_{segment.row_index:02d}",

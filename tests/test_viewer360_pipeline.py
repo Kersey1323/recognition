@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import replace
+from datetime import datetime
 import json
 from pathlib import Path
 from zipfile import ZipFile
@@ -19,6 +20,7 @@ from csrcqsf.modules.railway_parts.services.viewer360_grid import (
 from csrcqsf.modules.railway_parts.services.viewer360_pipeline import (
     Viewer360Pipeline,
     Viewer360PipelineError,
+    build_model_request_id,
     extract_video_segment,
 )
 
@@ -110,6 +112,25 @@ def _task(task_id="task-new", retry_mode="none", rows=None):
         "retry_mode": retry_mode,
         "retry_rows_json": rows,
     }
+
+
+def test_model_request_id_changes_for_each_execution_of_the_same_task():
+    first = _task(task_id="task-retry")
+    first["started_at"] = datetime(2026, 9, 4, 10, 0, 0)
+    second = _task(
+        task_id="task-retry",
+        retry_mode="resegment_rows",
+        rows=[1, 2, 3, 4],
+    )
+    second["started_at"] = datetime(2026, 9, 4, 10, 5, 0)
+
+    first_request_id = build_model_request_id(first)
+    second_request_id = build_model_request_id(second)
+
+    assert first_request_id.startswith("task-retry:")
+    assert second_request_id.startswith("task-retry:")
+    assert first_request_id != second_request_id
+    assert build_model_request_id(dict(first)) == first_request_id
 
 
 def test_extract_video_segment_derives_fps_from_target_frame_count(
