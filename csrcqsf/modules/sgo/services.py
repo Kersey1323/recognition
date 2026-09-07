@@ -212,7 +212,7 @@ class SGOBiz:
     """负责从 SGO 同步配件、图片和询码记录到 Recognition 自有存储。"""
     token = ""
     _token_error_detail = ""
-    _api_url = os.getenv("SGO_API_URL", "https://sgo.csrcqsf.com")
+    _api_url = os.getenv("SGO_API_URL", "https://sgo.4dlp.com.cn")
     _tenant_id = os.getenv("SGO_TENANT_ID", "1463844437338755072")
     _username = os.getenv("SGO_USERNAME", "wrps")
     _password = os.getenv("SGO_PASSWORD", "REMOVED_CREDENTIAL")

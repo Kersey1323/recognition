@@ -172,6 +172,19 @@ def test_global_auth_templates_use_safe_environment_specific_defaults():
     assert deployment_values["AUTH_PROVIDER"] == "sgo"
 
 
+def test_env_templates_use_current_sgo_domain():
+    example_values = _parse_env_file(Path(".env.example"))
+    deployment_values = _parse_env_file(Path(".env.deployment"))
+
+    expected_api_url = "https://sgo.4dlp.com.cn"
+    expected_auth_url = f"{expected_api_url}/uc/sso/auth"
+    assert example_values["SGO_API_URL"] == expected_api_url
+    assert example_values["SGO_SSO_AUTH_URL"] == expected_auth_url
+    assert deployment_values["SGO_API_URL"] == expected_api_url
+    assert deployment_values["SGO_SSO_AUTH_URL"] == expected_auth_url
+    assert deployment_values["AUTH_ALLOWED_ORIGINS"] == expected_api_url
+
+
 def test_vector_env_config_no_longer_reads_pg_or_model_dir_contract():
     text = Path(
         "csrcqsf/modules/railway_parts/vector_search/config/env_config.py"

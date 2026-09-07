@@ -31,7 +31,7 @@ class AuthService:
         jwt_exp = _read_unverified_jwt_exp(token)
         if jwt_exp is not None and jwt_exp <= time.time():
             await self._cache_invalid(token, "AUTH_TOKEN_EXPIRED")
-            raise AuthError(401, "AUTH_TOKEN_EXPIRED", "SGO 登录已过期，请重新登录")
+            raise AuthError(401, "AUTH_TOKEN_EXPIRED", "会话已过期，请重新登录")
 
         cached = await self._cache.get(token) if self._cache is not None else None
         if cached is not None and cached.state == "valid" and cached.principal:
@@ -39,8 +39,8 @@ class AuthService:
         if cached is not None and cached.state == "invalid":
             code = cached.error_code or "AUTH_TOKEN_INVALID"
             if code == "AUTH_TOKEN_EXPIRED":
-                raise AuthError(401, code, "SGO 登录已过期，请重新登录")
-            raise AuthError(401, code, "SGO 登录已失效，请重新登录")
+                raise AuthError(401, code, "会话已过期，请重新登录")
+            raise AuthError(401, code, "登录状态已失效，请重新登录")
 
         try:
             principal = await self._provider.verify(token)

@@ -20,11 +20,15 @@ class AuthError(Exception):
 def parse_bearer_token(authorization: str | None) -> str:
     """只接受标准 Bearer 请求头，避免 Token 出现第二种传递入口。"""
     if authorization is None or authorization.strip() == "":
-        raise AuthError(401, "AUTH_TOKEN_MISSING", "缺少访问 Token")
+        raise AuthError(
+            401,
+            "AUTH_TOKEN_MISSING",
+            "未获取到登录信息，请从 SGO 重新进入识别平台",
+        )
 
     parts = authorization.strip().split()
     if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1]:
-        raise AuthError(401, "AUTH_TOKEN_MALFORMED", "访问 Token 格式错误")
+        raise AuthError(401, "AUTH_TOKEN_MALFORMED", "登录信息异常，请重新登录")
     return parts[1]
 
 

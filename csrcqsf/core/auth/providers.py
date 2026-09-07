@@ -32,7 +32,7 @@ class MockAuthProvider:
 
     async def verify(self, token: str) -> AuthPrincipal:
         if not hmac.compare_digest(token, self._expected_token):
-            raise AuthError(401, "AUTH_TOKEN_INVALID", "SGO 登录已失效，请重新登录")
+            raise AuthError(401, "AUTH_TOKEN_INVALID", "登录状态已失效，请重新登录")
         return AuthPrincipal(
             user_id="local-debug",
             account="local-debug",
@@ -75,13 +75,13 @@ class SgoAuthProvider:
             raise AuthError(
                 503,
                 "AUTH_SERVICE_TIMEOUT",
-                "SGO 认证服务暂时不可用",
+                "登录验证服务响应超时，请稍后重试",
             ) from exc
         except aiohttp.ClientError as exc:
             raise AuthError(
                 503,
                 "AUTH_SERVICE_UNAVAILABLE",
-                "SGO 认证服务暂时不可用",
+                "登录验证服务暂时不可用，请稍后重试",
             ) from exc
 
         try:
@@ -90,14 +90,14 @@ class SgoAuthProvider:
             raise AuthError(
                 503,
                 "AUTH_SERVICE_UNAVAILABLE",
-                "SGO 认证服务暂时不可用",
+                "登录验证服务暂时不可用，请稍后重试",
             ) from exc
 
         if not isinstance(payload, dict):
             raise AuthError(
                 503,
                 "AUTH_SERVICE_UNAVAILABLE",
-                "SGO 认证服务暂时不可用",
+                "登录验证服务暂时不可用，请稍后重试",
             )
 
         if status == 200 and payload.get("loginStatus") is True:
@@ -106,7 +106,7 @@ class SgoAuthProvider:
                 raise AuthError(
                     503,
                     "AUTH_SERVICE_UNAVAILABLE",
-                    "SGO 认证服务暂时不可用",
+                    "登录验证服务暂时不可用，请稍后重试",
                 )
             attrs = payload.get("userAttrs")
             attrs = attrs if isinstance(attrs, dict) else {}
@@ -120,7 +120,7 @@ class SgoAuthProvider:
             )
 
         if status == 200 and payload.get("loginStatus") is False:
-            raise AuthError(401, "AUTH_TOKEN_INVALID", "SGO 登录已失效，请重新登录")
+            raise AuthError(401, "AUTH_TOKEN_INVALID", "登录状态已失效，请重新登录")
 
         if status == 500 and payload.get("state") is False:
             self._raise_sgo_failure(str(payload.get("message") or ""))
@@ -128,7 +128,7 @@ class SgoAuthProvider:
         raise AuthError(
             503,
             "AUTH_SERVICE_UNAVAILABLE",
-            "SGO 认证服务暂时不可用",
+            "登录验证服务暂时不可用，请稍后重试",
         )
 
     @staticmethod
@@ -139,10 +139,14 @@ class SgoAuthProvider:
         if any(name in normalized for name in parameter_names) and any(
             marker in normalized for marker in missing_markers
         ):
-            raise AuthError(500, "AUTH_INTERNAL_ERROR", "服务内部错误")
+            raise AuthError(
+                500,
+                "AUTH_INTERNAL_ERROR",
+                "系统暂时无法完成登录验证，请稍后重试",
+            )
 
         if "expired" in normalized or "过期" in normalized:
-            raise AuthError(401, "AUTH_TOKEN_EXPIRED", "SGO 登录已过期，请重新登录")
+            raise AuthError(401, "AUTH_TOKEN_EXPIRED", "会话已过期，请重新登录")
 
         invalid_markers = (
             "token",
@@ -156,10 +160,10 @@ class SgoAuthProvider:
             "解析",
         )
         if any(marker in normalized for marker in invalid_markers):
-            raise AuthError(401, "AUTH_TOKEN_INVALID", "SGO 登录已失效，请重新登录")
+            raise AuthError(401, "AUTH_TOKEN_INVALID", "登录状态已失效，请重新登录")
 
         raise AuthError(
             503,
             "AUTH_SERVICE_UNAVAILABLE",
-            "SGO 认证服务暂时不可用",
+            "登录验证服务暂时不可用，请稍后重试",
         )

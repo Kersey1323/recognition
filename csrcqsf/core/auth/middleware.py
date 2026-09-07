@@ -28,7 +28,11 @@ class GlobalAuthMiddleware(BaseHTTPMiddleware):
         try:
             token = parse_bearer_token(request.headers.get("Authorization"))
             if self._auth_service is None:
-                raise AuthError(500, "AUTH_INTERNAL_ERROR", "服务内部错误")
+                raise AuthError(
+                    500,
+                    "AUTH_INTERNAL_ERROR",
+                    "系统暂时无法完成登录验证，请稍后重试",
+                )
             request.state.user = await self._auth_service.authenticate(token)
         except AuthError as exc:
             return auth_error_response(
@@ -39,7 +43,11 @@ class GlobalAuthMiddleware(BaseHTTPMiddleware):
             # 未知异常只记录类型，不记录请求头和原始 Token。
             logger.exception("全局 Token 鉴权发生未知异常: error_type={}", type(exc).__name__)
             return auth_error_response(
-                AuthError(500, "AUTH_INTERNAL_ERROR", "服务内部错误"),
+                AuthError(
+                    500,
+                    "AUTH_INTERNAL_ERROR",
+                    "系统暂时无法完成登录验证，请稍后重试",
+                ),
                 request_id=getattr(request.state, "request_id", None),
             )
         return await call_next(request)
