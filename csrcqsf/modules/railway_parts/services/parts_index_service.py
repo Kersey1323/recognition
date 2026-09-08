@@ -89,20 +89,16 @@ async def statistics(cls, runtime=None):
     runtime = runtime or _runtime()
     res = runtime.IndexStatisticsRes()
     async with runtime.SessionLocal() as session:
-        res.total_item_num = await runtime.async_get_count(session, runtime.select(runtime.Items))
+        # 索引任务会持续回写配件级完成状态，首页统计直接聚合主表，避免全量扫描 Milvus。
+        statistics = await runtime.Items.get_v2_index_statistics(session)
 
-    state_manager = runtime._get_milvus_state_manager_v2_cls()()
-    snapshot = state_manager.get_statistics_snapshot()
-    item_state_snapshot = state_manager.get_item_index_state_snapshot()
-
-    res.total_image_index = int(snapshot.get("siglip_count", 0) or 0)
-    res.total_feature_index = int(snapshot.get("dinov2_count", 0) or 0)
+    res.total_item_num = statistics["total_item_num"]
+    res.total_indexed_item_num = statistics["total_indexed_item_num"]
+    completed_image_index_num = statistics["total_indexed_image_num"]
+    # 每张完整索引图片分别生成一条 SigLIP 和一条 DINOv2 记录。
+    res.total_image_index = completed_image_index_num
+    res.total_feature_index = completed_image_index_num
     res.total_index = res.total_image_index + res.total_feature_index
-    res.total_indexed_item_num = sum(
-        1
-        for item_state in item_state_snapshot.values()
-        if int(item_state.get("has_v2_index", 0) or 0) == 1
-    )
     res.recognition_number = 0
     res.corrrect_recognition_number = 0
     res.recognition_ration = 0
@@ -512,15 +508,15 @@ async def sync_all_v2_index_state(cls, runtime=None) -> dict:
 async def sync_item_v2_index_state(cls, item_id: int, state_manager=None, runtime=None):
     runtime = runtime or _runtime()
     manager = state_manager or runtime._get_milvus_state_manager_v2_cls()()
-    snapshot = manager.get_item_index_state_snapshot()
-    state = snapshot.get(item_id, {"has_v2_index": 0, "v2_indexed_image_num": 0})
+    # 单配件构建完成后只核对当前配件，避免每处理一条都遍历整个向量库。
+    indexed_images = manager.get_indexed_images_by_item_id(item_id)
     updated_at = runtime.datetime.now()
     async with runtime.SessionLocal() as session:
         await runtime.Items.update_v2_index_state(
             session=session,
             item_id=item_id,
-            has_v2_index=bool(state["has_v2_index"]),
-            v2_indexed_image_num=state["v2_indexed_image_num"],
+            has_v2_index=bool(indexed_images),
+            v2_indexed_image_num=len(indexed_images),
             updated_at=updated_at,
         )
         await session.commit()

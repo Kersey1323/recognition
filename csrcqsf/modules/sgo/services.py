@@ -42,9 +42,6 @@ from csrcqsf.models.orm.sgo_external import (
     SgoMaterielFileImg,
     SgoMaterielMasterplate,
 )
-from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import (
-    MilvusStateManagerV2,
-)
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
 from csrcqsf.modules.sgo.photo_parser import extract_photo_raw_urls
 from csrcqsf.modules.sgo.schemas import ImageSourceType
@@ -1370,19 +1367,11 @@ class SGOBiz:
         train_no: str | None = None,
         car_num: str | None = None,
     ):
-        item_id_list: list[int] = []
         item_code_list: list[str] = []
         if has_indexed in (1, 2):
-            # 索引状态属于整库条件，不能只用当前页的索引配件过滤询码记录。
-            item_id_list = MilvusStateManagerV2().get_all_indexed_item_id_list(
-                page=-1,
-                limit=0,
-            )
-
-        if item_id_list:
+            # 配件级索引状态在构建完成后持续回写主表，询码筛选无需遍历向量库。
             async with SessionLocal() as session:
-                async for item in Items.get_item_by_id_list(session, item_id_list):
-                    item_code_list.append(item.item_code)
+                item_code_list = await Items.list_v2_indexed_item_codes(session)
 
         async with sgo_sessionLocal() as session:
             inquery_id_list: list[str] = []

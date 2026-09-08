@@ -100,13 +100,19 @@ def test_get_item_detail_uses_v2_indexed_images_and_returns_image_url():
         size_str=None,
     )
     fake_images = [
-        SimpleNamespace(id=9001, image_url="bfr-ai-files/a.jpg", image_source="INQUERY"),
-        SimpleNamespace(id=9002, image_url="bfr-ai-files/b.jpg", image_source="INQUERY"),
+        SimpleNamespace(
+            id=9001,
+            image_url="bfr-ai-files/a.jpg",
+            image_source="INQUERY",
+            is_indexed=1,
+        ),
+        SimpleNamespace(
+            id=9002,
+            image_url="bfr-ai-files/b.jpg",
+            image_source="INQUERY",
+            is_indexed=0,
+        ),
     ]
-    fake_state_manager = MagicMock()
-    fake_state_manager.get_indexed_images_by_item_id.return_value = {
-        9001: "bfr-ai-files/a.jpg",
-    }
     fake_reconstruction_manager = SimpleNamespace(
         ensure_item_result_persisted=AsyncMock(),
     )
@@ -122,7 +128,7 @@ def test_get_item_detail_uses_v2_indexed_images_and_returns_image_url():
          patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
          patch.object(parts_module.SgoItemImages, "get_images", MagicMock(return_value=_async_iter(fake_images))), \
          patch.object(parts_module, "MilvusManager", SimpleNamespace(list_item_index=AsyncMock(return_value={}))), \
-         patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager), \
+         patch.object(parts_module, "MilvusStateManagerV2") as state_cls, \
          patch.object(parts_module, "date_to_str", side_effect=lambda _value: "2026-04-27 11:39:23"):
         res = asyncio.run(parts_module.RailwayPartsManager.get_item_detail(101))
 
@@ -135,6 +141,7 @@ def test_get_item_detail_uses_v2_indexed_images_and_returns_image_url():
     assert res.images[1].image_id == "9002"
     assert res.images[1].has_indexed == 0
     assert res.images[1].image_url == "bfr-ai-files/b.jpg"
+    state_cls.assert_not_called()
 
 
 def test_get_item_detail_prefers_segmented_image_url_for_index_panel():
@@ -155,7 +162,12 @@ def test_get_item_detail_prefers_segmented_image_url_for_index_panel():
         size_str=None,
     )
     fake_images = [
-        SimpleNamespace(id=9001, image_url="bfr-ai-files/source-a.jpg", image_source="INQUERY"),
+        SimpleNamespace(
+            id=9001,
+            image_url="bfr-ai-files/source-a.jpg",
+            image_source="INQUERY",
+            is_indexed=1,
+        ),
     ]
     fake_segmented_records = [
         SimpleNamespace(
@@ -164,10 +176,6 @@ def test_get_item_detail_prefers_segmented_image_url_for_index_panel():
             status="success",
         ),
     ]
-    fake_state_manager = MagicMock()
-    fake_state_manager.get_indexed_images_by_item_id.return_value = {
-        9001: "bfr-ai-files/source-a.jpg",
-    }
     fake_reconstruction_manager = SimpleNamespace(
         ensure_item_result_persisted=AsyncMock(),
     )
@@ -184,7 +192,7 @@ def test_get_item_detail_prefers_segmented_image_url_for_index_panel():
          patch.object(parts_module.SgoItemImages, "get_images", MagicMock(return_value=_async_iter(fake_images))), \
          patch.object(parts_module, "SegmentedImage", SimpleNamespace(list_by_item_id=AsyncMock(return_value=fake_segmented_records)), create=True), \
          patch.object(parts_module, "MilvusManager", SimpleNamespace(list_item_index=AsyncMock(return_value={}))), \
-         patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager), \
+         patch.object(parts_module, "MilvusStateManagerV2") as state_cls, \
          patch.object(parts_module, "date_to_str", side_effect=lambda _value: "2026-04-27 11:39:23"):
         res = asyncio.run(parts_module.RailwayPartsManager.get_item_detail(101))
 
@@ -192,6 +200,7 @@ def test_get_item_detail_prefers_segmented_image_url_for_index_panel():
     assert res.images_index_list[0].image_id == "9001"
     assert res.images_index_list[0].image_url == "bfr-ai-files/segmented/9001.jpg"
     assert res.images[0].image_url == "bfr-ai-files/source-a.jpg"
+    state_cls.assert_not_called()
 
 
 def test_get_item_detail_does_not_persist_reconstruction_result_during_read():
@@ -211,8 +220,6 @@ def test_get_item_detail_does_not_persist_reconstruction_result_during_read():
         time_updated=None,
         size_str=None,
     )
-    fake_state_manager = MagicMock()
-    fake_state_manager.get_indexed_images_by_item_id.return_value = {}
     fake_reconstruction_manager = SimpleNamespace(
         ensure_item_result_persisted=AsyncMock(),
     )
@@ -229,8 +236,9 @@ def test_get_item_detail_does_not_persist_reconstruction_result_during_read():
          patch.object(parts_module.SgoItemImages, "get_images", MagicMock(return_value=_async_iter([]))), \
          patch.object(parts_module, "SegmentedImage", SimpleNamespace(list_by_item_id=AsyncMock(return_value=[])), create=True), \
          patch.object(parts_module, "MilvusManager", SimpleNamespace(list_item_index=AsyncMock(return_value={}))), \
-         patch.object(parts_module, "MilvusStateManagerV2", return_value=fake_state_manager), \
+         patch.object(parts_module, "MilvusStateManagerV2") as state_cls, \
          patch.object(parts_module, "date_to_str", side_effect=lambda _value: "2026-04-27 11:39:23"):
         asyncio.run(parts_module.RailwayPartsManager.get_item_detail(101))
 
     fake_reconstruction_manager.ensure_item_result_persisted.assert_not_awaited()
+    state_cls.assert_not_called()

@@ -100,10 +100,14 @@ def test_sync_single_item_v2_index_state_clears_missing_item():
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module, "MilvusStateManagerV2") as manager_cls, \
          patch.object(parts_module.Items, "update_v2_index_state", AsyncMock()) as update_mock:
-        manager_cls.return_value.get_item_index_state_snapshot.return_value = {}
+        manager_cls.return_value.get_indexed_images_by_item_id.return_value = {}
         asyncio.run(parts_module.RailwayPartsManager.sync_item_v2_index_state(303))
 
-    update_mock.assert_awaited()
+    update_mock.assert_awaited_once()
+    assert update_mock.await_args.kwargs["has_v2_index"] is False
+    assert update_mock.await_args.kwargs["v2_indexed_image_num"] == 0
+    manager_cls.return_value.get_indexed_images_by_item_id.assert_called_once_with(303)
+    manager_cls.return_value.get_item_index_state_snapshot.assert_not_called()
     session.commit.assert_awaited()
 
 
@@ -111,8 +115,11 @@ def test_sync_single_item_v2_index_state_uses_injected_state_manager_when_provid
     parts_module = _import_railway_parts_manager()
     session = AsyncMock()
     fake_state_manager = MagicMock()
-    fake_state_manager.get_item_index_state_snapshot.return_value = {
-        303: {"has_v2_index": 1, "v2_indexed_image_num": 4}
+    fake_state_manager.get_indexed_images_by_item_id.return_value = {
+        9001: "bfr-ai-files/a.jpg",
+        9002: "bfr-ai-files/b.jpg",
+        9003: "bfr-ai-files/c.jpg",
+        9004: "bfr-ai-files/d.jpg",
     }
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
@@ -123,6 +130,9 @@ def test_sync_single_item_v2_index_state_uses_injected_state_manager_when_provid
             )
         )
 
-    update_mock.assert_awaited()
-    fake_state_manager.get_item_index_state_snapshot.assert_called_once_with()
+    update_mock.assert_awaited_once()
+    assert update_mock.await_args.kwargs["has_v2_index"] is True
+    assert update_mock.await_args.kwargs["v2_indexed_image_num"] == 4
+    fake_state_manager.get_indexed_images_by_item_id.assert_called_once_with(303)
+    fake_state_manager.get_item_index_state_snapshot.assert_not_called()
     session.commit.assert_awaited()

@@ -109,62 +109,77 @@ def _mock_indexing_segmentation_runtime():
         yield
 
 
-def test_statistics_reads_v2_snapshot_and_zeroes_legacy_recognition_fields():
+def test_statistics_reads_database_summary_without_querying_milvus():
     parts_module = _import_railway_parts_manager()
 
     session = AsyncMock()
-    fake_snapshot = {
-        "siglip_count": 8,
-        "dinov2_count": 6,
-        "siglip_item_ids": {1, 2, 3},
-        "dinov2_item_ids": {2, 3, 4},
-    }
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch.object(parts_module, "async_get_count", AsyncMock(return_value=99)), \
+         patch.object(
+             parts_module.Items,
+             "get_v2_index_statistics",
+             AsyncMock(
+                 return_value={
+                     "total_item_num": 99,
+                     "total_indexed_item_num": 2,
+                     "total_indexed_image_num": 8,
+                 }
+             ),
+         ) as statistics_mock, \
          patch.object(parts_module, "MilvusStateManagerV2") as state_cls:
-        state_cls.return_value.get_statistics_snapshot.return_value = fake_snapshot
-        state_cls.return_value.get_item_index_state_snapshot.return_value = {
-            2: {"has_v2_index": 1, "v2_indexed_image_num": 3},
-            3: {"has_v2_index": 1, "v2_indexed_image_num": 1},
-        }
         res = asyncio.run(parts_module.RailwayPartsManager.statistics())
 
     assert res.total_item_num == 99
     assert res.total_image_index == 8
-    assert res.total_feature_index == 6
-    assert res.total_index == 14
+    assert res.total_feature_index == 8
+    assert res.total_index == 16
     assert res.total_indexed_item_num == 2
     assert res.recognition_number == 0
     assert res.corrrect_recognition_number == 0
     assert res.recognition_ration == 0
+    statistics_mock.assert_awaited_once_with(session)
+    state_cls.assert_not_called()
 
 
-def test_statistics_counts_only_items_with_completed_v2_index_state():
+def test_statistics_returns_zero_for_empty_database_summary():
     parts_module = _import_railway_parts_manager()
 
     session = AsyncMock()
-    fake_snapshot = {
-        "siglip_count": 5,
-        "dinov2_count": 5,
-        "siglip_item_ids": {1, 2, 3},
-        "dinov2_item_ids": {2, 3, 4},
-    }
-    fake_state_snapshot = {
-        1: {"has_v2_index": 0, "v2_indexed_image_num": 0},
-        2: {"has_v2_index": 1, "v2_indexed_image_num": 2},
-        3: {"has_v2_index": 0, "v2_indexed_image_num": 0},
-        4: {"has_v2_index": 0, "v2_indexed_image_num": 0},
-    }
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
-         patch.object(parts_module, "async_get_count", AsyncMock(return_value=99)), \
-         patch.object(parts_module, "MilvusStateManagerV2") as state_cls:
-        state_cls.return_value.get_statistics_snapshot.return_value = fake_snapshot
-        state_cls.return_value.get_item_index_state_snapshot.return_value = fake_state_snapshot
+         patch.object(
+             parts_module.Items,
+             "get_v2_index_statistics",
+             AsyncMock(
+                 return_value={
+                     "total_item_num": 0,
+                     "total_indexed_item_num": 0,
+                     "total_indexed_image_num": 0,
+                 }
+             ),
+         ):
         res = asyncio.run(parts_module.RailwayPartsManager.statistics())
 
-    assert res.total_indexed_item_num == 1
+    assert res.total_item_num == 0
+    assert res.total_indexed_item_num == 0
+    assert res.total_index == 0
+
+
+def test_item_v2_index_statistics_aggregates_persisted_summary_fields():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    result = MagicMock()
+    result.one.return_value = (99, 2, 8)
+    session.execute.return_value = result
+
+    statistics = asyncio.run(parts_module.Items.get_v2_index_statistics(session))
+
+    assert statistics == {
+        "total_item_num": 99,
+        "total_indexed_item_num": 2,
+        "total_indexed_image_num": 8,
+    }
+    session.execute.assert_awaited_once()
 
 
 def test_delete_v2_index_is_idempotent_for_existing_item_without_vectors():

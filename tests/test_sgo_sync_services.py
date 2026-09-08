@@ -17,6 +17,65 @@ from csrcqsf.modules.sgo.services import (
 sgo_services = importlib.import_module("csrcqsf.modules.sgo.services")
 
 
+class _AsyncSessionContext:
+    def __init__(self, session):
+        self.session = session
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+def test_list_inquiry_uses_persisted_index_state_without_scanning_milvus():
+    main_session = AsyncMock()
+    sgo_session = AsyncMock()
+    indexed_codes = ["A001", "A002"]
+    inquiry_rows = [SimpleNamespace(inquiry_id="Q001")]
+    expected = SimpleNamespace(total=1, data=[])
+
+    with patch.object(
+        sgo_services,
+        "SessionLocal",
+        return_value=_AsyncSessionContext(main_session),
+    ), patch.object(
+        sgo_services,
+        "sgo_sessionLocal",
+        return_value=_AsyncSessionContext(sgo_session),
+    ), patch.object(
+        Items,
+        "list_v2_indexed_item_codes",
+        AsyncMock(return_value=indexed_codes),
+    ) as codes_mock, patch.object(
+        sgo_services.SgoCodeInquiryReturn,
+        "get_return_by_code_id_list",
+        AsyncMock(return_value=inquiry_rows),
+    ) as return_mock, patch.object(
+        sgo_services.SgoCodeInquiry,
+        "list_code_inquiry",
+        AsyncMock(return_value=expected),
+    ) as list_mock, patch.object(
+        sgo_services,
+        "MilvusStateManagerV2",
+        create=True,
+    ) as state_cls:
+        result = asyncio.run(
+            SGOBiz.list_inquery(
+                page=1,
+                per_page=20,
+                status="FINISH",
+                has_indexed=1,
+            )
+        )
+
+    assert result is expected
+    codes_mock.assert_awaited_once_with(main_session)
+    return_mock.assert_awaited_once_with(sgo_session, indexed_codes)
+    assert list_mock.await_args.args[5] == ["Q001"]
+    state_cls.assert_not_called()
+
+
 def test_sync_images_continues_after_single_item_failure_and_reports_progress():
     progress = []
 

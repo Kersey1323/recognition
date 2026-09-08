@@ -294,6 +294,23 @@ class Items(Base):
         await session.flush()
 
     @classmethod
+    async def get_v2_index_statistics(cls, session: AsyncSession) -> dict[str, int]:
+        """聚合配件主表中持续维护的 V2 索引状态，供首页统计直接读取。"""
+        stmt = select(
+            func.count(cls.id),
+            func.coalesce(func.sum(cls.has_v2_index), 0),
+            func.coalesce(func.sum(cls.v2_indexed_image_num), 0),
+        )
+        total_item_num, total_indexed_item_num, total_indexed_image_num = (
+            await session.execute(stmt)
+        ).one()
+        return {
+            "total_item_num": int(total_item_num or 0),
+            "total_indexed_item_num": int(total_indexed_item_num or 0),
+            "total_indexed_image_num": int(total_indexed_image_num or 0),
+        }
+
+    @classmethod
     async def bulk_update_v2_index_state(cls, session: AsyncSession, rows: list[dict]):
         for row in rows:
             await cls.update_v2_index_state(
@@ -459,6 +476,14 @@ class Items(Base):
         stmt = select(cls.id, cls.item_code)
         result = await session.execute(stmt)
         return result.all()
+
+    @classmethod
+    async def list_v2_indexed_item_codes(cls, session: AsyncSession) -> list[str]:
+        """返回已完成 V2 索引的配件编码，供跨库询码记录筛选使用。"""
+        result = await session.scalars(
+            select(cls.item_code).where(cls.has_v2_index == 1)
+        )
+        return list(result.all())
 
     @classmethod
     async def count_all_items(cls, session: AsyncSession) -> int:

@@ -23,7 +23,7 @@ def parse_bearer_token(authorization: str | None) -> str:
         raise AuthError(
             401,
             "AUTH_TOKEN_MISSING",
-            "未获取到登录信息，请从 SGO 重新进入识别平台",
+            "登录状态无效或已过期，请重新登录",
         )
 
     parts = authorization.strip().split()

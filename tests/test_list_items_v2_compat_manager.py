@@ -104,9 +104,8 @@ def test_list_item_uses_v2_flags_for_filter_and_response():
     assert res.items[0].has_index == 1
     assert res.items[0].has_source_video == 1
     assert res.items[0].images_total_indexed_num == 4
-    assert run_sync_mock.await_count == 1
-    assert run_sync_mock.await_args.args[0] == state_cls.return_value.list_item_index
-    assert run_sync_mock.await_args.args[1] == [101]
+    assert run_sync_mock.await_count == 0
+    state_cls.assert_not_called()
 
 
 def test_list_item_passes_item_code_as_exact_filter():

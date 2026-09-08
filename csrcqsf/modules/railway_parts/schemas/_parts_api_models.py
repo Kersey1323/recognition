@@ -60,8 +60,8 @@ class ListItem(BaseModel):
     created_at: str
     has_index: int = Field(default=0, description='为1时表示已具备完整V2索引')
     has_source_video: int = Field(default=0, description='为1时表示已上传原视频')
-    features: list[str] = Field(default=[], description='文字特征')
-    features_num: int = 0
+    features: list[str] = Field(default_factory=list, description='兼容字段，固定返回空数组')
+    features_num: int = Field(default=0, description='兼容字段，固定返回0')
     images_total_num: int = Field(description='图片总数', default=0)
     images_total_indexed_num: int = Field(description='图片已索引的总数', default=0)
     images_url: list[str] = Field(default_factory=list, description='该配件的全部图片地址')
@@ -184,7 +184,7 @@ class GetItemDetailRes(BaseModel):
     parent_item_code: str | None
     parent_item_id: str | None
     size_str: str | None
-    features: list[str] = []
+    features: list[str] = Field(default_factory=list, description='兼容字段，固定返回空数组')
 
 
 class CreateItemImagesReq(BaseModel):
@@ -851,10 +851,10 @@ class V2IndexDeleteRes(BaseModel):
 
 class IndexStatisticsRes(BaseModel):
     total_item_num: int = Field(default=0, description='配件总数')
-    total_indexed_item_num: int = Field(default=0, description='V2中同时存在SigLIP和DINOv2索引的配件数')
-    total_index: int = Field(default=0, description='V2索引总数')
-    total_image_index: int = Field(default=0, description='SigLIP collection记录数')
-    total_feature_index: int = Field(default=0, description='DINOv2 collection记录数')
+    total_indexed_item_num: int = Field(default=0, description='数据库中已完成V2索引的配件数')
+    total_index: int = Field(default=0, description='已完成的SigLIP与DINOv2索引总数')
+    total_image_index: int = Field(default=0, description='已完成的SigLIP图片索引数')
+    total_feature_index: int = Field(default=0, description='已完成的DINOv2特征索引数')
     recognition_number: int = Field(default=0, description='已废弃字段，固定返回0')
     corrrect_recognition_number: int = Field(default=0, description='已废弃字段，固定返回0')
     recognition_ration: float = Field(default=0, description='已废弃字段，固定返回0')

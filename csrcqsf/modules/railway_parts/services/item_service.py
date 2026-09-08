@@ -324,11 +324,6 @@ async def list_item(cls, req, runtime=None):
             for item_id, inquiry_nums, inquiry_count in inquiry_rows
         }
 
-        state_manager = runtime._get_milvus_state_manager_v2_cls()()
-        index_dict = await runtime.run_sync(
-            state_manager.list_item_index,
-            page_item_ids,
-        )
         images = await cls.list_item_images(page_item_ids)
         images_dict: dict[int, list] = {}
         for image in images:
@@ -357,11 +352,6 @@ async def list_item(cls, req, runtime=None):
                 created_at=runtime.date_to_str(item.time_created),
             )
             item_desc.images_total_num = len(item_images)
-
-            index = index_dict.get(item.id)
-            if index is not None:
-                item_desc.features = [feature.feature for feature in index.features]
-                item_desc.features_num = len(index.features)
             res.items.append(item_desc)
         return res
 
@@ -386,16 +376,24 @@ async def update_item_size(cls, item_id: int, item_size_str: str, runtime=None):
 
 async def get_item_detail(cls, item_id: int, runtime=None):
     runtime = runtime or _runtime()
-    state_manager = runtime._get_milvus_state_manager_v2_cls()()
-    index_detail = state_manager.list_item_index([item_id])
-    indexed_image_dict = state_manager.get_indexed_images_by_item_id(item_id)
-
     async with runtime.SessionLocal() as session:
         item = await runtime.Items.get_item_by_id(session=session, item_id=item_id)
         if item is None:
             raise Exception(f"id为{item_id}的配件不存在")
 
-        images = runtime.SgoItemImages.get_images(session=session, item_id=item_id)
+        images = [
+            image
+            async for image in runtime.SgoItemImages.get_images(
+                session=session,
+                item_id=item_id,
+            )
+        ]
+        # 图片只有在两套向量均写入成功后才会标记为已索引，详情页直接读取该持久化状态。
+        indexed_image_dict = {
+            int(image.id): image.image_url
+            for image in images
+            if int(image.is_indexed or 0) == 1
+        }
         segmented_records = list(await runtime.SegmentedImage.list_by_item_id(session, item_id))
         segmented_image_dict: dict[int, str | None] = {}
         for record in segmented_records:
@@ -421,9 +419,6 @@ async def get_item_detail(cls, item_id: int, runtime=None):
             updated_at=runtime.date_to_str(item.time_updated),
             size_str=item.size_str,
         )
-        if index_detail.get(item_id) is not None:
-            for feature in index_detail.get(item_id).features:
-                res.features.append(feature.feature)
         for image_id, image_url in sorted(indexed_image_dict.items()):
             res.images_index_list.append(
                 runtime.ItemImageIndexInfo(
@@ -431,7 +426,7 @@ async def get_item_detail(cls, item_id: int, runtime=None):
                     image_url=segmented_image_dict.get(image_id) or image_url,
                 )
             )
-        async for image in images:
+        for image in images:
             res.images.append(
                 runtime.ItemImageItem(
                     image_id=str(image.id),
