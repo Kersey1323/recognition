@@ -5,6 +5,8 @@ from typing import Annotated
 from fastapi import File, Form, HTTPException, Path, Query, UploadFile
 from anyio.to_thread import run_sync
 
+from csrcqsf.infra.db.main_db import SessionLocal
+from csrcqsf.models.orm.item import Items
 from csrcqsf.modules.railway_parts.schemas.search import (
     ContextualSearchRes,
     SearchHistoryDeleteReq,
@@ -41,6 +43,49 @@ from csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager im
 from csrcqsf.core.runtime import ensure_vector_models_enabled
 
 from .router import parts_router
+
+
+_INDEX_TASK_ITEM_CODE_FIELDS = {
+    "item_id": "item_code",
+    "current_item_id": "current_item_code",
+    "last_completed_item_id": "last_completed_item_code",
+}
+
+
+async def _replace_index_task_item_ids_with_codes(
+    records: list[dict],
+) -> list[dict]:
+    """将任务内部配件ID批量转换为用户可识别的配件编码。"""
+    item_ids = {
+        int(record[id_field])
+        for record in records
+        for id_field in _INDEX_TASK_ITEM_CODE_FIELDS
+        if record.get(id_field) not in (None, "")
+    }
+    item_code_by_id: dict[int, str] = {}
+    if item_ids:
+        # 同一页任务只访问一次业务库，避免任务列表逐条查询配件编码。
+        async with SessionLocal() as session:
+            rows = await Items.list_item_id_codes_by_ids(session, list(item_ids))
+        item_code_by_id = {
+            int(item_id): str(item_code)
+            for item_id, item_code in rows
+            if item_code not in (None, "")
+        }
+
+    resolved_records = []
+    for record in records:
+        resolved = dict(record)
+        for id_field, code_field in _INDEX_TASK_ITEM_CODE_FIELDS.items():
+            item_id = resolved.pop(id_field, None)
+            if code_field not in resolved:
+                resolved[code_field] = (
+                    item_code_by_id.get(int(item_id))
+                    if item_id not in (None, "")
+                    else None
+                )
+        resolved_records.append(resolved)
+    return resolved_records
 
 
 @parts_router.post('/v2/collections/drop', tags=["算法-向量检索V2"], summary='清空V2向量数据库')
@@ -164,7 +209,8 @@ async def get_v2_index_rebuild_status(
     task = await index_rebuild_task_manager.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"索引重建任务不存在: task_id={task_id}")
-    return ReconstructionIndexRebuildStatusRes(**task)
+    resolved_task = (await _replace_index_task_item_ids_with_codes([task]))[0]
+    return ReconstructionIndexRebuildStatusRes(**resolved_task)
 
 
 @parts_router.post(
@@ -217,11 +263,12 @@ async def list_v2_index_rebuild_tasks(req: ReconstructionIndexTaskListReq):
         task_scope=req.task_scope,
         item_id=item_id,
     )
+    resolved_records = await _replace_index_task_item_ids_with_codes(records)
     return ReconstructionIndexTaskListRes(
         total=total,
         page=req.page,
         pageSize=req.per_page,
-        records=[ReconstructionIndexRebuildStatusRes(**record) for record in records],
+        records=[ReconstructionIndexRebuildStatusRes(**record) for record in resolved_records],
     )
 
 
@@ -245,7 +292,8 @@ async def cancel_v2_index_rebuild_task(
         ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return ReconstructionIndexRebuildStatusRes(**task)
+    resolved_task = (await _replace_index_task_item_ids_with_codes([task]))[0]
+    return ReconstructionIndexRebuildStatusRes(**resolved_task)
 
 
 @parts_router.post(

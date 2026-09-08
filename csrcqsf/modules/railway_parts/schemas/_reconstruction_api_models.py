@@ -394,7 +394,7 @@ class ReconstructionIndexRebuildStatusRes(BaseModel):
         None,
         description='任务范围：single 为指定单个配件，batch 为按条件选择多个配件',
     )
-    item_id: Optional[str] = Field(None, description='single 任务的配件ID；batch 任务为 null')
+    item_code: Optional[str] = Field(None, description='single 任务的配件编码；batch 任务为 null')
     item_limit: Optional[int] = Field(
         None,
         description='任务提交时设置的配件数量上限；null 表示不限制，不是图片数量',
@@ -424,8 +424,8 @@ class ReconstructionIndexRebuildStatusRes(BaseModel):
         0,
         description='CREATEBYSELF 图片因主体未识别、空 Mask 或无效 Mask 而改走原图索引路径的数量',
     )
-    current_item_id: Optional[str] = Field(None, description='当前正在处理的配件ID')
-    last_completed_item_id: Optional[str] = Field(None, description='最近完成的配件ID')
+    current_item_code: Optional[str] = Field(None, description='当前正在处理的配件编码')
+    last_completed_item_code: Optional[str] = Field(None, description='最近完成的配件编码')
     last_completed_item_created_at: Optional[str] = Field(None, description='最近完成配件的创建时间')
     estimated_remaining_seconds: Optional[int] = Field(
         None,
@@ -444,13 +444,13 @@ class ReconstructionIndexRebuildStatusRes(BaseModel):
     time_updated: Optional[str] = Field(None, description='状态更新时间')
 
     @validator(
-        "item_id",
-        "current_item_id",
-        "last_completed_item_id",
+        "item_code",
+        "current_item_code",
+        "last_completed_item_code",
         pre=True,
         allow_reuse=True,
     )
-    def normalize_index_item_id(cls, value):
+    def normalize_index_item_code(cls, value):
         if value is None:
             return None
         return str(value)

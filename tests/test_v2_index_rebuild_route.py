@@ -12,6 +12,20 @@ from csrcqsf.modules.railway_parts.schemas import reconstruction as real_reconst
 from csrcqsf.modules.railway_parts.services import index_rebuild_task_manager as real_index_task_manager  # noqa: F401
 
 
+class _AsyncSessionContext:
+    def __init__(self, session):
+        self.session = session
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+_PARTS_SERVICE = None
+
+
 def _clear_module(prefix: str) -> None:
     for name in list(sys.modules):
         if name == prefix or name.startswith(f"{prefix}."):
@@ -25,6 +39,10 @@ def _seed_routes_package() -> None:
 
 
 def _import_parts_service():
+    global _PARTS_SERVICE
+    if _PARTS_SERVICE is not None:
+        return _PARTS_SERVICE
+
     _clear_module("csrcqsf.modules.railway_parts.routes")
     _clear_module("csrcqsf.runtime")
     _seed_routes_package()
@@ -50,7 +68,8 @@ def _import_parts_service():
         subset.retry_v2_index_rebuild_task = module.retry_v2_index_rebuild_task
         subset.ReconstructionIndexTaskListReq = module.ReconstructionIndexTaskListReq
         subset.ReconstructionIndexTaskCancelReq = module.ReconstructionIndexTaskCancelReq
-        return subset
+        _PARTS_SERVICE = subset
+        return _PARTS_SERVICE
 
 
 def _resolve_openapi_schema(schema: dict, schema_or_ref: dict) -> dict:
@@ -94,6 +113,12 @@ def test_v2_index_rebuild_openapi_documents_frontend_task_contract():
     assert "pending" in status_properties["status"]["description"]
     assert "CREATEBYSELF" in status_properties["segmented_count"]["description"]
     assert "原图" in status_properties["fallback_count"]["description"]
+    assert "item_code" in status_properties
+    assert "current_item_code" in status_properties
+    assert "last_completed_item_code" in status_properties
+    assert "item_id" not in status_properties
+    assert "current_item_id" not in status_properties
+    assert "last_completed_item_id" not in status_properties
 
     list_operation = schema["paths"][
         "/railway/parts/v2/index/rebuild/tasks/list"
@@ -252,6 +277,7 @@ def test_v2_index_rebuild_status_route_returns_managed_task_snapshot():
     task_manager = MagicMock()
     task_manager.get = AsyncMock(return_value={
         "task_id": "index-task-1",
+        "item_id": "2096852949048233984",
         "status": "running",
         "progress": 40,
         "total_items": 500,
@@ -261,14 +287,28 @@ def test_v2_index_rebuild_status_route_returns_managed_task_snapshot():
         "segmented_count": 700,
         "fallback_count": 90,
         "current_item_id": "1595252389601431552",
+        "last_completed_item_id": "1595252389601431551",
         "estimated_remaining_seconds": 600,
         "estimated_remaining": "约10分钟",
         "error_message": None,
     })
+    session = AsyncMock()
+    code_rows = [
+        (2096852949048233984, "4000205744"),
+        (1595252389601431552, "4000205745"),
+        (1595252389601431551, "4000205743"),
+    ]
     with patch.dict(
         status_route.__globals__,
-        {"index_rebuild_task_manager": task_manager},
-    ):
+        {
+            "index_rebuild_task_manager": task_manager,
+            "SessionLocal": MagicMock(return_value=_AsyncSessionContext(session)),
+        },
+    ), patch.object(
+        status_route.__globals__["Items"],
+        "list_item_id_codes_by_ids",
+        AsyncMock(return_value=code_rows),
+    ) as codes_mock:
         result = asyncio.run(status_route("index-task-1"))
 
     assert result.task_id == "index-task-1"
@@ -276,6 +316,11 @@ def test_v2_index_rebuild_status_route_returns_managed_task_snapshot():
     assert result.estimated_remaining_seconds == 600
     assert result.segmented_count == 700
     assert result.fallback_count == 90
+    assert result.item_code == "4000205744"
+    assert result.current_item_code == "4000205745"
+    assert result.last_completed_item_code == "4000205743"
+    assert not hasattr(result, "item_id")
+    codes_mock.assert_awaited_once()
 
 
 def test_v2_index_rebuild_status_route_returns_404_for_missing_task():
@@ -323,11 +368,19 @@ def test_v2_index_rebuild_task_list_returns_persisted_records():
         status="active",
         task_scope="all",
     )
+    session = AsyncMock()
 
     with patch.dict(
         parts_service.list_v2_index_rebuild_tasks.__globals__,
-        {"index_rebuild_task_manager": task_manager},
-    ):
+        {
+            "index_rebuild_task_manager": task_manager,
+            "SessionLocal": MagicMock(return_value=_AsyncSessionContext(session)),
+        },
+    ), patch.object(
+        parts_service.list_v2_index_rebuild_tasks.__globals__["Items"],
+        "list_item_id_codes_by_ids",
+        AsyncMock(return_value=[(101, "4000205745")]),
+    ) as codes_mock:
         result = asyncio.run(parts_service.list_v2_index_rebuild_tasks(req))
 
     task_manager.list.assert_awaited_once_with(
@@ -339,6 +392,9 @@ def test_v2_index_rebuild_task_list_returns_persisted_records():
     )
     assert result.total == 1
     assert result.records[0].task_id == "index-task-1"
+    assert result.records[0].current_item_code == "4000205745"
+    assert not hasattr(result.records[0], "current_item_id")
+    codes_mock.assert_awaited_once()
 
 
 def test_v2_index_rebuild_cancel_route_forwards_reason():
@@ -361,17 +417,28 @@ def test_v2_index_rebuild_cancel_route_forwards_reason():
         "cancel_reason": "用户取消",
     })
     req = parts_service.ReconstructionIndexTaskCancelReq(cancel_reason="用户取消")
+    session = AsyncMock()
 
     with patch.dict(
         parts_service.cancel_v2_index_rebuild_task.__globals__,
-        {"index_rebuild_task_manager": task_manager},
-    ):
+        {
+            "index_rebuild_task_manager": task_manager,
+            "SessionLocal": MagicMock(return_value=_AsyncSessionContext(session)),
+        },
+    ), patch.object(
+        parts_service.cancel_v2_index_rebuild_task.__globals__["Items"],
+        "list_item_id_codes_by_ids",
+        AsyncMock(return_value=[(101, "4000205745")]),
+    ) as codes_mock:
         result = asyncio.run(
             parts_service.cancel_v2_index_rebuild_task("index-task-1", req)
         )
 
     task_manager.cancel.assert_awaited_once_with("index-task-1", "用户取消")
     assert result.status == "cancelling"
+    assert result.current_item_code == "4000205745"
+    assert not hasattr(result, "current_item_id")
+    codes_mock.assert_awaited_once()
 
 
 def test_v2_index_rebuild_cancel_route_maps_missing_task_to_404():
