@@ -183,6 +183,11 @@ def test_inquiry_list_only_selects_driver_safe_response_columns():
     assert "sgo_code_inquiry.train_no" in compiled
     assert "sgo_code_inquiry.subordinate_component" in compiled
     assert "sgo_code_inquiry.supplier_name" in compiled
+    # 甲方历史数据同时存在正常与写反两种格式，查询层返回原始值后逐条标准化。
+    assert "sgo_code_inquiry_return.item_name" in selected_columns
+    assert "AS return_item_name_raw" in compiled
+    assert "sgo_code_inquiry_return.item_code" in compiled
+    assert "AS return_item_code_raw" in compiled
     assert "厕所!_100!%" in compiled
     assert "ESCAPE '!'" in compiled
 
@@ -258,6 +263,8 @@ def test_indexed_inquiry_lookup_does_not_select_kingbase_datetime_columns():
     assert "sgo_code_inquiry_return.inquiry_id" in selected_columns
     assert "sgo_code_inquiry_return.update_time" not in selected_columns
     assert "sgo_code_inquiry_return.create_time" not in selected_columns
+    assert "sgo_code_inquiry_return.item_name IN ('19010043782')" in compiled
+    assert "sgo_code_inquiry_return.item_code IN ('19010043782')" in compiled
 
 
 def test_base_image_lookup_only_selects_fields_needed_for_download():
@@ -342,4 +349,6 @@ def test_inquiry_history_sync_casts_kingbase_datetime_before_returning_rows():
     )
     selected_columns = compiled.partition("\nFROM ")[0]
     assert "CAST(sgo_code_inquiry.create_time AS VARCHAR) AS inquiry_time" in selected_columns
+    assert "sgo_code_inquiry_return.item_name AS return_item_name_raw" in selected_columns
+    assert "sgo_code_inquiry_return.item_code AS return_item_code_raw" in selected_columns
     assert "ORDER BY sgo_code_inquiry.create_time ASC" in compiled

@@ -8,6 +8,7 @@ from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.modules.sgo.repositories import SgoItemImages
 from csrcqsf.modules.sgo.photo_parser import extract_photo_raw_urls
 from csrcqsf.modules.sgo.services import SGOBiz
+from csrcqsf.modules.sgo.item_mapping import normalize_sgo_return_item
 from csrcqsf.modules.sgo.schemas import (
     ListInqueryItem,
     SgoSyncFailureListReq,
@@ -288,7 +289,8 @@ async def sgo_inquery_list(req: ListInqueryReq):
     获取询码记录列表。
 
     请求体字段说明：
-    - `query`: 通用关键词，对询码单号/名称/车型/列号/车厢号/部件/供应商等多个字段任一命中
+    - `query`: 通用关键词，对询码单号/名称描述/人工确认的配件编码和名称/车型/列号/
+      车厢号/部件/供应商等多个字段任一命中
     - `vehicle`（车型）、`train_no`（列号）、`car_num`（车厢号）: 三个独立检索字段，
       可只传其中一个，也可任意两个或三个同时传入（同时传入时按 AND 叠加筛选，
       互不依赖、无需级联），每个字段均按包含关系模糊匹配
@@ -328,6 +330,10 @@ async def sgo_inquery_list(req: ListInqueryReq):
         item.creater = data.creater
         item.creater_org_name = data.creater_org_name
         item.current_status = data.current_status
+        item.return_item_code, item.return_item_name = normalize_sgo_return_item(
+            getattr(data, "return_item_name_raw", None),
+            getattr(data, "return_item_code_raw", None),
+        )
         item.detailed_photos = data.detailed_photos
         item.inquiry_num = data.inquiry_num
         item.item_name = data.item_name

@@ -15,7 +15,7 @@ from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
 from csrcqsf.core.logging_config import logger
 from pydantic import BaseModel
-from sqlalchemy import String, cast, select, text, tuple_
+from sqlalchemy import String, case, cast, or_, select, text, tuple_
 from urllib3 import PoolManager
 from urllib3.util import create_urllib3_context
 
@@ -43,6 +43,7 @@ from csrcqsf.models.orm.sgo_external import (
     SgoMaterielMasterplate,
 )
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
+from csrcqsf.modules.sgo.item_mapping import normalize_sgo_return_item
 from csrcqsf.modules.sgo.photo_parser import extract_photo_raw_urls
 from csrcqsf.modules.sgo.schemas import ImageSourceType
 from csrcqsf.modules.sgo.sync_task_manager import sgo_sync_task_manager
@@ -1013,15 +1014,17 @@ class SGOBiz:
                 SgoCodeInquiry.item_name.label("inquiry_item_name"),
                 SgoCodeInquiry.subordinate_component.label("subordinate_component"),
                 SgoCodeInquiry.remark.label("remark"),
-                SgoCodeInquiryReturn.item_name.label("return_item_name"),
-                SgoCodeInquiryReturn.item_code.label("return_item_code"),
+                SgoCodeInquiryReturn.item_name.label("return_item_name_raw"),
+                SgoCodeInquiryReturn.item_code.label("return_item_code_raw"),
                 # 甲方 Kingbase 的 sys.datetime 无法由 asyncpg 直接解码；同步历史只需
                 # 保留时间文本写入主库，排序仍使用源字段以维持原有同步顺序。
                 cast(SgoCodeInquiry.create_time, String).label("inquiry_time"),
             )
             .join(SgoCodeInquiryReturn, SgoCodeInquiry.id == SgoCodeInquiryReturn.inquiry_id)
-            .where(SgoCodeInquiryReturn.item_code.is_not(None))
-            .where(SgoCodeInquiryReturn.item_code != "")
+            .where(or_(
+                SgoCodeInquiryReturn.item_name.is_not(None),
+                SgoCodeInquiryReturn.item_code.is_not(None),
+            ))
             .order_by(SgoCodeInquiry.create_time.asc(), SgoCodeInquiry.id.asc())
         )
         if limit is not None:
@@ -1029,7 +1032,17 @@ class SGOBiz:
 
         async with sgo_sessionLocal() as session:
             result = await session.execute(stmt)
-            return [dict(row._mapping) for row in result]
+            rows = []
+            for row in result:
+                payload = dict(row._mapping)
+                payload["return_item_code"], payload["return_item_name"] = (
+                    normalize_sgo_return_item(
+                        payload.pop("return_item_name_raw", None),
+                        payload.pop("return_item_code_raw", None),
+                    )
+                )
+                rows.append(payload)
+            return rows
 
     @classmethod
     async def _list_main_item_ids_by_codes(cls, item_codes: set[str]) -> dict[str, int]:
@@ -1156,16 +1169,24 @@ class SGOBiz:
         if not item_code_list:
             return 0
 
+        resolved_item_code = case(
+            (
+                SgoCodeInquiryReturn.item_name.in_(item_code_list),
+                SgoCodeInquiryReturn.item_name,
+            ),
+            else_=SgoCodeInquiryReturn.item_code,
+        ).label("item_code")
         stmt = (
             select(
                 SgoCodeInquiry.detailed_photos,
                 SgoCodeInquiry.nameplate_photos,
-                SgoCodeInquiryReturn.item_code,
+                resolved_item_code,
             )
             .join(SgoCodeInquiryReturn, SgoCodeInquiry.id == SgoCodeInquiryReturn.inquiry_id)
-            .where(SgoCodeInquiryReturn.item_code.is_not(None))
-            .where(SgoCodeInquiryReturn.item_code != "")
-            .where(SgoCodeInquiryReturn.item_code.in_(item_code_list))
+            .where(or_(
+                SgoCodeInquiryReturn.item_name.in_(item_code_list),
+                SgoCodeInquiryReturn.item_code.in_(item_code_list),
+            ))
         )
 
         async with sgo_sessionLocal() as session:

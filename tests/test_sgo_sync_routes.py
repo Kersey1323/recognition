@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
@@ -13,6 +14,64 @@ def test_inquiry_list_does_not_filter_index_state_by_default():
     request = routes.ListInqueryReq(page=1, pageSize=10, query="CX221203001")
 
     assert request.has_indexed == 0
+
+
+def test_inquiry_list_exposes_manually_confirmed_item_code_and_name():
+    row = SimpleNamespace(
+        id="inquiry-1",
+        inquiry_num="CX20260908020",
+        creater_org_name="太原分中心",
+        creater="朱厚霖",
+        item_name="直流型小型断路器",
+        subordinate_component="电气",
+        train_no="2933",
+        car_num="00",
+        vehicle="SFE27",
+        submission_date="2026-09-08",
+        remark=None,
+        current_status="FINISH",
+        supplier_name=None,
+        supplier_code=None,
+        nameplate_photos=None,
+        detailed_photos=None,
+        return_item_name_raw="锁闭L=1889",
+        return_item_code_raw="19010033275",
+    )
+    page = SimpleNamespace(total=1, data=[row])
+    req = routes.ListInqueryReq(page=1, pageSize=10, current_status="FINISH")
+
+    with patch.object(routes.SGOBiz, "list_inquery", AsyncMock(return_value=page)):
+        result = asyncio.run(routes.sgo_inquery_list(req))
+
+    assert result.items[0].item_name == "直流型小型断路器"
+    assert result.items[0].return_item_code == "19010033275"
+    assert result.items[0].return_item_name == "锁闭L=1889"
+
+
+@pytest.mark.parametrize(
+    ("physical_item_name", "physical_item_code", "expected_code", "expected_name"),
+    [
+        (
+            "M8*20 不锈钢三组合螺栓",
+            "40000537115",
+            "40000537115",
+            "M8*20 不锈钢三组合螺栓",
+        ),
+        ("19010029156", "机械螺丝钉", "19010029156", "机械螺丝钉"),
+    ],
+)
+def test_inquiry_return_fields_support_normal_and_reversed_sgo_rows(
+    physical_item_name,
+    physical_item_code,
+    expected_code,
+    expected_name,
+):
+    from csrcqsf.modules.sgo.item_mapping import normalize_sgo_return_item
+
+    assert normalize_sgo_return_item(physical_item_name, physical_item_code) == (
+        expected_code,
+        expected_name,
+    )
 
 
 def test_sgo_sync_status_schema_exposes_semantic_trigger_flag():

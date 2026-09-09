@@ -13,6 +13,14 @@ class ListInqueryItem(BaseModel):
     creater_org_name: str | None = Field(description='提报部门隶属名称')
     creater: str | None = Field(description='提报人名称')
     item_name: str | None = Field(description='名称描述')
+    return_item_code: str | None = Field(
+        default=None,
+        description='甲方闭环时人工确认的配件编码；尚未确认时为 null',
+    )
+    return_item_name: str | None = Field(
+        default=None,
+        description='甲方闭环时人工确认的配件名称；尚未确认时为 null',
+    )
     subordinate_component: str | None = Field(description='隶属部件')
     train_no: str | None = Field(description='列号')
     car_num: str | None = Field(description='车厢号')

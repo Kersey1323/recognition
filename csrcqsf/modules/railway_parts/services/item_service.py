@@ -284,9 +284,18 @@ async def list_item(cls, req, runtime=None):
     item_code_list = []
     if req.has_inquery_code == 1:
         async with runtime.sgo_sessionLocal() as session:
-            stmt = runtime.select(runtime.SgoCodeInquiryReturn.item_code.distinct())
-            data = await session.scalars(stmt)
-            item_code_list = list(data.all())
+            # 甲方历史回复的两个物理字段都可能存放编码，主库后续会自然排除名称值。
+            stmt = runtime.select(
+                runtime.SgoCodeInquiryReturn.item_name,
+                runtime.SgoCodeInquiryReturn.item_code,
+            ).distinct()
+            data = await session.execute(stmt)
+            item_code_list = [
+                str(value).strip()
+                for row in data
+                for value in row
+                if value not in (None, "")
+            ]
 
     exact_item_code = str(getattr(req, "item_code", "") or "").strip()
     if exact_item_code:

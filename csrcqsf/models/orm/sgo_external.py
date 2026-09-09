@@ -2,7 +2,7 @@ from typing import Optional
 import datetime
 import decimal
 
-from sqlalchemy import BigInteger, Computed, DECIMAL, Date, DateTime, Double, ForeignKeyConstraint, Index, Integer, SmallInteger, String, TIMESTAMP, cast, false, or_, select, text
+from sqlalchemy import BigInteger, Computed, DECIMAL, Date, DateTime, Double, ForeignKeyConstraint, Index, Integer, SmallInteger, String, TIMESTAMP, case, cast, false, or_, select, text
 from sqlalchemy.dialects.mysql import CHAR, LONGBLOB, LONGTEXT, TEXT, TINYINT, VARCHAR
 from sqlalchemy.orm import DeclarativeBase, Mapped, load_only, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -945,6 +945,24 @@ class SgoCodeInquiry(Base):
             return f'%{escaped}%'
 
         offset = (page-1) * per_page
+        # 甲方历史数据同时存在正常和 name/code 写反两种格式，先返回物理原值，
+        # 再由接口层逐条归一化，不能在 SQL 中固定交换。
+        return_item_name_raw = (
+            select(SgoCodeInquiryReturn.item_name)
+            .where(SgoCodeInquiryReturn.inquiry_id == cls.id)
+            .limit(1)
+            .correlate(cls)
+            .scalar_subquery()
+            .label("return_item_name_raw")
+        )
+        return_item_code_raw = (
+            select(SgoCodeInquiryReturn.item_code)
+            .where(SgoCodeInquiryReturn.inquiry_id == cls.id)
+            .limit(1)
+            .correlate(cls)
+            .scalar_subquery()
+            .label("return_item_code_raw")
+        )
         # 甲方 Kingbase 表包含 sys.date/sys.datetime 等非 PostgreSQL 标准类型。
         # 列表只读取前端实际展示的字段，避免 asyncpg 解码无须返回的私有类型；日期按接口口径返回字符串。
         columns = [
@@ -964,6 +982,8 @@ class SgoCodeInquiry(Base):
             cls.detailed_photos,
             cls.remark,
             cls.current_status,
+            return_item_name_raw,
+            return_item_code_raw,
         ]
         stmt = select(*columns)
         if status is not None and status != '' and status != 'all':
@@ -972,6 +992,13 @@ class SgoCodeInquiry(Base):
         if normalized_query:
             # 列表关键词覆盖前端可见业务字段，多个字段任一命中即可返回该询码记录。
             keyword = _wrap_like(normalized_query)
+            confirmed_item_matches = select(SgoCodeInquiryReturn.id).where(
+                SgoCodeInquiryReturn.inquiry_id == cls.id,
+                or_(
+                    SgoCodeInquiryReturn.item_name.ilike(keyword, escape='!'),
+                    SgoCodeInquiryReturn.item_code.ilike(keyword, escape='!'),
+                ),
+            ).exists()
             stmt = stmt.where(or_(
                 cls.inquiry_num.ilike(keyword, escape='!'),
                 cls.item_name.ilike(keyword, escape='!'),
@@ -984,6 +1011,7 @@ class SgoCodeInquiry(Base):
                 cls.creater.ilike(keyword, escape='!'),
                 cls.creater_org_name.ilike(keyword, escape='!'),
                 cls.remark.ilike(keyword, escape='!'),
+                confirmed_item_matches,
             ))
         # 车型/列号/车厢号独立检索：三者可任意组合同时传入，按 AND 叠加；
         # 各自可为空串时跳过该条件（与不传等价）。
@@ -1032,17 +1060,25 @@ class SgoCodeInquiry(Base):
     ):
         if not item_code_list:
             return []
+        resolved_item_code = case(
+            (
+                SgoCodeInquiryReturn.item_name.in_(item_code_list),
+                SgoCodeInquiryReturn.item_name,
+            ),
+            else_=SgoCodeInquiryReturn.item_code,
+        ).label("item_code")
         # 图片同步只读取照片字段与物料编码，避免 Kingbase 私有时间类型解码失败。
         stmt = (
             select(
                 cls.detailed_photos,
                 cls.nameplate_photos,
-                SgoCodeInquiryReturn.item_code,
+                resolved_item_code,
             )
             .join(SgoCodeInquiryReturn, cls.id == SgoCodeInquiryReturn.inquiry_id)
-            .where(SgoCodeInquiryReturn.item_code.is_not(None))
-            .where(SgoCodeInquiryReturn.item_code != "")
-            .where(SgoCodeInquiryReturn.item_code.in_(item_code_list))
+            .where(or_(
+                SgoCodeInquiryReturn.item_name.in_(item_code_list),
+                SgoCodeInquiryReturn.item_code.in_(item_code_list),
+            ))
         )
         result = await session.execute(stmt)
         return result.all()
@@ -1144,12 +1180,12 @@ class SgoCodeInquiryReturn(Base):
         if code_list.__len__() == 0:
             return []
 
-        # 已索引筛选只需要回复记录关联的询码 ID，避免读取 Kingbase 私有
-        # sys.datetime 类型的 update_time/create_time 导致 asyncpg 解码失败。
+        # 两个物理字段都可能存放配件编码；这里只加载 inquiry_id，避免解码
+        # Kingbase 私有 sys.datetime 类型的 update_time/create_time。
         stmt = (
             select(cls)
             .options(load_only(cls.inquiry_id))
-            .where(cls.item_code.in_(code_list))
+            .where(or_(cls.item_name.in_(code_list), cls.item_code.in_(code_list)))
         )
         return await session.scalars(stmt)
 
