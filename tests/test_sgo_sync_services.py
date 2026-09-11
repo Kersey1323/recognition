@@ -549,9 +549,80 @@ def test_sync_inquiry_history_maps_item_codes_and_reports_progress():
         "skipped_count": 1,
         "synced_image_count": 0,
         "failed_item_ids": [],
+        "non_indexable_without_return_code": 0,
     }
     assert [item["progress"] for item in progress] == [0, 100]
     assert progress[-1]["current_item_id"] == "inq-2"
+
+
+def test_sync_inquiry_history_persists_rows_without_return_item_code():
+    source_rows = [
+        {
+            "inquiry_id": "inq-1",
+            "inquiry_num": "CX001",
+            "vehicle": "SFE27",
+            "train_no": "2777",
+            "car_num": "01",
+            "inquiry_item_name": "监控室抽屉把手",
+            "subordinate_component": None,
+            "remark": "监控室把手缺，需更换处理。",
+            "return_item_name": "监控室抽屉拉手",
+            "return_item_code": "400001",
+            "inquiry_time": "2018-11-02 15:36:30",
+        },
+        {
+            "inquiry_id": "inq-2",
+            "inquiry_num": "CX002",
+            "vehicle": None,
+            "train_no": "2053",
+            "car_num": "5",
+            "inquiry_item_name": "展示柜压缩机",
+            "subordinate_component": None,
+            "remark": "展示柜风扇振动大，待更换压缩机",
+            "return_item_name": "压缩机候选描述",
+            "return_item_code": None,
+            "inquiry_time": "2018-11-02 15:51:29",
+        },
+    ]
+
+    async def upsert(payloads, *, batch_size):
+        assert batch_size == 500
+        assert len(payloads) == 2
+        assert payloads[0]["inquiry_id"] == "inq-1"
+        assert payloads[0]["return_item_code"] == "400001"
+        assert payloads[1]["inquiry_id"] == "inq-2"
+        assert payloads[1]["item_code"] is None
+        assert payloads[1]["return_item_code"] == ""
+        return {
+            "processed_count": 2,
+            "created_count": 2,
+            "skipped_count": 0,
+            "history_ids": [501, 502],
+        }
+
+    with patch.object(
+        SGOBiz,
+        "_list_sgo_inquiry_history_source_rows",
+        AsyncMock(return_value=source_rows),
+    ), patch.object(
+        SGOBiz,
+        "_list_main_item_ids_by_codes",
+        AsyncMock(return_value={"400001": 101}),
+    ) as list_item_ids, patch.object(
+        SGOBiz,
+        "_upsert_inquiry_history_payloads",
+        AsyncMock(side_effect=upsert),
+    ):
+        result = asyncio.run(SGOBiz.sync_inquiry_history())
+
+    list_item_ids.assert_awaited_once_with({"400001"})
+    assert result["total_items"] == 2
+    assert result["processed_items"] == 2
+    assert result["success_count"] == 2
+    assert result["created_count"] == 2
+    assert result["skipped_count"] == 0
+    assert result["non_indexable_without_return_code"] == 1
+    assert result["fail_count"] == 0
 
 
 def test_sync_inquiry_history_enqueues_semantic_index_after_commit():

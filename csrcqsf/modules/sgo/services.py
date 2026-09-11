@@ -79,6 +79,10 @@ INQUIRY_HISTORY_COLUMNS = (
 MAX_SYNC_FAILURE_DETAILS = 20
 
 
+def _elapsed_ms(started_at: float) -> float:
+    return (time.perf_counter() - started_at) * 1000
+
+
 @dataclass(frozen=True)
 class ImageSyncItem:
     item_id: str
@@ -185,14 +189,16 @@ def _inquiry_history_payload_from_source_row(row: dict, item_id: int | None) -> 
         "subordinate_component": _clean_text(row.get("subordinate_component")),
         "remark": _clean_text(row.get("remark")),
         "return_item_name": _clean_text(row.get("return_item_name")),
-        "return_item_code": return_item_code,
+        # 本地业务库需要完整保留询码流水；老数据可能只有人工返回描述没有编码。
+        # 现有线上字段为 NOT NULL，用空字符串表示“未返回编码”，BGE 索引阶段会过滤掉这类记录。
+        "return_item_code": return_item_code or "",
         "inquiry_time": row.get("inquiry_time"),
         "source": "sgo",
     }
 
 
 def _build_inquiry_history_upsert_sql() -> str:
-    # 已闭环询码记录只允许首次落库；并发重复写入命中唯一键时保持原记录不变。
+    # 询码历史只允许首次落库；并发重复写入命中唯一键时保持原记录不变。
     columns = ", ".join(f"`{column}`" for column in INQUIRY_HISTORY_COLUMNS)
     placeholders = ", ".join(f":{column}" for column in INQUIRY_HISTORY_COLUMNS)
     return (
@@ -392,13 +398,21 @@ class SGOBiz:
         item_by_code = {item.item_code: item for item in items if item.item_code}
         candidates: dict[str, ImageSyncCandidate] = {}
         failures: list[dict[str, str]] = []
+        source_query_started = time.perf_counter()
         async with sgo_sessionLocal() as session:
+            base_query_started = time.perf_counter()
             base_rows = await SgoMaterielFileImg.list_image_file(session, item_ids)
+            base_query_ms = _elapsed_ms(base_query_started)
+
+            inquiry_query_started = time.perf_counter()
             inquiry_rows = await SgoCodeInquiry.list_image_files_by_item_codes(
                 session,
                 list(item_by_code),
             )
+            inquiry_query_ms = _elapsed_ms(inquiry_query_started)
+        source_query_ms = _elapsed_ms(source_query_started)
 
+        parse_started = time.perf_counter()
         for row in base_rows:
             try:
                 file_descriptions = json.loads(row.file_src or "[]")
@@ -441,6 +455,22 @@ class SGOBiz:
                     image_source=ImageSourceType.INQUERY,
                 )
 
+        logger.info(
+            "SGO 图片源数据批量采集: items={}, item_codes={}, base_rows={}, "
+            "inquiry_rows={}, candidates={}, failures={}, "
+            "base_query_ms={:.2f}, inquiry_query_ms={:.2f}, "
+            "source_query_ms={:.2f}, parse_ms={:.2f}",
+            len(items),
+            len(item_by_code),
+            len(base_rows),
+            len(inquiry_rows),
+            len(candidates),
+            len(failures),
+            base_query_ms,
+            inquiry_query_ms,
+            source_query_ms,
+            _elapsed_ms(parse_started),
+        )
         return candidates, failures
 
     @classmethod
@@ -669,11 +699,14 @@ class SGOBiz:
                 "failures_persisted_incrementally": True,
             }
 
+        batch_index = 0
         async for batch in cls._iter_image_item_batches(
             sync_scope=sync_scope,
             item_id_list=item_id_list,
             batch_size=sgo_image_item_batch_size,
         ):
+            batch_index += 1
+            batch_started = time.perf_counter()
             batch_failures: list[dict[str, str]] = []
             resolved_ids = {item.item_id for item in batch.items}
             for item_id in batch.requested_ids:
@@ -688,17 +721,36 @@ class SGOBiz:
                     )
 
             try:
+                collect_started = time.perf_counter()
                 candidates, metadata_failures = await cls._collect_image_candidates(
                     batch.items
                 )
+                collect_ms = _elapsed_ms(collect_started)
                 batch_failures.extend(metadata_failures)
+                filter_started = time.perf_counter()
                 missing_candidates, existing_count = (
                     await cls._filter_missing_candidates(candidates)
                 )
+                filter_ms = _elapsed_ms(filter_started)
                 skipped_count += existing_count
+                logger.info(
+                    "SGO 图片同步批次诊断: batch={}, requested_items={}, "
+                    "resolved_items={}, candidates={}, existing_images={}, "
+                    "missing_images={}, metadata_failures={}, collect_ms={:.2f}, "
+                    "filter_ms={:.2f}",
+                    batch_index,
+                    len(batch.requested_ids),
+                    len(batch.items),
+                    len(candidates),
+                    existing_count,
+                    len(missing_candidates),
+                    len(metadata_failures),
+                    collect_ms,
+                    filter_ms,
+                )
             except Exception as exc:
                 logger.exception(
-                    "批量查询配件图片元数据失败: item_ids=%s",
+                    "批量查询配件图片元数据失败: item_ids={}",
                     batch.requested_ids,
                 )
                 missing_candidates = []
@@ -713,7 +765,13 @@ class SGOBiz:
                     )
 
             if missing_candidates and not cls.token:
+                token_started = time.perf_counter()
                 await run_sync(cls.get_token)
+                logger.info(
+                    "SGO 图片同步获取 token 完成: batch={}, elapsed_ms={:.2f}",
+                    batch_index,
+                    _elapsed_ms(token_started),
+                )
 
             # 进度按请求配件数统计；一个配件包含多少图片不会改变 total_items 口径。
             batch_processed = len(batch.requested_ids)
@@ -736,7 +794,7 @@ class SGOBiz:
                         return zip_candidates, synced, upload_failures, None
                     except Exception as exc:
                         logger.exception(
-                            "批量下载 SGO 图片失败: raw_urls=%s",
+                            "批量下载 SGO 图片失败: raw_urls={}",
                             [candidate.raw_url for candidate in zip_candidates],
                         )
                         return zip_candidates, 0, [], exc
@@ -820,6 +878,20 @@ class SGOBiz:
                         zip_task.cancel()
                 if zip_tasks:
                     await asyncio.gather(*zip_tasks, return_exceptions=True)
+
+            logger.info(
+                "SGO 图片同步批次完成: batch={}, requested_items={}, "
+                "missing_images={}, zip_groups={}, synced_images_total={}, "
+                "skipped_images_total={}, batch_failures={}, batch_elapsed_ms={:.2f}",
+                batch_index,
+                len(batch.requested_ids),
+                len(missing_candidates),
+                len(zip_groups),
+                synced_image_count,
+                skipped_count,
+                len(batch_failures),
+                _elapsed_ms(batch_started),
+            )
 
             failed_in_batch = set()
             # 同一配件即使多张图片失败，也只在任务配件失败数中累计一次。
@@ -908,6 +980,19 @@ class SGOBiz:
                 }
             )
 
+        non_indexable_without_return_code = sum(
+            1
+            for row in source_rows
+            if _clean_text(row.get("return_item_code")) is None
+        )
+        if non_indexable_without_return_code:
+            logger.info(
+                "询码历史包含未返回编码记录: non_indexable_without_return_code={}, "
+                "total_source_rows={}",
+                non_indexable_without_return_code,
+                total_items,
+            )
+
         item_codes = {
             item_code
             for row in source_rows
@@ -956,6 +1041,7 @@ class SGOBiz:
             "skipped_count": skipped_count,
             "synced_image_count": 0,
             "failed_item_ids": [],
+            "non_indexable_without_return_code": non_indexable_without_return_code,
         }
 
         if _sync_task_id is not None:
@@ -977,7 +1063,7 @@ class SGOBiz:
                     warning = str(exc) or repr(exc)
                     result["semantic_index_warning"] = warning
                     logger.exception(
-                        "询码同步成功，但增量语义索引任务创建失败: sync_task_id=%s",
+                        "询码同步成功，但增量语义索引任务创建失败: sync_task_id={}",
                         _sync_task_id,
                     )
         return result
@@ -1318,10 +1404,14 @@ class SGOBiz:
         if not candidates:
             return 0, []
 
+        zip_download_started = time.perf_counter()
         zip_bytes = await run_sync(
             cls.download_images_from_sgo,
             [candidate.raw_url for candidate in candidates],
         )
+        zip_download_ms = _elapsed_ms(zip_download_started)
+
+        zip_extract_started = time.perf_counter()
         with io.BytesIO(zip_bytes) as zip_buffer:
             with zipfile.ZipFile(zip_buffer, "r") as archive:
                 entries = [entry for entry in archive.infolist() if not entry.is_dir()]
@@ -1331,6 +1421,7 @@ class SGOBiz:
                         f"requested={len(candidates)}, actual={len(entries)}"
                     )
                 contents = [archive.read(entry) for entry in entries]
+        zip_extract_ms = _elapsed_ms(zip_extract_started)
 
         semaphore = asyncio.Semaphore(sgo_image_upload_concurrency)
 
@@ -1361,15 +1452,33 @@ class SGOBiz:
             image.raw_url = candidate.raw_url
             return image, None
 
+        upload_started = time.perf_counter()
         results = await asyncio.gather(
             *(
                 upload_one(candidate, content)
                 for candidate, content in zip(candidates, contents)
             )
         )
+        upload_ms = _elapsed_ms(upload_started)
         images = [image for image, failure in results if image is not None]
         failures = [failure for image, failure in results if failure is not None]
+        commit_started = time.perf_counter()
         created_count = await cls._commit_images(images)
+        logger.info(
+            "SGO 图片 ZIP 子批处理完成: requested_images={}, zip_bytes={}, "
+            "uploaded_images={}, committed_images={}, failures={}, "
+            "download_ms={:.2f}, extract_ms={:.2f}, upload_ms={:.2f}, "
+            "commit_ms={:.2f}",
+            len(candidates),
+            len(zip_bytes),
+            len(images),
+            created_count,
+            len(failures),
+            zip_download_ms,
+            zip_extract_ms,
+            upload_ms,
+            _elapsed_ms(commit_started),
+        )
         return created_count, failures
 
     @classmethod
@@ -1468,8 +1577,11 @@ class SGOBiz:
         raw_urls = list(candidates)
         existing_urls: set[str] = set()
         query_batch_size = 1000
+        query_started = time.perf_counter()
+        query_rounds = 0
         async with SessionLocal() as session:
             for start in range(0, len(raw_urls), query_batch_size):
+                query_rounds += 1
                 images = await SgoItemImages.list_item_images_by_raw_url(
                     session,
                     raw_urls[start : start + query_batch_size],
@@ -1484,6 +1596,15 @@ class SGOBiz:
             for raw_url, candidate in candidates.items()
             if raw_url not in existing_urls
         ]
+        logger.info(
+            "SGO 图片本地去重查询: candidates={}, query_rounds={}, "
+            "existing_images={}, missing_images={}, elapsed_ms={:.2f}",
+            len(candidates),
+            query_rounds,
+            len(existing_urls),
+            len(missing),
+            _elapsed_ms(query_started),
+        )
         return missing, len(candidates) - len(missing)
 
     @classmethod
