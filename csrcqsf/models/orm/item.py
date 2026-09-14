@@ -12,6 +12,7 @@ from bfrcommon.db import PageQueryResult, get_abbr_fn, get_count, async_get_coun
 from pydantic import BaseModel
 from bfrcommon.db import PydanticType
 from csrcqsf.infra.db.main_db import Base
+from csrcqsf.models.orm.item_inquiry_history import ItemInquiryHistory
 from csrcqsf.models.orm.sgo import SgoItemImages
 
 
@@ -532,7 +533,8 @@ class Items(Base):
     async def list_items(cls, session: AsyncSession, query: str = None, page: int = 0, per_page: int = 20,
                          has_images: bool = False,
                          item_id_list: list[int] = [], item_code_list: list[str] = [], need_index: bool = False,
-                         need_v2_index: bool = False, has_source_video: int = 2):
+                         need_v2_index: bool = False, has_source_video: int = 2,
+                         has_inquiry_history: bool = False):
         """按配件主数据、图片和索引汇总状态组合筛选列表。"""
         offset = (page-1) * per_page
         stmt = select(cls)
@@ -548,6 +550,12 @@ class Items(Base):
             stmt = stmt.where(cls.id.in_(item_id_stmt))
         if len(item_code_list) > 0:
             stmt = stmt.where(cls.item_code.in_(item_code_list))
+        if has_inquiry_history:
+            # “有询码记录”以已同步到主库且已关联配件的数据为准，避免列表请求扫描甲方数据库。
+            has_linked_inquiry = select(ItemInquiryHistory.id).where(
+                ItemInquiryHistory.item_id == cls.id
+            )
+            stmt = stmt.where(has_linked_inquiry.exists())
         if need_index:
             stmt = stmt.where(cls.image_index_num.__gt__(0).__and__(cls.feature_index_num.__gt__(0)))
         if need_v2_index:

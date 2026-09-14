@@ -67,6 +67,22 @@ class FakeStore:
         self.dropped.append(collection_name)
 
 
+class FakeStateRepository:
+    def __init__(self):
+        self.replaced = []
+        self.upserted = []
+        self.deleted = []
+
+    async def replace_all(self, documents, task_id):
+        self.replaced.append((task_id, list(documents)))
+
+    async def upsert(self, documents, task_id):
+        self.upserted.append((task_id, list(documents)))
+
+    async def delete(self, document_keys):
+        self.deleted.append(list(document_keys))
+
+
 def make_row(
     row_id,
     inquiry_id,
@@ -133,8 +149,10 @@ def test_incremental_index_skips_unchanged_updates_changed_and_deletes_invalid()
     )
     store.hashes[build_document_key("sgo", "1003", "40003")] = "old"
     model = FakeModelClient()
+    state = FakeStateRepository()
     service = InquirySemanticIndexService(
         repository=FakeRepository([unchanged, changed, invalid]),
+        state_repository=state,
         store=store,
         model_client=model,
         config=make_config(),
@@ -151,6 +169,8 @@ def test_incremental_index_skips_unchanged_updates_changed_and_deletes_invalid()
     assert model.calls == [["底板螺栓"]]
     assert store.upserts[0][1].inquiry_id == "1002"
     assert store.deletes == [(None, [build_document_key("sgo", "1003", "40003")])]
+    assert {row["history_id"] for row in state.upserted[0][1]} == {1, 2}
+    assert state.deleted == [[build_document_key("sgo", "1003", "40003")]]
 
 
 def test_full_build_switches_alias_only_after_success():
@@ -159,8 +179,10 @@ def test_full_build_switches_alias_only_after_success():
     )
 
     store = FakeStore()
+    state = FakeStateRepository()
     service = InquirySemanticIndexService(
         repository=FakeRepository([make_row(1, "1001", "监控室对面窗帘")]),
+        state_repository=state,
         store=store,
         model_client=FakeModelClient(),
         config=make_config(),
@@ -172,6 +194,37 @@ def test_full_build_switches_alias_only_after_success():
     assert store.activated == ["build-task-1"]
     assert store.dropped == []
     assert store.upserts[0][0] == "build-task-1"
+    assert state.replaced[0][0] == "task-1"
+    assert state.replaced[0][1][0]["description"] == "监控室对面窗帘"
+
+
+def test_full_build_does_not_drop_active_collection_when_state_persistence_fails():
+    from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+        InquirySemanticIndexService,
+    )
+
+    class FailingStateRepository(FakeStateRepository):
+        async def replace_all(self, documents, task_id):
+            raise RuntimeError("state persistence failed")
+
+    store = FakeStore()
+    service = InquirySemanticIndexService(
+        repository=FakeRepository([make_row(1, "1001", "监控室对面窗帘")]),
+        state_repository=FailingStateRepository(),
+        store=store,
+        model_client=FakeModelClient(),
+        config=make_config(),
+    )
+
+    try:
+        asyncio.run(service.run_full("task-state-failure"))
+    except RuntimeError as exc:
+        assert str(exc) == "state persistence failed"
+    else:
+        raise AssertionError("state persistence failure must fail the rebuild task")
+
+    assert store.activated == ["build-task-state-failure"]
+    assert store.dropped == []
 
 
 def test_full_build_indexes_each_distinct_return_for_the_same_inquiry():
@@ -190,6 +243,7 @@ def test_full_build_indexes_each_distinct_return_for_the_same_inquiry():
                 make_row(5, "1001", "同一询码描述", item_id=20, item_code="40002"),
             ]
         ),
+        state_repository=FakeStateRepository(),
         store=store,
         model_client=model,
         config=make_config(inquiry_text_index_batch_size=1),
@@ -226,6 +280,7 @@ def test_incremental_latest_invalid_history_deletes_existing_document():
     model = FakeModelClient()
     service = InquirySemanticIndexService(
         repository=FakeRepository([old_valid, latest_invalid]),
+        state_repository=FakeStateRepository(),
         store=store,
         model_client=model,
         config=make_config(),
@@ -257,6 +312,7 @@ def test_search_applies_threshold_and_aggregates_by_best_item_hit():
     ]
     service = InquirySemanticIndexService(
         repository=FakeRepository([]),
+        state_repository=FakeStateRepository(),
         store=store,
         model_client=FakeModelClient(),
         config=make_config(),
@@ -289,6 +345,7 @@ def test_incremental_progress_only_reports_failures_from_current_batch():
                 make_row(2, "1002", "成功描述"),
             ]
         ),
+        state_repository=FakeStateRepository(),
         store=FakeStore(),
         model_client=FirstRowFailsModel(),
         config=make_config(inquiry_text_index_batch_size=1),

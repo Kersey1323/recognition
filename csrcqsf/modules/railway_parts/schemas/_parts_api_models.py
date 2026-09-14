@@ -60,8 +60,8 @@ class ListItem(BaseModel):
     created_at: str
     has_index: int = Field(default=0, description='为1时表示已具备完整V2索引')
     has_source_video: int = Field(default=0, description='为1时表示已上传原视频')
-    features: list[str] = Field(default_factory=list, description='兼容字段，固定返回空数组')
-    features_num: int = Field(default=0, description='兼容字段，固定返回0')
+    features: list[str] = Field(default_factory=list, description='当前BGE文字索引中的询码名称描述')
+    features_num: int = Field(default=0, description='当前BGE文字索引的去重描述数量')
     images_total_num: int = Field(description='图片总数', default=0)
     images_total_indexed_num: int = Field(description='图片已索引的总数', default=0)
     images_url: list[str] = Field(default_factory=list, description='该配件的全部图片地址')
@@ -184,7 +184,8 @@ class GetItemDetailRes(BaseModel):
     parent_item_code: str | None
     parent_item_id: str | None
     size_str: str | None
-    features: list[str] = Field(default_factory=list, description='兼容字段，固定返回空数组')
+    features: list[str] = Field(default_factory=list, description='当前BGE文字索引中的询码名称描述')
+    features_num: int = Field(default=0, description='当前BGE文字索引的去重描述数量')
 
 
 class CreateItemImagesReq(BaseModel):

@@ -22,11 +22,12 @@ def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) ->
             "run_sync": parts_service_module.run_sync,
             "get_id": parts_service_module.get_id,
             "SessionLocal": parts_service_module.SessionLocal,
-            "sgo_sessionLocal": parts_service_module.sgo_sessionLocal,
             "Items": parts_service_module.Items,
             "ItemsParent": parts_service_module.ItemsParent,
             "ItemInquiryHistory": parts_service_module.ItemInquiryHistory,
-            "SgoCodeInquiryReturn": parts_service_module.SgoCodeInquiryReturn,
+            "InquiryTextIndexDocumentRepository": (
+                parts_service_module.InquiryTextIndexDocumentRepository
+            ),
             "SgoItemImages": parts_service_module.SgoItemImages,
             "SegmentedImage": parts_service_module.SegmentedImage,
             "SegmentedImageService": parts_service_module.SegmentedImageService,
@@ -38,7 +39,6 @@ def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) ->
             "ItemImageIndexInfo": parts_service_module.ItemImageIndexInfo,
             "ItemImageItem": parts_service_module.ItemImageItem,
             "date_to_str": parts_service_module.date_to_str,
-            "select": parts_service_module.select,
             "_get_milvus_state_manager_v2_cls": parts_service_module._get_milvus_state_manager_v2_cls,
             "_get_minio_helpers": parts_service_module._get_minio_helpers,
             "minio_bucket": parts_service_module.minio_bucket,
@@ -282,27 +282,9 @@ async def update_item(
 async def list_item(cls, req, runtime=None):
     runtime = runtime or _runtime()
     item_code_list = []
-    if req.has_inquery_code == 1:
-        async with runtime.sgo_sessionLocal() as session:
-            # 甲方历史回复的两个物理字段都可能存放编码，主库后续会自然排除名称值。
-            stmt = runtime.select(
-                runtime.SgoCodeInquiryReturn.item_name,
-                runtime.SgoCodeInquiryReturn.item_code,
-            ).distinct()
-            data = await session.execute(stmt)
-            item_code_list = [
-                str(value).strip()
-                for row in data
-                for value in row
-                if value not in (None, "")
-            ]
-
     exact_item_code = str(getattr(req, "item_code", "") or "").strip()
     if exact_item_code:
-        if item_code_list:
-            item_code_list = [item_code for item_code in item_code_list if str(item_code) == exact_item_code]
-        else:
-            item_code_list = [exact_item_code]
+        item_code_list = [exact_item_code]
 
     async with runtime.SessionLocal() as session:
         item_id_list = []
@@ -321,6 +303,7 @@ async def list_item(cls, req, runtime=None):
             need_index=False,
             need_v2_index=req.only_has_index == 1,
             has_source_video=req.has_source_video,
+            has_inquiry_history=req.has_inquery_code == 1,
         )
 
         page_item_ids = [item.id for item in items.data]
@@ -332,6 +315,12 @@ async def list_item(cls, req, runtime=None):
             int(item_id): (inquiry_nums, int(inquiry_count))
             for item_id, inquiry_nums, inquiry_count in inquiry_rows
         }
+        features_by_item = (
+            await runtime.InquiryTextIndexDocumentRepository.list_features_by_item_ids(
+                session,
+                page_item_ids,
+            )
+        )
 
         images = await cls.list_item_images(page_item_ids)
         images_dict: dict[int, list] = {}
@@ -342,6 +331,7 @@ async def list_item(cls, req, runtime=None):
         for item in items.data:
             inquiry_nums, inquiry_count = inquiry_summary.get(item.id, ([], 0))
             item_images = images_dict.get(item.id, [])
+            features = features_by_item.get(item.id, [])
             item_desc = runtime.ListItem(
                 item_name=item.item_name,
                 item_code=item.item_code,
@@ -355,6 +345,8 @@ async def list_item(cls, req, runtime=None):
                 has_source_video=1 if item.source_video_path else 0,
                 images_total_indexed_num=item.v2_indexed_image_num,
                 images_url=[image.image_url for image in item_images],
+                features=features,
+                features_num=len(features),
                 inquiry_nums=inquiry_nums,
                 inquiry_count=inquiry_count,
                 id=str(item.id),
@@ -404,6 +396,12 @@ async def get_item_detail(cls, item_id: int, runtime=None):
             if int(image.is_indexed or 0) == 1
         }
         segmented_records = list(await runtime.SegmentedImage.list_by_item_id(session, item_id))
+        features_by_item = (
+            await runtime.InquiryTextIndexDocumentRepository.list_features_by_item_ids(
+                session,
+                [item_id],
+            )
+        )
         segmented_image_dict: dict[int, str | None] = {}
         for record in segmented_records:
             source_image_id = int(record.source_image_id)
@@ -427,6 +425,8 @@ async def get_item_detail(cls, item_id: int, runtime=None):
             created_at=runtime.date_to_str(item.time_created),
             updated_at=runtime.date_to_str(item.time_updated),
             size_str=item.size_str,
+            features=features_by_item.get(item_id, []),
+            features_num=len(features_by_item.get(item_id, [])),
         )
         for image_id, image_url in sorted(indexed_image_dict.items()):
             res.images_index_list.append(

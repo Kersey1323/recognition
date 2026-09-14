@@ -121,7 +121,7 @@ class FakeService:
     def __init__(self):
         self.calls = []
 
-    async def run_incremental(self, history_ids, progress_callback=None):
+    async def run_incremental(self, history_ids, progress_callback=None, task_id=None):
         self.calls.append(("incremental", list(history_ids)))
         await progress_callback({"progress": 50, "processed_items": 1})
         return {
@@ -261,7 +261,7 @@ def test_manager_marks_any_index_failure_as_failed():
     )
 
     class FailingService(FakeService):
-        async def run_incremental(self, history_ids, progress_callback=None):
+        async def run_incremental(self, history_ids, progress_callback=None, task_id=None):
             return {
                 "total_items": 2,
                 "processed_items": 2,

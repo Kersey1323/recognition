@@ -17,6 +17,9 @@ from csrcqsf.infra.external.model_client import get_model_client
 from csrcqsf.modules.railway_parts.repositories.inquiry_semantic_repository import (
     InquirySemanticRepository,
 )
+from csrcqsf.modules.railway_parts.repositories.inquiry_text_index_document_repository import (
+    InquiryTextIndexDocumentRepository,
+)
 from csrcqsf.modules.railway_parts.vector_search.config.env_config import get_config
 from csrcqsf.modules.railway_parts.vector_search.storage.inquiry_semantic_store import (
     InquirySemanticDocument,
@@ -65,11 +68,15 @@ class InquirySemanticIndexService:
         self,
         *,
         repository=None,
+        state_repository=None,
         store=None,
         model_client=None,
         config=None,
     ):
         self.repository = repository or InquirySemanticRepository()
+        self.state_repository = (
+            state_repository or InquiryTextIndexDocumentRepository()
+        )
         self.store = store or InquirySemanticStore()
         self.model_client = model_client or get_model_client()
         self.config = config or get_config()
@@ -103,6 +110,18 @@ class InquirySemanticIndexService:
         )
         return document_key, content_hash, description
 
+    @staticmethod
+    def _state_document(row, key: str, content_hash: str, description: str) -> dict:
+        return {
+            "document_key": key,
+            "history_id": int(row.id),
+            "inquiry_id": str(row.inquiry_id),
+            "item_id": int(row.item_id),
+            "item_code": str(row.item_code or ""),
+            "description": description,
+            "content_hash": content_hash,
+        }
+
     async def _embed_with_retry(self, texts: list[str]) -> Any:
         # 模型服务短暂失败仅重试当前文本批次，不重跑已经写入的前序样本。
         last_error = None
@@ -129,6 +148,8 @@ class InquirySemanticIndexService:
         skipped_count = 0
         deleted_count = 0
         failures: list[dict[str, Any]] = []
+        state_upserts: list[dict[str, Any]] = []
+        state_deletes: list[str] = []
 
         latest_by_key: dict[str, tuple[int, Any, tuple[str, str, str] | None]] = {}
         rows_without_key = []
@@ -190,10 +211,16 @@ class InquirySemanticIndexService:
                     )
                 else:
                     skipped_count += 1
+                if key:
+                    # Milvus 已无该键时仍清理本地镜像，使失败后的重试可以修复状态。
+                    state_deletes.append(key)
                 processed_items += 1
                 continue
             key, content_hash, description = metadata
             if compare_hashes and existing_hashes.get(key) == content_hash:
+                state_upserts.append(
+                    self._state_document(row, key, content_hash, description)
+                )
                 skipped_count += 1
                 processed_items += 1
                 continue
@@ -225,6 +252,10 @@ class InquirySemanticIndexService:
                         documents,
                         collection_name=collection_name,
                     )
+                )
+                state_upserts.extend(
+                    self._state_document(row, key, content_hash, description)
+                    for row, key, content_hash, description in batch
                 )
             except Exception as exc:
                 for row, _key, _content_hash, _description in batch:
@@ -278,20 +309,28 @@ class InquirySemanticIndexService:
             "fail_count": len(failures),
             "failure_details": failures,
             "failures_persisted_incrementally": bool(progress_callback),
+            "_state_upserts": state_upserts,
+            "_state_deletes": state_deletes,
         }
 
     async def run_incremental(
         self,
         history_ids: list[int],
         progress_callback: ProgressCallback | None = None,
+        *,
+        task_id: str = "incremental",
     ) -> dict[str, Any]:
         rows = await self.repository.list_by_ids(history_ids)
-        return await self._index_rows(
+        result = await self._index_rows(
             rows,
             collection_name=None,
             compare_hashes=True,
             progress_callback=progress_callback,
         )
+        # 增量写入成功后同步本地镜像；重试时未变化文档也会补齐历史缺失状态。
+        await self.state_repository.upsert(result.pop("_state_upserts"), task_id)
+        await self.state_repository.delete(result.pop("_state_deletes"))
+        return result
 
     async def run_full(
         self,
@@ -302,6 +341,7 @@ class InquirySemanticIndexService:
         collection_name = await run_sync(
             lambda: self.store.create_build_collection(task_id)
         )
+        activated = False
         try:
             rows = await self.repository.list_valid()
             result = await self._index_rows(
@@ -316,12 +356,23 @@ class InquirySemanticIndexService:
                 await run_sync(
                     lambda: self.store.activate_build_collection(collection_name)
                 )
+                activated = True
+                # 只有别名已经指向新 Collection，镜像才可以整体替换为本次文档。
+                await self.state_repository.replace_all(
+                    result["_state_upserts"],
+                    task_id,
+                )
+            result.pop("_state_upserts", None)
+            result.pop("_state_deletes", None)
             return result
         except asyncio.CancelledError:
-            await run_sync(lambda: self.store.drop_build_collection(collection_name))
+            if not activated:
+                await run_sync(lambda: self.store.drop_build_collection(collection_name))
             raise
         except Exception:
-            await run_sync(lambda: self.store.drop_build_collection(collection_name))
+            # 别名切换后新库已承担在线检索，本地镜像失败不能反向删除活动 Collection。
+            if not activated:
+                await run_sync(lambda: self.store.drop_build_collection(collection_name))
             raise
 
     async def search(

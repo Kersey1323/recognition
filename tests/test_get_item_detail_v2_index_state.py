@@ -127,6 +127,7 @@ def test_get_item_detail_uses_v2_indexed_images_and_returns_image_url():
     ), patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
          patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
          patch.object(parts_module.SgoItemImages, "get_images", MagicMock(return_value=_async_iter(fake_images))), \
+         patch.object(parts_module.InquiryTextIndexDocumentRepository, "list_features_by_item_ids", AsyncMock(return_value={101: ["司机室橡胶套"]})), \
          patch.object(parts_module, "MilvusManager", SimpleNamespace(list_item_index=AsyncMock(return_value={}))), \
          patch.object(parts_module, "MilvusStateManagerV2") as state_cls, \
          patch.object(parts_module, "date_to_str", side_effect=lambda _value: "2026-04-27 11:39:23"):
@@ -141,6 +142,8 @@ def test_get_item_detail_uses_v2_indexed_images_and_returns_image_url():
     assert res.images[1].image_id == "9002"
     assert res.images[1].has_indexed == 0
     assert res.images[1].image_url == "bfr-ai-files/b.jpg"
+    assert res.features == ["司机室橡胶套"]
+    assert res.features_num == 1
     state_cls.assert_not_called()
 
 
@@ -191,6 +194,7 @@ def test_get_item_detail_prefers_segmented_image_url_for_index_panel():
          patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
          patch.object(parts_module.SgoItemImages, "get_images", MagicMock(return_value=_async_iter(fake_images))), \
          patch.object(parts_module, "SegmentedImage", SimpleNamespace(list_by_item_id=AsyncMock(return_value=fake_segmented_records)), create=True), \
+         patch.object(parts_module.InquiryTextIndexDocumentRepository, "list_features_by_item_ids", AsyncMock(return_value={})), \
          patch.object(parts_module, "MilvusManager", SimpleNamespace(list_item_index=AsyncMock(return_value={}))), \
          patch.object(parts_module, "MilvusStateManagerV2") as state_cls, \
          patch.object(parts_module, "date_to_str", side_effect=lambda _value: "2026-04-27 11:39:23"):
@@ -235,6 +239,7 @@ def test_get_item_detail_does_not_persist_reconstruction_result_during_read():
          patch.object(parts_module.Items, "get_item_by_id", AsyncMock(return_value=fake_item)), \
          patch.object(parts_module.SgoItemImages, "get_images", MagicMock(return_value=_async_iter([]))), \
          patch.object(parts_module, "SegmentedImage", SimpleNamespace(list_by_item_id=AsyncMock(return_value=[])), create=True), \
+         patch.object(parts_module.InquiryTextIndexDocumentRepository, "list_features_by_item_ids", AsyncMock(return_value={})), \
          patch.object(parts_module, "MilvusManager", SimpleNamespace(list_item_index=AsyncMock(return_value={}))), \
          patch.object(parts_module, "MilvusStateManagerV2") as state_cls, \
          patch.object(parts_module, "date_to_str", side_effect=lambda _value: "2026-04-27 11:39:23"):

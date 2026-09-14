@@ -255,6 +255,7 @@ class InquiryTextIndexTaskManager:
                 result = await self.service.run_incremental(
                     list(record.get("history_ids_json") or []),
                     progress_callback=persist_progress,
+                    task_id=task_id,
                 )
             if not result.get("failures_persisted_incrementally"):
                 await self.repository.replace_failures(
