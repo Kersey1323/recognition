@@ -3,6 +3,10 @@ from __future__ import annotations
 import io
 from typing import Any
 
+from csrcqsf.models.orm.search_history import SearchParameters
+from csrcqsf.modules.railway_parts.services.contextual_search_service import (
+    rank_contextual_candidates,
+)
 from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
     get_inquiry_semantic_index_service,
 )
@@ -183,9 +187,9 @@ async def search_v2_by_text(
     runtime = runtime or _runtime()
     history_id = runtime.get_id()
     semantic_service = get_inquiry_semantic_index_service()
-    # 多取一批语义候选，主库中配件已删除时继续向后补足，API 的 top_k
-    # 始终表示最终返回的配件数，而不是 Milvus 样本窗口大小。
-    enrichment_limit = min(200, max(30, int(top_k) * 5))
+    # 融合排序前至少保留 100 个配件候选，与 contextual 使用相同候选池；
+    # API 的 top_k 只控制最终返回数量，避免较小 top_k 提前淘汰名称强匹配项。
+    enrichment_limit = min(200, max(100, int(top_k) * 5))
     results = await semantic_service.search(
         query_text=query_text,
         top_k=enrichment_limit,
@@ -199,6 +203,11 @@ async def search_v2_by_text(
             items = await runtime.ContextualSearchRepository.list_items_by_ids(
                 session, item_ids
             )
+            history_rows = (
+                await runtime.ContextualSearchRepository.list_histories_by_item_ids(
+                    session, item_ids
+                )
+            )
             first_images = (
                 await runtime.ContextualSearchRepository.list_first_images_by_item_ids(
                     session, item_ids
@@ -206,9 +215,31 @@ async def search_v2_by_text(
             )
         item_map = {int(item.id): item for item in items}
         image_map = {int(image.item_id): image.image_url for image in first_images}
-        for result in results:
+        hit_map = {
+            int(result["entity"]["item_id"]): result
+            for result in results
+        }
+        histories_by_item: dict[int, list[Any]] = {}
+        for row in history_rows:
+            if row.item_id is not None:
+                histories_by_item.setdefault(int(row.item_id), []).append(row)
+
+        # 纯文本入口与条件检索共享名称和询码历史融合排序，避免同一描述返回两套结果。
+        ranked = rank_contextual_candidates(
+            item_ids=item_ids,
+            image_scores={},
+            text_scores={
+                item_id: float(result.get("distance", 0) or 0)
+                for item_id, result in hit_map.items()
+            },
+            item_names={int(item.id): item.item_name for item in items},
+            histories_by_item=histories_by_item,
+            parameters=SearchParameters(item_description=query_text),
+        )
+        for score_row in ranked:
+            item_id = int(score_row["item_id"])
+            result = hit_map[item_id]
             entity = result.get("entity", {})
-            item_id = int(entity["item_id"])
             item = item_map.get(item_id)
             if item is None:
                 continue
@@ -218,7 +249,7 @@ async def search_v2_by_text(
                     item_code=item.item_code,
                     item_name=item.item_name,
                     image_url=image_map.get(item_id, "") or "",
-                    rate=float(result.get("distance", 0) or 0),
+                    rate=float(score_row["final_score"]),
                     matched_images=[],
                     matched_description=entity.get("description"),
                     matched_inquiry_id=(

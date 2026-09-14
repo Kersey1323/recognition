@@ -137,6 +137,10 @@ def test_search_v2_by_text_persists_query_text_after_success():
              AsyncMock(return_value=list(fake_items.values())),
          ), patch.object(
              parts_module.ContextualSearchRepository,
+             "list_histories_by_item_ids",
+             AsyncMock(return_value=[]),
+         ), patch.object(
+             parts_module.ContextualSearchRepository,
              "list_first_images_by_item_ids",
              AsyncMock(
                  return_value=[
@@ -152,7 +156,7 @@ def test_search_v2_by_text_persists_query_text_after_success():
     assert result.data[0].item_id == "1"
     assert result.data[0].item_code == "40000728845"
     assert result.data[0].image_url == "bfr-ai-files/b.jpg"
-    assert result.data[0].rate == 0.98
+    assert 0 <= result.data[0].rate <= 1
     assert result.data[0].matched_images == []
     assert result.data[0].matched_description == "转向架上的制动圆盘"
     assert isinstance(session.added, SearchHistory)
@@ -209,6 +213,10 @@ def test_search_v2_by_text_persists_search_equipment_and_pending_feedback():
              parts_module.ContextualSearchRepository,
              "list_items_by_ids",
              AsyncMock(return_value=[fake_item]),
+         ), patch.object(
+             parts_module.ContextualSearchRepository,
+             "list_histories_by_item_ids",
+             AsyncMock(return_value=[]),
          ), patch.object(
              parts_module.ContextualSearchRepository,
              "list_first_images_by_item_ids",

@@ -53,6 +53,31 @@ class ContextualSearchRepository:
         return [int(item_id) for (item_id,) in result.all()]
 
     @classmethod
+    async def list_history_item_ids_by_vehicle(
+        cls,
+        session,
+        vehicle_batch: str,
+    ) -> list[int]:
+        normalized_batch = str(vehicle_batch).strip().upper()
+        if not normalized_batch:
+            return []
+        # 车型候选以真实询码记录为准；新数据使用归一化车型字段，旧数据缺失时
+        # 回退到原始车型文本，避免正式物料车型关系缺失造成目标配件被提前排除。
+        history_vehicle = func.upper(
+            func.coalesce(
+                func.nullif(func.trim(ItemInquiryHistory.vehicle_batch), ""),
+                func.trim(ItemInquiryHistory.vehicle),
+            )
+        )
+        result = await session.execute(
+            select(ItemInquiryHistory.item_id)
+            .where(ItemInquiryHistory.item_id.is_not(None))
+            .where(history_vehicle == normalized_batch)
+            .distinct()
+        )
+        return [int(item_id) for (item_id,) in result.all()]
+
+    @classmethod
     async def list_item_ids_by_exact_name(cls, session, item_name: str) -> list[int]:
         # 配件名称只承担强过滤：忽略大小写和首尾空格，但不做模糊或语义匹配。
         normalized_name = str(item_name).strip().casefold()

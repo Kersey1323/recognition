@@ -96,6 +96,27 @@ def _pending_history():
     )
 
 
+def test_vehicle_candidates_are_loaded_from_local_inquiry_history():
+    session = _Session()
+    repository = SimpleNamespace(
+        list_history_item_ids_by_vehicle=AsyncMock(return_value=[101, 102]),
+    )
+    runtime = _runtime(session, repository)
+
+    item_ids = asyncio.run(
+        contextual_search_service._vehicle_candidate_item_ids(
+            "SFE27",
+            runtime=runtime,
+        )
+    )
+
+    assert item_ids == [101, 102]
+    repository.list_history_item_ids_by_vehicle.assert_awaited_once_with(
+        session,
+        "SFE27",
+    )
+
+
 def test_first_contextual_search_creates_one_pending_history():
     session = _Session()
     repository = SimpleNamespace()
@@ -504,6 +525,59 @@ def test_description_only_search_skips_image_model_and_uses_representative_image
     assert results[0].image_url == "first.jpg"
     assert results[0].matched_description == "厕所里的马桶盖"
     assert results[0].matched_images == []
+
+
+def test_contextual_search_returns_top_twenty_items():
+    session = _Session()
+    items = [
+        SimpleNamespace(
+            id=item_id,
+            item_code=f"CODE-{item_id}",
+            item_name=f"配件{item_id}",
+        )
+        for item_id in range(1, 26)
+    ]
+    repository = SimpleNamespace(
+        list_items_by_ids=AsyncMock(return_value=items),
+        list_histories_by_item_ids=AsyncMock(return_value=[]),
+        list_first_images_by_item_ids=AsyncMock(return_value=[]),
+    )
+    semantic_service = SimpleNamespace(
+        search=AsyncMock(
+            return_value=[
+                {
+                    "distance": 1 - item_id / 100,
+                    "entity": {
+                        "item_id": item_id,
+                        "description": f"描述{item_id}",
+                        "inquiry_id": f"inquiry-{item_id}",
+                    },
+                }
+                for item_id in range(1, 26)
+            ]
+        )
+    )
+    runtime = _runtime(session, repository)
+
+    with patch.object(
+        contextual_search_service,
+        "get_inquiry_semantic_index_service",
+        return_value=semantic_service,
+    ):
+        results, message = asyncio.run(
+            contextual_search_service._execute_contextual_search(
+                object,
+                query_images=[],
+                parameters=SearchParameters(item_description="测试描述"),
+                runtime=runtime,
+            )
+        )
+
+    assert message is None
+    assert len(results) == 20
+    assert [result.item_code for result in results] == [
+        f"CODE-{item_id}" for item_id in range(1, 21)
+    ]
 
 
 def test_exact_item_name_filters_candidates_and_missing_name_falls_back():

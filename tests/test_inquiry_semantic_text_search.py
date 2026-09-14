@@ -32,6 +32,11 @@ class _Repository:
             SimpleNamespace(id=21, item_id=2, image_url="filter.jpg"),
         ]
 
+    @classmethod
+    async def list_histories_by_item_ids(cls, session, item_ids):
+        assert item_ids == [1, 999, 2]
+        return []
+
 
 def test_direct_text_search_uses_inquiry_semantics_and_persists_explanation():
     semantic_service = SimpleNamespace(
@@ -104,7 +109,7 @@ def test_direct_text_search_uses_inquiry_semantics_and_persists_explanation():
     search_kwargs = semantic_service.search.await_args.kwargs
     assert search_kwargs["query_text"] == "监控室对面窗帘"
     assert search_kwargs["item_ids"] is None
-    assert search_kwargs["top_k"] >= 2
+    assert search_kwargs["top_k"] == 100
     persisted = persist.await_args.kwargs["search_items"]
     assert persisted[0].matched_description == "监控室对面窗帘"
 
@@ -138,3 +143,64 @@ def test_direct_text_search_allows_empty_semantic_results():
 
     assert response.data == []
     persist.assert_awaited_once()
+
+
+def test_direct_text_search_reranks_with_item_names():
+    semantic_service = SimpleNamespace(
+        search=AsyncMock(
+            return_value=[
+                {
+                    "distance": 0.90,
+                    "entity": {
+                        "item_id": 1,
+                        "description": "温水器",
+                        "inquiry_id": "inq-1",
+                    },
+                },
+                {
+                    "distance": 0.80,
+                    "entity": {
+                        "item_id": 2,
+                        "description": "电热开水器",
+                        "inquiry_id": "inq-2",
+                    },
+                },
+            ]
+        )
+    )
+    repository = SimpleNamespace(
+        list_items_by_ids=AsyncMock(
+            return_value=[
+                SimpleNamespace(id=1, item_code="CODE-1", item_name="温水器"),
+                SimpleNamespace(id=2, item_code="CODE-2", item_name="电热开水器"),
+            ]
+        ),
+        list_histories_by_item_ids=AsyncMock(return_value=[]),
+        list_first_images_by_item_ids=AsyncMock(return_value=[]),
+    )
+    persist = AsyncMock()
+    runtime = SimpleNamespace(
+        get_id=lambda: 1003,
+        SessionLocal=lambda: _AsyncSessionContext(),
+        ContextualSearchRepository=repository,
+        SearchItem=SearchItem,
+        SearchRes=SearchRes,
+    )
+
+    with patch.object(
+        search_service,
+        "get_inquiry_semantic_index_service",
+        return_value=semantic_service,
+    ):
+        response = asyncio.run(
+            search_service.search_v2_by_text(
+                SimpleNamespace(_persist_v2_search_history=persist),
+                query_text="电热开水器（海能）",
+                top_k=2,
+                runtime=runtime,
+            )
+        )
+
+    assert [item.item_id for item in response.data] == ["2", "1"]
+    assert response.data[0].matched_description == "电热开水器"
+    assert response.data[0].rate > response.data[1].rate

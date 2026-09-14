@@ -44,6 +44,32 @@ def test_vehicle_candidate_query_uses_complete_materiel_vehicle_relation():
     assert "SFE27" in sql
 
 
+def test_history_vehicle_candidate_query_returns_distinct_local_item_ids():
+    result = SimpleNamespace(all=lambda: [(101,), (102,)])
+    session = _ExecuteSession(result)
+
+    item_ids = asyncio.run(
+        ContextualSearchRepository.list_history_item_ids_by_vehicle(
+            session,
+            " sfe27 ",
+        )
+    )
+
+    sql = str(
+        session.statements[0].compile(
+            dialect=mysql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert item_ids == [101, 102]
+    assert "item_inquiry_history" in sql
+    assert (
+        "upper(coalesce(nullif(trim(item_inquiry_history.vehicle_batch), ''), "
+        "trim(item_inquiry_history.vehicle))) = 'SFE27'"
+    ) in sql
+    assert "item_inquiry_history.item_id IS NOT NULL" in sql
+    assert "DISTINCT" in sql
+
+
 def test_item_name_candidate_query_uses_normalized_exact_match():
     result = SimpleNamespace(all=lambda: [(101,), (102,)])
     session = _ExecuteSession(result)

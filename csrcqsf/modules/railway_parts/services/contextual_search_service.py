@@ -28,6 +28,9 @@ FINAL_SCORE_WEIGHTS = {
     "exact_match_score": 0.05,
 }
 
+# 条件检索扩大最终展示范围，避免相似度接近时正确配件落在前十名之后。
+CONTEXTUAL_RESULT_LIMIT = 20
+
 
 class ContextualSearchBusinessError(Exception):
     def __init__(self, status_code: int, detail: str):
@@ -447,13 +450,10 @@ async def _vehicle_candidate_item_ids(
     runtime = runtime or _runtime()
     if not vehicle_batch:
         return None
-    async with runtime.sgo_sessionLocal() as source_session:
-        item_codes = await runtime.ContextualSearchRepository.list_vehicle_item_codes(
-            source_session, vehicle_batch
-        )
     async with runtime.SessionLocal() as session:
-        return await runtime.ContextualSearchRepository.list_item_ids_by_codes(
-            session, item_codes
+        return await runtime.ContextualSearchRepository.list_history_item_ids_by_vehicle(
+            session,
+            vehicle_batch,
         )
 
 
@@ -596,7 +596,7 @@ async def _execute_contextual_search(
     )
 
     search_items: list[SearchItem] = []
-    for score_row in ranked[:10]:
+    for score_row in ranked[:CONTEXTUAL_RESULT_LIMIT]:
         item_id = int(score_row["item_id"])
         item = item_map.get(item_id)
         visual_hits = visual_hits_by_item.get(item_id, [])
