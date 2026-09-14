@@ -531,7 +531,7 @@ def test_sync_inquiry_history_maps_item_codes_and_reports_progress():
         SGOBiz,
         "_upsert_inquiry_history_payloads",
         AsyncMock(side_effect=upsert),
-    ):
+    ), patch.object(sgo_services.logger, "info") as logger_info:
         result = asyncio.run(
             SGOBiz.sync_inquiry_history(
                 limit=2,
@@ -553,6 +553,13 @@ def test_sync_inquiry_history_maps_item_codes_and_reports_progress():
     }
     assert [item["progress"] for item in progress] == [0, 100]
     assert progress[-1]["current_item_id"] == "inq-2"
+    diagnostic_calls = [
+        call
+        for call in logger_info.call_args_list
+        if call.args and call.args[0].startswith("SGO 询码历史同步诊断:")
+    ]
+    assert len(diagnostic_calls) == 1
+    assert diagnostic_calls[0].args[1:7] == (2, 2, 1, 1, 1, 0)
 
 
 def test_sync_inquiry_history_persists_rows_without_return_item_code():
@@ -756,7 +763,7 @@ def test_upsert_inquiry_history_returns_only_rows_inserted_by_current_sync():
         sgo_services,
         "get_id",
         side_effect=[501, 502],
-    ):
+    ), patch.object(sgo_services.logger, "info") as logger_info:
         result = asyncio.run(
             SGOBiz._upsert_inquiry_history_payloads(payloads, batch_size=10)
         )
@@ -772,6 +779,13 @@ def test_upsert_inquiry_history_returns_only_rows_inserted_by_current_sync():
         (row["inquiry_id"], row["return_item_code"])
         for row in Session.inserted_rows
     } == {("inq-existing", "code-2"), ("inq-new", "code-3")}
+    diagnostic_calls = [
+        call
+        for call in logger_info.call_args_list
+        if call.args and call.args[0].startswith("SGO 询码历史本地写入诊断:")
+    ]
+    assert len(diagnostic_calls) == 1
+    assert diagnostic_calls[0].args[1:5] == (4, 1, 2, 2)
 
 
 def test_sync_inquiry_history_does_not_enqueue_semantic_task_without_new_rows():

@@ -962,7 +962,10 @@ class SGOBiz:
         _sync_task_id: str | None = None,
     ) -> dict:
         """同步已返回配件编码的询码记录，并触发对应描述的增量语义索引。"""
+        sync_started = time.perf_counter()
+        source_query_started = time.perf_counter()
         source_rows = await cls._list_sgo_inquiry_history_source_rows(limit=limit)
+        source_query_ms = _elapsed_ms(source_query_started)
         total_items = len(source_rows)
         if progress_callback is not None:
             await _notify_progress(
@@ -998,7 +1001,10 @@ class SGOBiz:
             for row in source_rows
             if (item_code := _clean_text(row.get("return_item_code"))) is not None
         }
+        item_map_started = time.perf_counter()
         item_id_map = await cls._list_main_item_ids_by_codes(item_codes)
+        item_map_ms = _elapsed_ms(item_map_started)
+        payload_build_started = time.perf_counter()
         payloads = [
             _inquiry_history_payload_from_source_row(
                 row,
@@ -1006,10 +1012,13 @@ class SGOBiz:
             )
             for row in source_rows
         ]
+        payload_build_ms = _elapsed_ms(payload_build_started)
+        local_upsert_started = time.perf_counter()
         upsert_result = await cls._upsert_inquiry_history_payloads(
             payloads,
             batch_size=batch_size,
         )
+        local_upsert_ms = _elapsed_ms(local_upsert_started)
         processed_count = int(upsert_result["processed_count"])
         created_count = int(upsert_result["created_count"])
         skipped_count = int(upsert_result["skipped_count"])
@@ -1044,12 +1053,14 @@ class SGOBiz:
             "non_indexable_without_return_code": non_indexable_without_return_code,
         }
 
+        semantic_enqueue_ms = 0.0
         if _sync_task_id is not None:
             result["semantic_index_triggered"] = False
             result["semantic_index_task_id"] = None
             result["semantic_index_warning"] = None
             history_ids = list(upsert_result["history_ids"])
             if history_ids and inquiry_text_auto_index_enabled:
+                semantic_enqueue_started = time.perf_counter()
                 try:
                     # 询码主数据已经提交后再创建语义索引任务；任务创建失败只记录告警，
                     # 不回滚已经成功写入的询码记录，也不改变 SGO 同步任务的成功状态。
@@ -1066,6 +1077,28 @@ class SGOBiz:
                         "询码同步成功，但增量语义索引任务创建失败: sync_task_id={}",
                         _sync_task_id,
                     )
+                finally:
+                    semantic_enqueue_ms = _elapsed_ms(semantic_enqueue_started)
+
+        logger.info(
+            "SGO 询码历史同步诊断: source_rows={}, item_codes={}, mapped_items={}, "
+            "created={}, skipped={}, non_indexable_without_return_code={}, "
+            "source_query_ms={:.2f}, item_map_ms={:.2f}, "
+            "payload_build_ms={:.2f}, local_upsert_ms={:.2f}, "
+            "semantic_enqueue_ms={:.2f}, total_ms={:.2f}",
+            total_items,
+            len(item_codes),
+            len(item_id_map),
+            created_count,
+            skipped_count,
+            non_indexable_without_return_code,
+            source_query_ms,
+            item_map_ms,
+            payload_build_ms,
+            local_upsert_ms,
+            semantic_enqueue_ms,
+            _elapsed_ms(sync_started),
+        )
         return result
 
     @classmethod
@@ -1156,12 +1189,18 @@ class SGOBiz:
                 "history_ids": [],
             }
 
+        upsert_started = time.perf_counter()
         statement = text(_build_inquiry_history_upsert_sql())
         created_count = 0
         skipped_count = 0
         history_ids: list[int] = []
+        batch_count = 0
+        existing_query_ms = 0.0
+        insert_ms = 0.0
+        inserted_verify_ms = 0.0
         async with SessionLocal() as session:
             for offset in range(0, len(payloads), batch_size):
+                batch_count += 1
                 batch = payloads[offset : offset + batch_size]
                 unique_payloads: dict[tuple[str, str, str], dict] = {}
                 for payload in batch:
@@ -1176,6 +1215,7 @@ class SGOBiz:
                     unique_payloads[key] = payload
 
                 unique_keys = list(unique_payloads)
+                existing_query_started = time.perf_counter()
                 existing_result = await session.execute(
                     select(
                         ItemInquiryHistory.source,
@@ -1189,6 +1229,7 @@ class SGOBiz:
                         ).in_(unique_keys)
                     )
                 )
+                existing_query_ms += _elapsed_ms(existing_query_started)
                 existing_keys = {
                     (str(source), str(inquiry_id), str(return_item_code))
                     for source, inquiry_id, return_item_code in existing_result
@@ -1219,21 +1260,41 @@ class SGOBiz:
                     )
                 if not rows:
                     continue
+                insert_started = time.perf_counter()
                 await session.execute(statement, rows)
                 await session.flush()
+                insert_ms += _elapsed_ms(insert_started)
 
                 # 候选记录可能在预查询后被并发任务抢先插入；只有仍保留本次生成主键的
                 # 行才算真正新增，并进入后续 BGE 增量索引。
+                inserted_verify_started = time.perf_counter()
                 inserted_result = await session.execute(
                     select(ItemInquiryHistory.id).where(
                         ItemInquiryHistory.id.in_(generated_ids)
                     )
                 )
+                inserted_verify_ms += _elapsed_ms(inserted_verify_started)
                 inserted_ids = [int(history_id) for history_id in inserted_result.scalars()]
                 history_ids.extend(inserted_ids)
                 created_count += len(inserted_ids)
                 skipped_count += len(rows) - len(inserted_ids)
+            commit_started = time.perf_counter()
             await session.commit()
+            commit_ms = _elapsed_ms(commit_started)
+        logger.info(
+            "SGO 询码历史本地写入诊断: payloads={}, batches={}, created={}, "
+            "skipped={}, existing_query_ms={:.2f}, insert_ms={:.2f}, "
+            "inserted_verify_ms={:.2f}, commit_ms={:.2f}, total_ms={:.2f}",
+            len(payloads),
+            batch_count,
+            created_count,
+            skipped_count,
+            existing_query_ms,
+            insert_ms,
+            inserted_verify_ms,
+            commit_ms,
+            _elapsed_ms(upsert_started),
+        )
         return {
             "processed_count": len(payloads),
             "created_count": created_count,
