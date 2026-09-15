@@ -124,6 +124,7 @@ class SgoSyncTaskFailure(Base):
     item_id: Mapped[str] = mapped_column(String(100), nullable=False)
     item_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     item_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error_code: Mapped[str] = mapped_column(String(50), nullable=False)
     stage: Mapped[str] = mapped_column(String(50), nullable=False)
     error_type: Mapped[str] = mapped_column(String(100), nullable=False)
     error_message: Mapped[str] = mapped_column(Text, nullable=False)

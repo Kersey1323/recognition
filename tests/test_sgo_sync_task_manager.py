@@ -85,6 +85,7 @@ class FakeSgoSyncTaskRepository:
         stage=None,
         error_type=None,
         error_message=None,
+        error_code=None,
     ):
         records = self.failures.get(task_id, [])
         if stage is not None:
@@ -99,26 +100,27 @@ class FakeSgoSyncTaskRepository:
                 for record in records
                 if record["error_message"] == error_message
             ]
+        if error_code is not None:
+            records = [record for record in records if record.get("error_code") == error_code]
         start = (page - 1) * per_page
         return deepcopy(records[start : start + per_page]), len(records)
 
     async def summarize_failures(self, task_id):
         counts = Counter(
             (
-                failure["stage"],
-                failure["error_type"],
-                failure["error_message"],
+                failure.get("error_code"),
             )
             for failure in self.failures.get(task_id, [])
         )
         return [
             {
-                "stage": stage,
-                "error_type": error_type,
-                "error_message": error_message,
+                "error_code": error_code,
+                "stage": next(row["stage"] for row in self.failures[task_id] if row.get("error_code") == error_code),
+                "error_type": next(row["error_type"] for row in self.failures[task_id] if row.get("error_code") == error_code),
+                "error_message": next(row["error_message"] for row in self.failures[task_id] if row.get("error_code") == error_code),
                 "count": count,
             }
-            for (stage, error_type, error_message), count in counts.items()
+            for (error_code,), count in counts.items()
         ]
 
     async def mark_missing_active_task_interrupted(self, task_id):
@@ -244,12 +246,14 @@ def test_sgo_sync_task_manager_appends_incremental_failures_without_replacing_th
         failures = [
             {
                 "item_id": "101",
+                "error_code": "SGO_DOWNLOAD_FAILED",
                 "stage": "sgo_download",
                 "error_type": "TimeoutError",
                 "error_message": "download timeout",
             },
             {
                 "item_id": "102",
+                "error_code": "MINIO_UPLOAD_FAILED",
                 "stage": "minio_upload",
                 "error_type": "RuntimeError",
                 "error_message": "upload failed",
@@ -374,9 +378,10 @@ def test_sgo_sync_task_manager_detail_keeps_bounded_failure_compatibility():
             fail_count=2,
         )
         repository.failures[record["task_id"]] = [
-            {
-                "item_id": str(item_id),
-                "stage": "base_images",
+                {
+                    "item_id": str(item_id),
+                    "error_code": "BASE_IMAGE_METADATA_INVALID",
+                    "stage": "base_images",
                 "error_type": "RuntimeError",
                 "error_message": "download failed",
             }
@@ -389,6 +394,7 @@ def test_sgo_sync_task_manager_detail_keeps_bounded_failure_compatibility():
         assert detail["failed_item_ids"] == [str(item_id) for item_id in range(20)]
         assert detail["failure_groups"] == [
             {
+                "error_code": "BASE_IMAGE_METADATA_INVALID",
                 "stage": "base_images",
                 "error_type": "RuntimeError",
                 "error_message": "download failed",
@@ -403,9 +409,19 @@ def test_sgo_sync_task_manager_detail_keeps_bounded_failure_compatibility():
             stage="base_images",
             error_type="RuntimeError",
             error_message="download failed",
+            error_code="BASE_IMAGE_METADATA_INVALID",
         )
         assert len(records) == 10
         assert total == 25
+
+        repository.failures[record["task_id"]].append({
+            "item_id": "extra", "error_code": "BASE_IMAGE_METADATA_INVALID",
+            "stage": "base_images", "error_type": "ValueError",
+            "error_message": "another message",
+        })
+        updated = await manager.get(record["task_id"])
+        assert len(updated["failure_groups"]) == 1
+        assert updated["failure_groups"][0]["count"] == 26
 
     asyncio.run(scenario())
 

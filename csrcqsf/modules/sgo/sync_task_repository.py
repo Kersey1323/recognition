@@ -13,12 +13,22 @@ from csrcqsf.models.orm.sgo_sync_task import (
     SgoSyncTask,
     SgoSyncTaskFailure,
 )
+from csrcqsf.modules.sgo.error_codes import failure_error_code
 
 
 def _record_to_dict(record) -> dict[str, Any]:
     return {
         column.name: getattr(record, column.name)
         for column in record.__table__.columns
+    }
+
+
+def _with_error_code(failure: dict) -> dict:
+    return {
+        **failure,
+        "error_code": failure_error_code(
+            failure["stage"], failure["error_type"], failure["error_message"]
+        ),
     }
 
 
@@ -122,7 +132,7 @@ class SgoSyncTaskRepository:
                 )
             )
             session.add_all(
-                SgoSyncTaskFailure(task_id=task_id, **failure)
+                SgoSyncTaskFailure(task_id=task_id, **_with_error_code(failure))
                 for failure in failures
             )
             await session.commit()
@@ -133,7 +143,7 @@ class SgoSyncTaskRepository:
             return
         async with SessionLocal() as session:
             session.add_all(
-                SgoSyncTaskFailure(task_id=task_id, **failure)
+                SgoSyncTaskFailure(task_id=task_id, **_with_error_code(failure))
                 for failure in failures
             )
             await session.commit()
@@ -147,6 +157,7 @@ class SgoSyncTaskRepository:
         stage: str | None = None,
         error_type: str | None = None,
         error_message: str | None = None,
+        error_code: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         stmt = select(SgoSyncTaskFailure).where(
             SgoSyncTaskFailure.task_id == task_id
@@ -157,6 +168,8 @@ class SgoSyncTaskRepository:
             stmt = stmt.where(SgoSyncTaskFailure.error_type == error_type)
         if error_message is not None:
             stmt = stmt.where(SgoSyncTaskFailure.error_message == error_message)
+        if error_code is not None:
+            stmt = stmt.where(SgoSyncTaskFailure.error_code == error_code)
         async with SessionLocal() as session:
             total = int(
                 (await session.scalar(select(func.count()).select_from(stmt.subquery())))
@@ -170,29 +183,28 @@ class SgoSyncTaskRepository:
             return [_record_to_dict(record) for record in records], total
 
     async def summarize_failures(self, task_id: str) -> list[dict[str, Any]]:
-        """按失败阶段、异常类型和原因聚合任务明细，供任务详情直接展示。"""
+        """按稳定业务错误码聚合；消息和异常类型仅供诊断展示。"""
         async with SessionLocal() as session:
             rows = await session.execute(
                 select(
-                    SgoSyncTaskFailure.stage,
-                    SgoSyncTaskFailure.error_type,
-                    SgoSyncTaskFailure.error_message,
+                    SgoSyncTaskFailure.error_code,
+                    func.min(SgoSyncTaskFailure.stage).label("stage"),
+                    func.min(SgoSyncTaskFailure.error_type).label("error_type"),
+                    func.min(SgoSyncTaskFailure.error_message).label("error_message"),
                     func.count().label("count"),
                 )
                 .where(SgoSyncTaskFailure.task_id == task_id)
                 .group_by(
-                    SgoSyncTaskFailure.stage,
-                    SgoSyncTaskFailure.error_type,
-                    SgoSyncTaskFailure.error_message,
+                    SgoSyncTaskFailure.error_code,
                 )
                 .order_by(
                     func.count().desc(),
-                    SgoSyncTaskFailure.error_type.asc(),
-                    SgoSyncTaskFailure.error_message.asc(),
+                    SgoSyncTaskFailure.error_code.asc(),
                 )
             )
             return [
                 {
+                    "error_code": str(row.error_code),
                     "stage": str(row.stage),
                     "error_type": str(row.error_type),
                     "error_message": str(row.error_message),

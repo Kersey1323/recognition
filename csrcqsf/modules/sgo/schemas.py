@@ -65,6 +65,7 @@ class SgoSyncFailureDetail(BaseModel):
     item_id: str = Field(..., description="同步失败的配件内部 ID 或源数据 ID")
     item_code: str | None = Field(None, description="同步失败的甲方配件编码")
     item_name: str | None = Field(None, description="同步失败的甲方配件名称")
+    error_code: str | None = Field(None, description="稳定业务错误码；旧数据迁移后可用")
     stage: str = Field(
         ...,
         description=(
@@ -77,9 +78,10 @@ class SgoSyncFailureDetail(BaseModel):
 
 
 class SgoSyncFailureGroup(BaseModel):
+    error_code: str = Field(..., description="用于查看该类错误明细的稳定筛选码")
     stage: str = Field(..., description="失败阶段")
     error_type: str = Field(..., description="异常类型")
-    error_message: str = Field(..., description="具体异常原因")
+    error_message: str = Field(..., description="该类错误的一条示例原因，仅用于展示")
     count: int = Field(..., ge=1, description="该类失败的配件数量")
 
 
@@ -128,7 +130,7 @@ class SgoSyncTaskStatusRes(BaseModel):
     )
     failure_groups: list[SgoSyncFailureGroup] = Field(
         default_factory=list,
-        description="按失败阶段、异常类型和具体原因聚合的失败摘要",
+        description="按稳定业务错误码聚合的失败摘要；查看详情请传 error_code",
     )
     error_message: str | None = Field(None, description="任务异常或业务失败摘要")
     cancel_reason: str | None = Field(None, description="任务取消原因")
@@ -188,6 +190,7 @@ class SgoSyncTaskCancelReq(BaseModel):
 class SgoSyncFailureListReq(BaseModel):
     page: int = Field(1, ge=1, description="页码，从 1 开始")
     per_page: int = Field(20, ge=1, le=100, alias="pageSize", description="每页数量")
+    error_code: str | None = Field(None, description="按聚合返回的稳定业务错误码筛选")
     stage: str | None = Field(None, description="按失败阶段精确筛选")
     error_type: str | None = Field(None, description="按异常类型精确筛选")
     error_message: str | None = Field(None, description="按具体失败原因精确筛选")

@@ -356,6 +356,7 @@ class SgoSyncTaskManager:
         stage: str | None = None,
         error_type: str | None = None,
         error_message: str | None = None,
+        error_code: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         return await self._repository.list_failures(
             task_id,
@@ -364,6 +365,7 @@ class SgoSyncTaskManager:
             stage=stage,
             error_type=error_type,
             error_message=error_message,
+            error_code=error_code,
         )
 
     async def cancel(

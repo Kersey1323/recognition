@@ -273,6 +273,7 @@ async def list_sgo_sync_task_failures(task_id: str, req: SgoSyncFailureListReq):
         stage=req.stage,
         error_type=req.error_type,
         error_message=req.error_message,
+        error_code=req.error_code,
     )
     return SgoSyncFailureListRes(
         total=total,

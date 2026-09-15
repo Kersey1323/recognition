@@ -294,6 +294,7 @@ def test_sync_task_list_cancel_retry_and_failures_routes():
                     "item_id": "109",
                     "item_code": "40000537115",
                     "item_name": "不锈钢三组合螺栓",
+                    "error_code": "SOURCE_ITEM_NAME_EMPTY",
                     "stage": "source_validation",
                     "error_type": "InvalidSourceData",
                     "error_message": "配件名称为空",
@@ -329,9 +330,7 @@ def test_sync_task_list_cancel_retry_and_failures_routes():
                 routes.SgoSyncFailureListReq(
                     page=1,
                     pageSize=20,
-                    stage="source_validation",
-                    error_type="InvalidSourceData",
-                    error_message="配件名称为空",
+                    error_code="SOURCE_ITEM_NAME_EMPTY",
                 ),
             )
         )
@@ -345,12 +344,14 @@ def test_sync_task_list_cancel_retry_and_failures_routes():
     assert failures.records[0].item_id == "109"
     assert failures.records[0].item_code == "40000537115"
     assert failures.records[0].item_name == "不锈钢三组合螺栓"
+    assert failures.records[0].error_code == "SOURCE_ITEM_NAME_EMPTY"
     assert failures.records[0].error_message == "配件名称为空"
     manager.list_failures.assert_awaited_once_with(
         "task-1",
         page=1,
         per_page=20,
-        stage="source_validation",
-        error_type="InvalidSourceData",
-        error_message="配件名称为空",
+        stage=None,
+        error_type=None,
+        error_message=None,
+        error_code="SOURCE_ITEM_NAME_EMPTY",
     )
