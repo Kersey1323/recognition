@@ -62,7 +62,9 @@ class SgoSyncTaskStartRes(BaseModel):
 
 
 class SgoSyncFailureDetail(BaseModel):
-    item_id: str = Field(..., description="同步失败的配件 ID")
+    item_id: str = Field(..., description="同步失败的配件内部 ID 或源数据 ID")
+    item_code: str | None = Field(None, description="同步失败的甲方配件编码")
+    item_name: str | None = Field(None, description="同步失败的甲方配件名称")
     stage: str = Field(
         ...,
         description=(
@@ -72,6 +74,13 @@ class SgoSyncFailureDetail(BaseModel):
     )
     error_type: str = Field(..., description="异常类型")
     error_message: str = Field(..., description="具体异常原因")
+
+
+class SgoSyncFailureGroup(BaseModel):
+    stage: str = Field(..., description="失败阶段")
+    error_type: str = Field(..., description="异常类型")
+    error_message: str = Field(..., description="具体异常原因")
+    count: int = Field(..., ge=1, description="该类失败的配件数量")
 
 
 class SgoSyncTaskStatusRes(BaseModel):
@@ -101,6 +110,11 @@ class SgoSyncTaskStatusRes(BaseModel):
     synced_supplier_count: int = Field(0, description="本次新增或更新的供应商关系数量")
     deleted_supplier_count: int = Field(0, description="本次清理的失效供应商关系数量")
     unmatched_supplier_count: int = Field(0, description="尚未关联本地配件的供应商关系数量")
+    hierarchy_total_count: int = Field(0, description="SGO 层级源记录总数")
+    synced_hierarchy_count: int = Field(0, description="本次新增或更新的层级关系数量")
+    deleted_hierarchy_count: int = Field(0, description="本次清理的失效层级关系数量")
+    unresolved_vehicle_count: int = Field(0, description="尚未映射车型名称的层级关系数量")
+    invalid_hierarchy_count: int = Field(0, description="自环或源父节点缺失等异常层级关系数量")
     current_item_id: str | None = Field(None, description="当前处理的配件 ID")
     estimated_remaining_seconds: int | None = Field(None, description="预计剩余秒数")
     estimated_remaining: str | None = Field(None, description="可直接展示的预计剩余时间")
@@ -111,6 +125,10 @@ class SgoSyncTaskStatusRes(BaseModel):
     failure_details: list[SgoSyncFailureDetail] = Field(
         default_factory=list,
         description="兼容字段，仅返回前 20 条；完整失败明细请调用分页接口",
+    )
+    failure_groups: list[SgoSyncFailureGroup] = Field(
+        default_factory=list,
+        description="按失败阶段、异常类型和具体原因聚合的失败摘要",
     )
     error_message: str | None = Field(None, description="任务异常或业务失败摘要")
     cancel_reason: str | None = Field(None, description="任务取消原因")
@@ -170,6 +188,9 @@ class SgoSyncTaskCancelReq(BaseModel):
 class SgoSyncFailureListReq(BaseModel):
     page: int = Field(1, ge=1, description="页码，从 1 开始")
     per_page: int = Field(20, ge=1, le=100, alias="pageSize", description="每页数量")
+    stage: str | None = Field(None, description="按失败阶段精确筛选")
+    error_type: str | None = Field(None, description="按异常类型精确筛选")
+    error_message: str | None = Field(None, description="按具体失败原因精确筛选")
 
     class Config:
         allow_population_by_field_name = True

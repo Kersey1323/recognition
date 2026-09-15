@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
+import hashlib
 import io
 import inspect
 import json
@@ -34,15 +36,17 @@ from csrcqsf.core.settings import (
 from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.infra.db.mdp_db import sgo_sessionLocal
 from csrcqsf.infra.storage.minio import minio_bucket, minio_instance
-from csrcqsf.models.orm.item import ItemSupplier, Items
+from csrcqsf.models.orm.item import ItemHierarchyRelation, ItemSupplier, Items
 from csrcqsf.models.orm.item_inquiry_history import ItemInquiryHistory
 from csrcqsf.models.orm.sgo import SgoItemImages
 from csrcqsf.models.orm.sgo_external import (
     SgoCodeInquiry,
     SgoCodeInquiryReturn,
+    SgoMaterielInfoTree,
     SgoMaterielFileImg,
     SgoMaterielMasterplate,
     SgoMaterielSupplier,
+    SgoMaterielVehicle,
 )
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
 from csrcqsf.modules.sgo.item_mapping import normalize_sgo_return_item
@@ -140,6 +144,58 @@ def _clean_text(value):
 def _item_code_key(value) -> str:
     cleaned = _clean_text(value)
     return str(cleaned).casefold() if cleaned is not None else ""
+
+
+def _sync_payload_hash(payload: dict) -> str:
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _build_parent_name_counters(source_relations):
+    names_by_vehicle: dict[tuple[str, str], Counter[str]] = {}
+    names_by_code: dict[str, Counter[str]] = {}
+    for row in source_relations:
+        materiel_key = _item_code_key(row.materiel_code)
+        materiel_name = _clean_text(row.materiel_name)
+        if not materiel_key or materiel_name is None:
+            continue
+        names_by_code.setdefault(materiel_key, Counter())[materiel_name] += 1
+        vehicle_id = _clean_text(row.b_vehicle_id)
+        if vehicle_id is not None:
+            names_by_vehicle.setdefault(
+                (materiel_key, vehicle_id), Counter()
+            )[materiel_name] += 1
+    return names_by_vehicle, names_by_code
+
+
+def _resolve_parent_materiel_name(
+    parent_materiel_code,
+    vehicle_id,
+    names_by_vehicle: dict[tuple[str, str], Counter[str]],
+    names_by_code: dict[str, Counter[str]],
+) -> str | None:
+    parent_key = _item_code_key(parent_materiel_code)
+    if not parent_key:
+        return None
+    cleaned_vehicle_id = _clean_text(vehicle_id)
+    candidates = (
+        names_by_vehicle.get((parent_key, cleaned_vehicle_id))
+        if cleaned_vehicle_id is not None
+        else None
+    )
+    candidates = candidates or names_by_code.get(parent_key)
+    if not candidates:
+        return None
+    # 同频名称按文本排序，确保每次全量同步生成相同结果和 source_hash。
+    return min(
+        candidates.items(),
+        key=lambda item: (-item[1], item[0].casefold(), item[0]),
+    )[0]
 
 
 def _summarize_sgo_auth_response(response) -> str:
@@ -480,7 +536,7 @@ class SGOBiz:
         cls,
         progress_callback: Callable[[dict], None] | None = None,
     ) -> dict:
-        """同步 SGO 配件主数据、规格材质和一对多供应商关系。"""
+        """同步 SGO 配件主数据、供应商及带车型上下文的父子层级关系。"""
         started_at = time.perf_counter()
         async with SessionLocal() as session:
             item_states = await Items.list_all_item_sync_state(session)
@@ -520,23 +576,32 @@ class SGOBiz:
         skipped_count = 0
         fail_count = 0
         failed_item_ids: list[str] = []
-        failure_details: list[dict[str, str]] = []
+        failure_details: list[dict[str, str | None]] = []
+        pending_failure_details: list[dict[str, str | None]] = []
         local_item_id_by_masterplate_id: dict[str, int] = {}
         metadata_item_ids: set[int] = set()
 
-        def record_invalid_source(item_id: str, reason: str) -> None:
+        def record_invalid_source(
+            item_id: str,
+            item_code: str | None,
+            item_name: str | None,
+            reason: str,
+        ) -> None:
             nonlocal fail_count
             fail_count += 1
-            failed_item_ids.append(item_id)
+            failure = {
+                "item_id": item_id,
+                "item_code": item_code,
+                "item_name": item_name,
+                "stage": "source_validation",
+                "error_type": "InvalidSourceData",
+                "error_message": reason,
+            }
+            pending_failure_details.append(failure)
+            if len(failed_item_ids) < MAX_SYNC_FAILURE_DETAILS:
+                failed_item_ids.append(item_id)
             if len(failure_details) < MAX_SYNC_FAILURE_DETAILS:
-                failure_details.append(
-                    {
-                        "item_id": item_id,
-                        "stage": "source_validation",
-                        "error_type": "InvalidSourceData",
-                        "error_message": reason,
-                    }
-                )
+                failure_details.append(failure)
 
         async with sgo_sessionLocal() as session:
             data_list = await SgoMaterielMasterplate.list_sgo_items(session=session)
@@ -564,12 +629,15 @@ class SGOBiz:
             # 全量源表仍需逐行比对，但只把本地主库缺失且字段完整的配件加入事务。
             report_interval = max(1, total_items // 100)
             for index, data in enumerate(source_parts, start=1):
+                item_code = _clean_text(data.MATNR)
+                item_name = _clean_text(data.maktx)
                 try:
                     source_item_id = int(data.id)
                 except (TypeError, ValueError):
-                    record_invalid_source(str(data.id), "配件 ID 不是有效整数")
+                    record_invalid_source(
+                        str(data.id), item_code, item_name, "配件 ID 不是有效整数"
+                    )
                 else:
-                    item_code = str(data.MATNR).strip() if data.MATNR is not None else ""
                     item_code_key = _item_code_key(item_code)
                     local_item_id = None
                     if source_item_id in part_ids:
@@ -579,13 +647,17 @@ class SGOBiz:
                         local_item_id = part_codes[item_code_key]
                         skipped_count += 1
                     elif not item_code_key:
-                        record_invalid_source(str(data.id), "物料编码为空")
-                    elif data.maktx is None:
-                        record_invalid_source(str(data.id), "配件名称为空")
+                        record_invalid_source(
+                            str(data.id), item_code, item_name, "物料编码为空"
+                        )
+                    elif item_name is None:
+                        record_invalid_source(
+                            str(data.id), item_code, item_name, "配件名称为空"
+                        )
                     else:
                         new_part = Items()
                         new_part.id = source_item_id
-                        new_part.item_name = data.maktx
+                        new_part.item_name = item_name
                         new_part.item_code = item_code
                         new_part.parts_model = _clean_text(getattr(data, "wrkst", None))
                         new_part.material_quality = _clean_text(
@@ -635,9 +707,10 @@ class SGOBiz:
                             "current_item_id": data.id,
                             "estimated_remaining_seconds": remaining,
                             "failed_item_ids": list(failed_item_ids),
-                            "failure_details": list(failure_details),
+                            "new_failure_details": list(pending_failure_details),
                         }
                     )
+                    pending_failure_details.clear()
                     # 大批量比对期间定期让出事件循环，保证状态轮询和其他接口可响应。
                     await asyncio.sleep(0)
 
@@ -701,10 +774,15 @@ class SGOBiz:
                 await ItemSupplier.delete_by_source_ids(session, stale_supplier_ids)
                 await session.commit()
 
+        # 配件主数据先提交，层级同步才能把本轮新增编码映射为本地 item_id。
+        hierarchy_result = await cls.sync_parts_hierarchy()
+
         logger.info(
             "SGO 配件同步完成: source_parts={}, created_parts={}, updated_metadata={}, "
             "source_suppliers={}, upserted_suppliers={}, deleted_suppliers={}, "
-            "unmatched_suppliers={}, elapsed_ms={:.2f}",
+            "unmatched_suppliers={}, hierarchy_total={}, synced_hierarchy={}, "
+            "deleted_hierarchy={}, unresolved_vehicles={}, invalid_hierarchy={}, "
+            "elapsed_ms={:.2f}",
             len(source_parts),
             len(need_insert),
             len(metadata_updates),
@@ -712,6 +790,11 @@ class SGOBiz:
             len(supplier_payloads),
             len(stale_supplier_ids),
             supplier_unmatched_count,
+            hierarchy_result["hierarchy_total_count"],
+            hierarchy_result["synced_hierarchy_count"],
+            hierarchy_result["deleted_hierarchy_count"],
+            hierarchy_result["unresolved_vehicle_count"],
+            hierarchy_result["invalid_hierarchy_count"],
             _elapsed_ms(started_at),
         )
 
@@ -730,11 +813,13 @@ class SGOBiz:
                     "synced_supplier_count": len(supplier_payloads),
                     "deleted_supplier_count": len(stale_supplier_ids),
                     "unmatched_supplier_count": supplier_unmatched_count,
+                    **hierarchy_result,
                     "estimated_remaining_seconds": 0,
                     "failed_item_ids": list(failed_item_ids),
-                    "failure_details": list(failure_details),
+                    "new_failure_details": list(pending_failure_details),
                 },
             )
+            pending_failure_details.clear()
 
         return {
             "total_items": len(source_parts),
@@ -748,9 +833,162 @@ class SGOBiz:
             "synced_supplier_count": len(supplier_payloads),
             "deleted_supplier_count": len(stale_supplier_ids),
             "unmatched_supplier_count": supplier_unmatched_count,
+            **hierarchy_result,
             "failed_item_ids": failed_item_ids,
             "failure_details": failure_details,
+            "failures_persisted_incrementally": progress_callback is not None,
         }
+
+    @classmethod
+    async def sync_parts_hierarchy(cls) -> dict[str, int]:
+        """同步 SGO 物料树快照，并将可识别的配件和车型映射到业务字段。"""
+        started_at = time.perf_counter()
+        async with SessionLocal() as session:
+            item_rows = await Items.list_all_item_id_codes(session)
+            hierarchy_states = await ItemHierarchyRelation.list_sync_state(session)
+
+        item_id_by_code = {
+            _item_code_key(row.item_code): int(row.id)
+            for row in item_rows
+            if _item_code_key(row.item_code)
+        }
+        hierarchy_hash_by_source_id = {
+            str(row.source_relation_id): str(row.source_hash)
+            for row in hierarchy_states
+        }
+
+        async with sgo_sessionLocal() as session:
+            source_relations = list(
+                await SgoMaterielInfoTree.list_hierarchy_relations(session)
+            )
+            source_vehicle_mappings = list(
+                await SgoMaterielVehicle.list_vehicle_mappings(session)
+            )
+
+        vehicle_options: dict[str, set[tuple[str | None, str | None]]] = {}
+        for row in source_vehicle_mappings:
+            vehicle_id = _clean_text(row.vehicle_id)
+            if vehicle_id is None:
+                continue
+            vehicle_options.setdefault(vehicle_id, set()).add(
+                (
+                    _clean_text(row.vehicle_batch),
+                    _clean_text(row.vehicle_name),
+                )
+            )
+
+        source_codes = {
+            _item_code_key(row.materiel_code)
+            for row in source_relations
+            if _item_code_key(row.materiel_code)
+        }
+        names_by_vehicle, names_by_code = _build_parent_name_counters(
+            source_relations
+        )
+        source_relation_ids: set[str] = set()
+        changed_payloads: list[dict] = []
+        unresolved_vehicle_count = 0
+        invalid_hierarchy_count = 0
+
+        for row in source_relations:
+            source_relation_id = str(row.id)
+            source_relation_ids.add(source_relation_id)
+            materiel_code = _clean_text(row.materiel_code)
+            parent_materiel_code = _clean_text(row.parent_materiel_code)
+            materiel_key = _item_code_key(materiel_code)
+            parent_key = _item_code_key(parent_materiel_code)
+            vehicle_id = _clean_text(row.b_vehicle_id)
+            train_type_group = _clean_text(row.train_type_group)
+
+            candidates = vehicle_options.get(vehicle_id or "", set())
+            if candidates:
+                # 同一车型 ID 有多条映射时，优先采用与树表车型组一致且信息完整的一条。
+                vehicle_batch, vehicle_name = min(
+                    candidates,
+                    key=lambda value: (
+                        value[0] != train_type_group,
+                        value[0] is None,
+                        value[1] is None,
+                        value[0] or "",
+                        value[1] or "",
+                    ),
+                )
+                vehicle_resolved = vehicle_batch is not None or vehicle_name is not None
+            else:
+                vehicle_batch = None
+                vehicle_name = None
+                vehicle_resolved = False
+            if vehicle_id is not None and not vehicle_resolved:
+                unresolved_vehicle_count += 1
+
+            invalid_reason = None
+            if not materiel_key:
+                invalid_reason = "子配件编码为空"
+            elif parent_key and materiel_key == parent_key:
+                invalid_reason = "子配件编码与父配件编码相同"
+            elif parent_key and parent_key not in source_codes:
+                invalid_reason = "父配件编码未出现在 SGO 层级表"
+            if invalid_reason is not None:
+                invalid_hierarchy_count += 1
+
+            payload = {
+                "source_relation_id": source_relation_id,
+                "item_id": item_id_by_code.get(materiel_key),
+                "parent_item_id": item_id_by_code.get(parent_key),
+                "materiel_code": materiel_code,
+                "materiel_name": _clean_text(row.materiel_name),
+                "parent_materiel_code": parent_materiel_code,
+                # 父节点可能是未进入 item_info 的虚拟装配节点，直接持久化名称供业务展示。
+                "parent_materiel_name": _resolve_parent_materiel_name(
+                    parent_materiel_code,
+                    vehicle_id,
+                    names_by_vehicle,
+                    names_by_code,
+                ),
+                "figure_number": _clean_text(row.figure_number),
+                "vehicle_id": vehicle_id,
+                "vehicle_batch": vehicle_batch,
+                "vehicle_name": vehicle_name,
+                "vehicle_resolved": vehicle_resolved,
+                "train_type_group": train_type_group,
+                "column_id": _clean_text(row.column_id),
+                "serial_number": _clean_text(row.serial_number),
+                "tenant_id": _clean_text(row.tenant_id_),
+                "is_valid": invalid_reason is None,
+                "invalid_reason": invalid_reason,
+            }
+            payload["source_hash"] = _sync_payload_hash(payload)
+            if hierarchy_hash_by_source_id.get(source_relation_id) != payload["source_hash"]:
+                changed_payloads.append(payload)
+
+        stale_source_ids = sorted(
+            set(hierarchy_hash_by_source_id) - source_relation_ids
+        )
+        if changed_payloads or stale_source_ids:
+            async with SessionLocal() as session:
+                await ItemHierarchyRelation.upsert_from_sgo(session, changed_payloads)
+                await ItemHierarchyRelation.delete_by_source_ids(session, stale_source_ids)
+                await session.commit()
+
+        result = {
+            "hierarchy_total_count": len(source_relations),
+            "synced_hierarchy_count": len(changed_payloads),
+            "deleted_hierarchy_count": len(stale_source_ids),
+            "unresolved_vehicle_count": unresolved_vehicle_count,
+            "invalid_hierarchy_count": invalid_hierarchy_count,
+        }
+        logger.info(
+            "SGO 配件层级同步完成: source_relations={}, upserted_relations={}, "
+            "deleted_relations={}, unresolved_vehicles={}, invalid_relations={}, "
+            "elapsed_ms={:.2f}",
+            result["hierarchy_total_count"],
+            result["synced_hierarchy_count"],
+            result["deleted_hierarchy_count"],
+            result["unresolved_vehicle_count"],
+            result["invalid_hierarchy_count"],
+            _elapsed_ms(started_at),
+        )
+        return result
 
     @classmethod
     async def get_baseimage_id_from_db(cls, item_id_list: list[str]) -> int:

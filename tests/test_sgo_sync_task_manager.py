@@ -1,4 +1,5 @@
 import asyncio
+from collections import Counter
 from copy import deepcopy
 from datetime import datetime
 
@@ -75,10 +76,50 @@ class FakeSgoSyncTaskRepository:
         )
         return [deepcopy(item) for item in records], len(records)
 
-    async def list_failures(self, task_id, *, page, per_page):
+    async def list_failures(
+        self,
+        task_id,
+        *,
+        page,
+        per_page,
+        stage=None,
+        error_type=None,
+        error_message=None,
+    ):
         records = self.failures.get(task_id, [])
+        if stage is not None:
+            records = [record for record in records if record["stage"] == stage]
+        if error_type is not None:
+            records = [
+                record for record in records if record["error_type"] == error_type
+            ]
+        if error_message is not None:
+            records = [
+                record
+                for record in records
+                if record["error_message"] == error_message
+            ]
         start = (page - 1) * per_page
         return deepcopy(records[start : start + per_page]), len(records)
+
+    async def summarize_failures(self, task_id):
+        counts = Counter(
+            (
+                failure["stage"],
+                failure["error_type"],
+                failure["error_message"],
+            )
+            for failure in self.failures.get(task_id, [])
+        )
+        return [
+            {
+                "stage": stage,
+                "error_type": error_type,
+                "error_message": error_message,
+                "count": count,
+            }
+            for (stage, error_type, error_message), count in counts.items()
+        ]
 
     async def mark_missing_active_task_interrupted(self, task_id):
         return await self.update(
@@ -131,6 +172,11 @@ def test_sgo_sync_task_manager_persists_progress_and_completion():
                 "synced_supplier_count": 4,
                 "deleted_supplier_count": 1,
                 "unmatched_supplier_count": 2,
+                "hierarchy_total_count": 10,
+                "synced_hierarchy_count": 5,
+                "deleted_hierarchy_count": 1,
+                "unresolved_vehicle_count": 2,
+                "invalid_hierarchy_count": 3,
                 "failure_details": [],
             }
 
@@ -148,6 +194,11 @@ def test_sgo_sync_task_manager_persists_progress_and_completion():
         assert completed["synced_supplier_count"] == 4
         assert completed["deleted_supplier_count"] == 1
         assert completed["unmatched_supplier_count"] == 2
+        assert completed["hierarchy_total_count"] == 10
+        assert completed["synced_hierarchy_count"] == 5
+        assert completed["deleted_hierarchy_count"] == 1
+        assert completed["unresolved_vehicle_count"] == 2
+        assert completed["invalid_hierarchy_count"] == 3
         assert completed["progress"] == 100
 
     asyncio.run(scenario())
@@ -336,6 +387,25 @@ def test_sgo_sync_task_manager_detail_keeps_bounded_failure_compatibility():
 
         assert len(detail["failure_details"]) == 20
         assert detail["failed_item_ids"] == [str(item_id) for item_id in range(20)]
+        assert detail["failure_groups"] == [
+            {
+                "stage": "base_images",
+                "error_type": "RuntimeError",
+                "error_message": "download failed",
+                "count": 25,
+            }
+        ]
+
+        records, total = await manager.list_failures(
+            record["task_id"],
+            page=1,
+            per_page=10,
+            stage="base_images",
+            error_type="RuntimeError",
+            error_message="download failed",
+        )
+        assert len(records) == 10
+        assert total == 25
 
     asyncio.run(scenario())
 

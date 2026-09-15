@@ -144,10 +144,19 @@ class SgoSyncTaskRepository:
         *,
         page: int = 1,
         per_page: int = 20,
+        stage: str | None = None,
+        error_type: str | None = None,
+        error_message: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         stmt = select(SgoSyncTaskFailure).where(
             SgoSyncTaskFailure.task_id == task_id
         )
+        if stage is not None:
+            stmt = stmt.where(SgoSyncTaskFailure.stage == stage)
+        if error_type is not None:
+            stmt = stmt.where(SgoSyncTaskFailure.error_type == error_type)
+        if error_message is not None:
+            stmt = stmt.where(SgoSyncTaskFailure.error_message == error_message)
         async with SessionLocal() as session:
             total = int(
                 (await session.scalar(select(func.count()).select_from(stmt.subquery())))
@@ -159,6 +168,38 @@ class SgoSyncTaskRepository:
                 .offset((page - 1) * per_page)
             )
             return [_record_to_dict(record) for record in records], total
+
+    async def summarize_failures(self, task_id: str) -> list[dict[str, Any]]:
+        """按失败阶段、异常类型和原因聚合任务明细，供任务详情直接展示。"""
+        async with SessionLocal() as session:
+            rows = await session.execute(
+                select(
+                    SgoSyncTaskFailure.stage,
+                    SgoSyncTaskFailure.error_type,
+                    SgoSyncTaskFailure.error_message,
+                    func.count().label("count"),
+                )
+                .where(SgoSyncTaskFailure.task_id == task_id)
+                .group_by(
+                    SgoSyncTaskFailure.stage,
+                    SgoSyncTaskFailure.error_type,
+                    SgoSyncTaskFailure.error_message,
+                )
+                .order_by(
+                    func.count().desc(),
+                    SgoSyncTaskFailure.error_type.asc(),
+                    SgoSyncTaskFailure.error_message.asc(),
+                )
+            )
+            return [
+                {
+                    "stage": str(row.stage),
+                    "error_type": str(row.error_type),
+                    "error_message": str(row.error_message),
+                    "count": int(row.count),
+                }
+                for row in rows
+            ]
 
     async def mark_missing_active_task_interrupted(
         self,

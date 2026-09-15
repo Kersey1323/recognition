@@ -83,6 +83,11 @@ def test_sgo_sync_status_schema_exposes_semantic_trigger_flag():
     assert "synced_supplier_count" in properties
     assert "deleted_supplier_count" in properties
     assert "unmatched_supplier_count" in properties
+    assert "hierarchy_total_count" in properties
+    assert "synced_hierarchy_count" in properties
+    assert "deleted_hierarchy_count" in properties
+    assert "unresolved_vehicle_count" in properties
+    assert "invalid_hierarchy_count" in properties
 
 
 def test_parts_sync_route_submits_background_task_without_awaiting_runner():
@@ -287,6 +292,8 @@ def test_sync_task_list_cancel_retry_and_failures_routes():
             [
                 {
                     "item_id": "109",
+                    "item_code": "40000537115",
+                    "item_name": "不锈钢三组合螺栓",
                     "stage": "source_validation",
                     "error_type": "InvalidSourceData",
                     "error_message": "配件名称为空",
@@ -319,7 +326,13 @@ def test_sync_task_list_cancel_retry_and_failures_routes():
         failures = asyncio.run(
             routes.list_sgo_sync_task_failures(
                 "task-1",
-                routes.SgoSyncFailureListReq(page=1, pageSize=20),
+                routes.SgoSyncFailureListReq(
+                    page=1,
+                    pageSize=20,
+                    stage="source_validation",
+                    error_type="InvalidSourceData",
+                    error_message="配件名称为空",
+                ),
             )
         )
 
@@ -329,4 +342,15 @@ def test_sync_task_list_cancel_retry_and_failures_routes():
     assert cancelling.status == "cancelling"
     assert retried.task_id == "task-2"
     assert failures.total == 1
+    assert failures.records[0].item_id == "109"
+    assert failures.records[0].item_code == "40000537115"
+    assert failures.records[0].item_name == "不锈钢三组合螺栓"
     assert failures.records[0].error_message == "配件名称为空"
+    manager.list_failures.assert_awaited_once_with(
+        "task-1",
+        page=1,
+        per_page=20,
+        stage="source_validation",
+        error_type="InvalidSourceData",
+        error_message="配件名称为空",
+    )

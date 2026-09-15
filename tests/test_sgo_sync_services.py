@@ -3,8 +3,13 @@ import importlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from csrcqsf.models.orm.item import ItemSupplier, Items
-from csrcqsf.models.orm.sgo_external import SgoMaterielMasterplate, SgoMaterielSupplier
+from csrcqsf.models.orm.item import ItemHierarchyRelation, ItemSupplier, Items
+from csrcqsf.models.orm.sgo_external import (
+    SgoMaterielInfoTree,
+    SgoMaterielMasterplate,
+    SgoMaterielSupplier,
+    SgoMaterielVehicle,
+)
 from csrcqsf.modules.sgo.schemas import ImageSourceType
 from csrcqsf.modules.sgo.services import (
     ImageSyncCandidate,
@@ -15,6 +20,14 @@ from csrcqsf.modules.sgo.services import (
 
 
 sgo_services = importlib.import_module("csrcqsf.modules.sgo.services")
+
+EMPTY_HIERARCHY_RESULT = {
+    "hierarchy_total_count": 0,
+    "synced_hierarchy_count": 0,
+    "deleted_hierarchy_count": 0,
+    "unresolved_vehicle_count": 0,
+    "invalid_hierarchy_count": 0,
+}
 
 
 class _AsyncSessionContext:
@@ -360,6 +373,171 @@ def test_scheduled_parts_sync_awaits_persistent_task_submission():
     manager.start.assert_awaited_once_with("parts", SGOBiz.sync_parts_items)
 
 
+def test_parent_materiel_name_prefers_vehicle_context_then_global_frequency():
+    source_rows = [
+        SimpleNamespace(
+            materiel_code="PARENT",
+            materiel_name="同车型父配件",
+            b_vehicle_id="vehicle-1",
+        ),
+        SimpleNamespace(
+            materiel_code="PARENT",
+            materiel_name="全局常用父配件",
+            b_vehicle_id="vehicle-2",
+        ),
+        SimpleNamespace(
+            materiel_code="PARENT",
+            materiel_name="全局常用父配件",
+            b_vehicle_id="vehicle-3",
+        ),
+    ]
+
+    names_by_vehicle, names_by_code = sgo_services._build_parent_name_counters(
+        source_rows
+    )
+
+    assert sgo_services._resolve_parent_materiel_name(
+        "PARENT",
+        "vehicle-1",
+        names_by_vehicle,
+        names_by_code,
+    ) == "同车型父配件"
+    assert sgo_services._resolve_parent_materiel_name(
+        "PARENT",
+        "missing-vehicle",
+        names_by_vehicle,
+        names_by_code,
+    ) == "全局常用父配件"
+    assert sgo_services._resolve_parent_materiel_name(
+        "UNKNOWN",
+        "vehicle-1",
+        names_by_vehicle,
+        names_by_code,
+    ) is None
+
+
+def test_sync_parts_hierarchy_maps_items_and_vehicle_names_and_preserves_anomalies():
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def commit(self):
+            return None
+
+    item_rows = [
+        SimpleNamespace(id=101, item_code="CHILD"),
+        SimpleNamespace(id=102, item_code="PARENT"),
+    ]
+    source_rows = [
+        SimpleNamespace(
+            id="relation-1",
+            materiel_code="CHILD",
+            materiel_name="子配件",
+            parent_materiel_code="PARENT",
+            figure_number="FIG-1",
+            train_type_group="SFE27",
+            b_vehicle_id="vehicle-1",
+            serial_number="1",
+            column_id="A1",
+            tenant_id_="tenant-1",
+        ),
+        SimpleNamespace(
+            id="relation-2",
+            materiel_code="SELF",
+            materiel_name="自环配件",
+            parent_materiel_code="SELF",
+            figure_number=None,
+            train_type_group=None,
+            b_vehicle_id="missing-vehicle",
+            serial_number="2",
+            column_id="A1",
+            tenant_id_="tenant-1",
+        ),
+        SimpleNamespace(
+            id="relation-root",
+            materiel_code="PARENT",
+            materiel_name="父配件",
+            parent_materiel_code=None,
+            figure_number=None,
+            train_type_group="SFE27",
+            b_vehicle_id="vehicle-1",
+            serial_number="0",
+            column_id="A1",
+            tenant_id_="tenant-1",
+        ),
+    ]
+    vehicle_rows = [
+        SimpleNamespace(
+            vehicle_id="vehicle-1",
+            vehicle_batch="SFE27",
+            vehicle_name="CRH380A",
+        )
+    ]
+    upsert_relations = AsyncMock()
+    delete_relations = AsyncMock()
+
+    with patch.object(sgo_services, "SessionLocal", side_effect=FakeSession), patch.object(
+        sgo_services,
+        "sgo_sessionLocal",
+        side_effect=FakeSession,
+    ), patch.object(
+        Items,
+        "list_all_item_id_codes",
+        AsyncMock(return_value=item_rows),
+    ), patch.object(
+        ItemHierarchyRelation,
+        "list_sync_state",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(source_relation_id="relation-1", source_hash="old"),
+                SimpleNamespace(source_relation_id="stale-relation", source_hash="stale"),
+            ]
+        ),
+    ), patch.object(
+        SgoMaterielInfoTree,
+        "list_hierarchy_relations",
+        AsyncMock(return_value=source_rows),
+    ), patch.object(
+        SgoMaterielVehicle,
+        "list_vehicle_mappings",
+        AsyncMock(return_value=vehicle_rows),
+    ), patch.object(
+        ItemHierarchyRelation,
+        "upsert_from_sgo",
+        upsert_relations,
+    ), patch.object(
+        ItemHierarchyRelation,
+        "delete_by_source_ids",
+        delete_relations,
+    ):
+        result = asyncio.run(SGOBiz.sync_parts_hierarchy())
+
+    payloads = upsert_relations.await_args.args[1]
+    assert payloads[0]["source_relation_id"] == "relation-1"
+    assert payloads[0]["item_id"] == 101
+    assert payloads[0]["parent_item_id"] == 102
+    assert payloads[0]["parent_materiel_name"] == "父配件"
+    assert payloads[0]["vehicle_batch"] == "SFE27"
+    assert payloads[0]["vehicle_name"] == "CRH380A"
+    assert payloads[0]["vehicle_resolved"] is True
+    assert payloads[0]["is_valid"] is True
+    assert payloads[1]["vehicle_resolved"] is False
+    assert payloads[1]["is_valid"] is False
+    assert payloads[1]["invalid_reason"] == "子配件编码与父配件编码相同"
+    delete_relations.assert_awaited_once()
+    assert delete_relations.await_args.args[1] == ["stale-relation"]
+    assert result == {
+        "hierarchy_total_count": 3,
+        "synced_hierarchy_count": 3,
+        "deleted_hierarchy_count": 1,
+        "unresolved_vehicle_count": 1,
+        "invalid_hierarchy_count": 1,
+    }
+
+
 def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
     progress = []
 
@@ -385,6 +563,10 @@ def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
         SimpleNamespace(id="102", maktx="part", MATNR="code"),
     ]
     with patch.object(
+        sgo_services,
+        "MAX_SYNC_FAILURE_DETAILS",
+        1,
+    ), patch.object(
         sgo_services,
         "SessionLocal",
         side_effect=FakeSession,
@@ -420,6 +602,10 @@ def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
         ItemSupplier,
         "delete_by_source_ids",
         AsyncMock(),
+    ), patch.object(
+        SGOBiz,
+        "sync_parts_hierarchy",
+        AsyncMock(return_value=EMPTY_HIERARCHY_RESULT),
     ):
         result = asyncio.run(
             SGOBiz.sync_parts_items(progress_callback=capture_progress)
@@ -428,22 +614,34 @@ def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
     assert result["processed_items"] == 3
     assert result["created_count"] == 1
     assert result["fail_count"] == 2
-    assert result["failed_item_ids"] == ["103", "invalid"]
-    assert result["failure_details"] == [
+    assert result["failed_item_ids"] == ["103"]
+    expected_failures = [
         {
             "item_id": "103",
+            "item_code": "missing-name",
+            "item_name": None,
             "stage": "source_validation",
             "error_type": "InvalidSourceData",
             "error_message": "配件名称为空",
         },
         {
             "item_id": "invalid",
+            "item_code": "bad",
+            "item_name": "bad",
             "stage": "source_validation",
             "error_type": "InvalidSourceData",
             "error_message": "配件 ID 不是有效整数",
         }
     ]
+    assert result["failure_details"] == expected_failures[:1]
     assert progress[-1]["progress"] == 100
+    persisted_failures = [
+        failure
+        for payload in progress
+        for failure in payload.get("new_failure_details", [])
+    ]
+    assert persisted_failures == expected_failures
+    assert result["failures_persisted_incrementally"] is True
 
 
 def test_sync_parts_items_skips_existing_and_batch_duplicate_item_codes():
@@ -503,6 +701,10 @@ def test_sync_parts_items_skips_existing_and_batch_duplicate_item_codes():
         ItemSupplier,
         "delete_by_source_ids",
         AsyncMock(),
+    ), patch.object(
+        SGOBiz,
+        "sync_parts_hierarchy",
+        AsyncMock(return_value=EMPTY_HIERARCHY_RESULT),
     ):
         result = asyncio.run(SGOBiz.sync_parts_items())
 
@@ -624,6 +826,10 @@ def test_sync_parts_items_persists_metadata_and_supplier_snapshot():
         ItemSupplier,
         "delete_by_source_ids",
         delete_suppliers,
+    ), patch.object(
+        SGOBiz,
+        "sync_parts_hierarchy",
+        AsyncMock(return_value=EMPTY_HIERARCHY_RESULT),
     ):
         result = asyncio.run(SGOBiz.sync_parts_items())
 

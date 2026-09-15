@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from urllib.parse import quote_plus
-from sqlalchemy import String, bindparam, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL, DateTime, Index
+from sqlalchemy import Boolean, String, bindparam, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL, DateTime, Index
 from sqlalchemy.orm import relationship, Mapped, mapped_column, Session, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from bfrcommon.common import get_pinyin
@@ -75,6 +75,105 @@ class ItemsParent(Base):
             return
 
         session.add(cls(item_id=item_id, parent_item_id=parent_item_id))
+        await session.flush()
+
+
+class ItemHierarchyRelation(Base):
+    """持久化 SGO 原始物料层级，支持虚拟节点、多父节点和车型上下文。"""
+
+    __tablename__ = "item_hierarchy_relation"
+    __table_args__ = (
+        Index("uq_item_hierarchy_source_id", "source_relation_id", unique=True),
+        Index("ix_item_hierarchy_item_id", "item_id"),
+        Index("ix_item_hierarchy_parent_item_id", "parent_item_id"),
+        Index("ix_item_hierarchy_materiel_code", "materiel_code"),
+        Index("ix_item_hierarchy_parent_code", "parent_materiel_code"),
+        Index("ix_item_hierarchy_vehicle_batch", "vehicle_batch"),
+    )
+
+    source_relation_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    item_id: Mapped[int | None] = mapped_column(BIGINT, nullable=True)
+    parent_item_id: Mapped[int | None] = mapped_column(BIGINT, nullable=True)
+    materiel_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    materiel_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    parent_materiel_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    parent_materiel_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    figure_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    vehicle_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    vehicle_batch: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    vehicle_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    vehicle_resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    train_type_group: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    column_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    serial_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    invalid_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    @classmethod
+    async def list_sync_state(cls, session: AsyncSession):
+        result = await session.execute(
+            select(cls.source_relation_id, cls.source_hash)
+        )
+        return result.all()
+
+    @classmethod
+    async def upsert_from_sgo(cls, session: AsyncSession, rows: list[dict]):
+        if not rows:
+            return
+        from sqlalchemy.dialects.mysql import insert as mysql_insert
+
+        update_columns = (
+            "item_id",
+            "parent_item_id",
+            "materiel_code",
+            "materiel_name",
+            "parent_materiel_code",
+            "parent_materiel_name",
+            "figure_number",
+            "vehicle_id",
+            "vehicle_batch",
+            "vehicle_name",
+            "vehicle_resolved",
+            "train_type_group",
+            "column_id",
+            "serial_number",
+            "tenant_id",
+            "is_valid",
+            "invalid_reason",
+            "source_hash",
+        )
+        for offset in range(0, len(rows), 1000):
+            now = datetime.now()
+            # 层级同步使用批量写入，显式生成公共主键和审计字段。
+            batch = [
+                {
+                    **row,
+                    "id": get_id(),
+                    "created_by": 0,
+                    "updated_by": 0,
+                    "time_created": now,
+                    "time_updated": now,
+                }
+                for row in rows[offset : offset + 1000]
+            ]
+            stmt = mysql_insert(cls).values(batch)
+            stmt = stmt.on_duplicate_key_update(
+                **{column: getattr(stmt.inserted, column) for column in update_columns},
+                time_updated=func.now(),
+            )
+            await session.execute(stmt)
+        await session.flush()
+
+    @classmethod
+    async def delete_by_source_ids(cls, session: AsyncSession, source_ids: list[str]):
+        for offset in range(0, len(source_ids), 1000):
+            await session.execute(
+                delete(cls).where(
+                    cls.source_relation_id.in_(source_ids[offset : offset + 1000])
+                )
+            )
         await session.flush()
 
 

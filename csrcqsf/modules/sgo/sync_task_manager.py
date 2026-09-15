@@ -31,6 +31,11 @@ PROGRESS_FIELDS = (
     "synced_supplier_count",
     "deleted_supplier_count",
     "unmatched_supplier_count",
+    "hierarchy_total_count",
+    "synced_hierarchy_count",
+    "deleted_hierarchy_count",
+    "unresolved_vehicle_count",
+    "invalid_hierarchy_count",
     "estimated_remaining_seconds",
 )
 
@@ -331,6 +336,11 @@ class SgoSyncTaskManager:
             )
         detail["failure_details"] = failures
         detail["failed_item_ids"] = [failure["item_id"] for failure in failures]
+        detail["failure_groups"] = (
+            await self._repository.summarize_failures(task_id)
+            if detail.get("fail_count")
+            else []
+        )
         return detail
 
     async def list(self, **filters) -> tuple[list[dict[str, Any]], int]:
@@ -343,11 +353,17 @@ class SgoSyncTaskManager:
         *,
         page: int,
         per_page: int,
+        stage: str | None = None,
+        error_type: str | None = None,
+        error_message: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         return await self._repository.list_failures(
             task_id,
             page=page,
             per_page=per_page,
+            stage=stage,
+            error_type=error_type,
+            error_message=error_message,
         )
 
     async def cancel(

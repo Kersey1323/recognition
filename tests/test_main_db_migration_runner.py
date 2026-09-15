@@ -144,6 +144,18 @@ def test_inquiry_sync_text_index_linkage_migration_is_discoverable():
     assert migrations["20260904_001"].name == "add_inquiry_sync_text_index_linkage"
 
 
+def test_item_hierarchy_relation_migration_is_discoverable():
+    migrations = {
+        migration.version: migration
+        for migration in migration_runner.discover_migrations()
+    }
+
+    assert "20260915_005" in migrations
+    assert migrations["20260915_005"].name == "add_item_hierarchy_relation"
+    assert "20260915_006" in migrations
+    assert migrations["20260915_006"].name == "add_parent_materiel_name"
+
+
 def test_inquiry_sync_linkage_migration_preserves_inquiry_return_unique_index():
     migration = __import__(
         "csrcqsf.infra.db.migrations.20260904_001_add_inquiry_sync_text_index_linkage",

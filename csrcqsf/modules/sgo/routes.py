@@ -110,7 +110,7 @@ class SyncInquiryHistoryReq(BaseModel):
     batch_size: int = Field(default=500, ge=1, description="每批写入主库的记录数")
 
 
-@sgo_router.post('/sgo/parts/sync', tags=["业务-SGO集成"], summary='同步一次所有的配件基本信息', responses={
+@sgo_router.post('/sgo/parts/sync', tags=["业务-SGO集成"], summary='同步配件、供应商及父子层级信息', responses={
     200: {
         'model': str
     }
@@ -121,7 +121,7 @@ async def sgo_parts_sync(_: SyncItemsReq):
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return SgoSyncTaskStartRes(
-        message="配件基础信息同步任务已在后台启动",
+        message="配件、供应商及父子层级同步任务已在后台启动",
         task_id=task["task_id"],
         task_type=task["task_type"],
         status=task["status"],
@@ -270,6 +270,9 @@ async def list_sgo_sync_task_failures(task_id: str, req: SgoSyncFailureListReq):
         task_id,
         page=req.page,
         per_page=req.per_page,
+        stage=req.stage,
+        error_type=req.error_type,
+        error_message=req.error_message,
     )
     return SgoSyncFailureListRes(
         total=total,

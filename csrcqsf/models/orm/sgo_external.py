@@ -1650,6 +1650,24 @@ class SgoMaterielInfoTree(Base):
         VARCHAR(32), comment='板块id')
     tenant_id_: Mapped[Optional[str]] = mapped_column(VARCHAR(64))
 
+    @classmethod
+    async def list_hierarchy_relations(cls, session: AsyncSession):
+        result = await session.execute(
+            select(
+                cls.id,
+                cls.materiel_code,
+                cls.materiel_name,
+                cls.parent_materiel_code,
+                cls.figure_number,
+                cls.train_type_group,
+                cls.b_vehicle_id,
+                cls.serial_number,
+                cls.column_id,
+                cls.tenant_id_,
+            )
+        )
+        return result.all()
+
 
 class SgoMaterielMasterplate(Base):
     __tablename__ = 'sgo_materiel_masterplate'
@@ -1908,6 +1926,19 @@ class SgoMaterielVehicle(Base):
         VARCHAR(64), server_default=text("'1463844437338755072'"))
     compartment_info: Mapped[Optional[str]] = mapped_column(
         LONGTEXT, comment='车厢详情')
+
+    @classmethod
+    async def list_vehicle_mappings(cls, session: AsyncSession):
+        result = await session.execute(
+            select(
+                cls.vehicle_id,
+                cls.vehicle_batch,
+                cls.vehicle_name,
+            )
+            .where(cls.vehicle_id.is_not(None))
+            .distinct()
+        )
+        return result.all()
 
 
 class SgoMaterielVehicleAudit(Base):
