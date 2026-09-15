@@ -79,6 +79,10 @@ def test_sgo_sync_status_schema_exposes_semantic_trigger_flag():
 
     assert properties["semantic_index_triggered"]["type"] == "boolean"
     assert "创建或合并" in properties["semantic_index_triggered"]["description"]
+    assert "updated_metadata_count" in properties
+    assert "synced_supplier_count" in properties
+    assert "deleted_supplier_count" in properties
+    assert "unmatched_supplier_count" in properties
 
 
 def test_parts_sync_route_submits_background_task_without_awaiting_runner():

@@ -1753,7 +1753,13 @@ class SgoMaterielMasterplate(Base):
 
     @classmethod
     async def list_sgo_items(cls, session: AsyncSession):
-        stmt = select(cls.id, cls.maktx, cls.MATNR).where(cls.column_id == 'A1')
+        stmt = select(
+            cls.id,
+            cls.maktx,
+            cls.MATNR,
+            cls.wrkst,
+            cls.material_quality,
+        ).where(cls.column_id == 'A1')
         result = await session.execute(stmt)
         return result.all()
 
@@ -1830,6 +1836,28 @@ class SgoMaterielSupplier(Base):
         VARCHAR(12), comment='是否需要发布')
     supplier_data_rate: Mapped[Optional[str]] = mapped_column(
         VARCHAR(25), comment='供应商维护信息不为空值的百分比')
+    enable_status: Mapped[Optional[str]] = mapped_column(
+        VARCHAR(50), comment='数据状态：normal 正常，discontinue 停用')
+
+    @classmethod
+    async def list_sgo_suppliers(cls, session: AsyncSession):
+        # 配件同步只读取业务库需要展示的字段，避免复制供应商维护表中的无关信息。
+        result = await session.execute(
+            select(
+                cls.id,
+                cls.masterplate_id,
+                cls.supplier_code,
+                cls.supplier_name,
+                cls.supplier_matnr,
+                cls.supplier_maktx,
+                cls.supplier_wrkst,
+                cls.model_number,
+                cls.manufacturer,
+                cls.current_status,
+                cls.enable_status,
+            )
+        )
+        return result.all()
 
 
 class SgoMaterielSyncSap(Base):

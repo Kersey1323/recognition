@@ -22,6 +22,7 @@ from urllib3.util import create_urllib3_context
 from csrcqsf.core.scheduler import scheduler, submit_coroutine_to_main_loop
 from csrcqsf.core.settings import (
     inquiry_text_auto_index_enabled,
+    sgo_parts_sync_interval_minutes,
     sgo_image_download_concurrency,
     sgo_image_download_retries,
     sgo_image_download_timeout_seconds,
@@ -33,7 +34,7 @@ from csrcqsf.core.settings import (
 from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.infra.db.mdp_db import sgo_sessionLocal
 from csrcqsf.infra.storage.minio import minio_bucket, minio_instance
-from csrcqsf.models.orm.item import Items
+from csrcqsf.models.orm.item import ItemSupplier, Items
 from csrcqsf.models.orm.item_inquiry_history import ItemInquiryHistory
 from csrcqsf.models.orm.sgo import SgoItemImages
 from csrcqsf.models.orm.sgo_external import (
@@ -41,6 +42,7 @@ from csrcqsf.models.orm.sgo_external import (
     SgoCodeInquiryReturn,
     SgoMaterielFileImg,
     SgoMaterielMasterplate,
+    SgoMaterielSupplier,
 )
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
 from csrcqsf.modules.sgo.item_mapping import normalize_sgo_return_item
@@ -228,7 +230,7 @@ class SGOBiz:
         scheduler.add_job(
             cls._submit_scheduled_parts_sync,
             "interval",
-            minutes=100,
+            minutes=sgo_parts_sync_interval_minutes,
             id="sgo-parts-sync",
             replace_existing=True,
         )
@@ -478,22 +480,49 @@ class SGOBiz:
         cls,
         progress_callback: Callable[[dict], None] | None = None,
     ) -> dict:
-        """同步 SGO 配件主数据，已存在 ID 或编码均视为跳过。"""
+        """同步 SGO 配件主数据、规格材质和一对多供应商关系。"""
         started_at = time.perf_counter()
         async with SessionLocal() as session:
-            item_id_codes = await Items.list_all_item_id_codes(session)
-            part_ids = {int(item_id) for item_id, _ in item_id_codes}
+            item_states = await Items.list_all_item_sync_state(session)
+            supplier_states = await ItemSupplier.list_sync_state(session)
+            part_ids = {int(row.id) for row in item_states}
             part_codes = {
-                _item_code_key(item_code): int(item_id)
-                for item_id, item_code in item_id_codes
-                if _item_code_key(item_code)
+                _item_code_key(row.item_code): int(row.id)
+                for row in item_states
+                if _item_code_key(row.item_code)
+            }
+            item_metadata_by_id = {
+                int(row.id): (
+                    _clean_text(row.parts_model),
+                    _clean_text(row.material_quality),
+                )
+                for row in item_states
+            }
+            supplier_state_by_source_id = {
+                str(row.source_supplier_id): (
+                    _clean_text(row.source_masterplate_id),
+                    int(row.item_id) if row.item_id is not None else None,
+                    _clean_text(row.supplier_code),
+                    _clean_text(row.supplier_name),
+                    _clean_text(row.supplier_item_code),
+                    _clean_text(row.supplier_item_name),
+                    _clean_text(row.supplier_parts_model),
+                    _clean_text(row.model_number),
+                    _clean_text(row.manufacturer),
+                    _clean_text(row.current_status),
+                    _clean_text(row.enable_status),
+                )
+                for row in supplier_states
             }
 
         need_insert: list[Items] = []
+        metadata_updates: list[dict] = []
         skipped_count = 0
         fail_count = 0
         failed_item_ids: list[str] = []
         failure_details: list[dict[str, str]] = []
+        local_item_id_by_masterplate_id: dict[str, int] = {}
+        metadata_item_ids: set[int] = set()
 
         def record_invalid_source(item_id: str, reason: str) -> None:
             nonlocal fail_count
@@ -512,6 +541,9 @@ class SGOBiz:
         async with sgo_sessionLocal() as session:
             data_list = await SgoMaterielMasterplate.list_sgo_items(session=session)
             source_parts = list(data_list)
+            source_suppliers = list(
+                await SgoMaterielSupplier.list_sgo_suppliers(session=session)
+            )
             # SGO 可能为同一物料编码保留多个模板 ID。主库编码全局唯一，优先保留
             # 已有关联数据的主库记录；新编码按 Snowflake ID 倒序只接收最新模板。
             source_parts.sort(
@@ -539,9 +571,12 @@ class SGOBiz:
                 else:
                     item_code = str(data.MATNR).strip() if data.MATNR is not None else ""
                     item_code_key = _item_code_key(item_code)
+                    local_item_id = None
                     if source_item_id in part_ids:
+                        local_item_id = source_item_id
                         skipped_count += 1
                     elif item_code_key in part_codes:
+                        local_item_id = part_codes[item_code_key]
                         skipped_count += 1
                     elif not item_code_key:
                         record_invalid_source(str(data.id), "物料编码为空")
@@ -552,9 +587,35 @@ class SGOBiz:
                         new_part.id = source_item_id
                         new_part.item_name = data.maktx
                         new_part.item_code = item_code
+                        new_part.parts_model = _clean_text(getattr(data, "wrkst", None))
+                        new_part.material_quality = _clean_text(
+                            getattr(data, "material_quality", None)
+                        )
                         need_insert.append(new_part)
                         part_ids.add(source_item_id)
                         part_codes[item_code_key] = source_item_id
+                        local_item_id = source_item_id
+
+                    if local_item_id is not None:
+                        local_item_id_by_masterplate_id[str(data.id)] = local_item_id
+                        # 同编码存在多个模板时，按上面的倒序规则只采用最新模板的业务属性。
+                        if local_item_id not in metadata_item_ids:
+                            metadata_item_ids.add(local_item_id)
+                            source_metadata = (
+                                _clean_text(getattr(data, "wrkst", None)),
+                                _clean_text(getattr(data, "material_quality", None)),
+                            )
+                            if (
+                                local_item_id in item_metadata_by_id
+                                and item_metadata_by_id[local_item_id] != source_metadata
+                            ):
+                                metadata_updates.append(
+                                    {
+                                        "item_id": local_item_id,
+                                        "parts_model": source_metadata[0],
+                                        "material_quality": source_metadata[1],
+                                    }
+                                )
 
                 if progress_callback is not None and (
                     index == total_items or index % report_interval == 0
@@ -564,7 +625,7 @@ class SGOBiz:
                     await _notify_progress(
                         progress_callback,
                         {
-                            "progress": int(index * 100 / total_items) if total_items else 100,
+                            "progress": int(index * 90 / total_items) if total_items else 90,
                             "total_items": total_items,
                             "processed_items": index,
                             "success_count": len(need_insert),
@@ -580,10 +641,100 @@ class SGOBiz:
                     # 大批量比对期间定期让出事件循环，保证状态轮询和其他接口可响应。
                     await asyncio.sleep(0)
 
-        if need_insert:
+        supplier_payloads = []
+        source_supplier_ids = set()
+        supplier_unmatched_count = 0
+        for source_supplier in source_suppliers:
+            source_supplier_id = str(source_supplier.id)
+            source_supplier_ids.add(source_supplier_id)
+            masterplate_id = str(source_supplier.masterplate_id)
+            local_item_id = local_item_id_by_masterplate_id.get(masterplate_id)
+            if local_item_id is None:
+                try:
+                    direct_item_id = int(masterplate_id)
+                except (TypeError, ValueError):
+                    direct_item_id = None
+                if direct_item_id in part_ids:
+                    local_item_id = direct_item_id
+            if local_item_id is None:
+                supplier_unmatched_count += 1
+
+            payload = {
+                "source_supplier_id": source_supplier_id,
+                "source_masterplate_id": masterplate_id,
+                "item_id": local_item_id,
+                "supplier_code": _clean_text(source_supplier.supplier_code),
+                "supplier_name": _clean_text(source_supplier.supplier_name),
+                "supplier_item_code": _clean_text(source_supplier.supplier_matnr),
+                "supplier_item_name": _clean_text(source_supplier.supplier_maktx),
+                "supplier_parts_model": _clean_text(source_supplier.supplier_wrkst),
+                "model_number": _clean_text(source_supplier.model_number),
+                "manufacturer": _clean_text(source_supplier.manufacturer),
+                "current_status": _clean_text(source_supplier.current_status),
+                "enable_status": _clean_text(source_supplier.enable_status),
+            }
+            payload_state = (
+                payload["source_masterplate_id"],
+                payload["item_id"],
+                payload["supplier_code"],
+                payload["supplier_name"],
+                payload["supplier_item_code"],
+                payload["supplier_item_name"],
+                payload["supplier_parts_model"],
+                payload["model_number"],
+                payload["manufacturer"],
+                payload["current_status"],
+                payload["enable_status"],
+            )
+            if supplier_state_by_source_id.get(source_supplier_id) != payload_state:
+                supplier_payloads.append(payload)
+
+        stale_supplier_ids = sorted(
+            set(supplier_state_by_source_id) - source_supplier_ids
+        )
+
+        if need_insert or metadata_updates or supplier_payloads or stale_supplier_ids:
             async with SessionLocal() as session:
                 session.add_all(need_insert)
+                await Items.update_sgo_metadata(session, metadata_updates)
+                await ItemSupplier.upsert_from_sgo(session, supplier_payloads)
+                await ItemSupplier.delete_by_source_ids(session, stale_supplier_ids)
                 await session.commit()
+
+        logger.info(
+            "SGO 配件同步完成: source_parts={}, created_parts={}, updated_metadata={}, "
+            "source_suppliers={}, upserted_suppliers={}, deleted_suppliers={}, "
+            "unmatched_suppliers={}, elapsed_ms={:.2f}",
+            len(source_parts),
+            len(need_insert),
+            len(metadata_updates),
+            len(source_suppliers),
+            len(supplier_payloads),
+            len(stale_supplier_ids),
+            supplier_unmatched_count,
+            _elapsed_ms(started_at),
+        )
+
+        if progress_callback is not None:
+            await _notify_progress(
+                progress_callback,
+                {
+                    "progress": 100,
+                    "total_items": len(source_parts),
+                    "processed_items": len(source_parts),
+                    "success_count": len(need_insert),
+                    "fail_count": fail_count,
+                    "created_count": len(need_insert),
+                    "skipped_count": skipped_count,
+                    "updated_metadata_count": len(metadata_updates),
+                    "synced_supplier_count": len(supplier_payloads),
+                    "deleted_supplier_count": len(stale_supplier_ids),
+                    "unmatched_supplier_count": supplier_unmatched_count,
+                    "estimated_remaining_seconds": 0,
+                    "failed_item_ids": list(failed_item_ids),
+                    "failure_details": list(failure_details),
+                },
+            )
 
         return {
             "total_items": len(source_parts),
@@ -593,6 +744,10 @@ class SGOBiz:
             "created_count": len(need_insert),
             "skipped_count": skipped_count,
             "synced_image_count": 0,
+            "updated_metadata_count": len(metadata_updates),
+            "synced_supplier_count": len(supplier_payloads),
+            "deleted_supplier_count": len(stale_supplier_ids),
+            "unmatched_supplier_count": supplier_unmatched_count,
             "failed_item_ids": failed_item_ids,
             "failure_details": failure_details,
         }

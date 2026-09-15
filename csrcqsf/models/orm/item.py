@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from urllib.parse import quote_plus
-from sqlalchemy import String, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL, DateTime
+from sqlalchemy import String, bindparam, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL, DateTime, Index
 from sqlalchemy.orm import relationship, Mapped, mapped_column, Session, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from bfrcommon.common import get_pinyin
+from bfrcommon.snowflake import get_id
 from typing import TYPE_CHECKING, Iterator, List
 from bfrcommon.db import PageQueryResult, get_abbr_fn, get_count, async_get_count
 from pydantic import BaseModel
@@ -98,6 +99,8 @@ class Items(Base):
     v2_indexed_image_num: Mapped[int] = mapped_column(INT, nullable=False, default=0)
     v2_index_updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     size_str: Mapped[str] = mapped_column(Text, nullable=True)
+    parts_model: Mapped[str] = mapped_column(String(255), nullable=True)
+    material_quality: Mapped[str] = mapped_column(String(255), nullable=True)
     item_type: Mapped[ItemType] = mapped_column(
         String(200), nullable=False, default='real')
     parent_num: Mapped[int] = mapped_column(INT, nullable=False, default=0)
@@ -479,6 +482,41 @@ class Items(Base):
         return result.all()
 
     @classmethod
+    async def list_all_item_sync_state(cls, session: AsyncSession):
+        stmt = select(
+            cls.id,
+            cls.item_code,
+            cls.parts_model,
+            cls.material_quality,
+        )
+        result = await session.execute(stmt)
+        return result.all()
+
+    @classmethod
+    async def update_sgo_metadata(cls, session: AsyncSession, rows: list[dict]):
+        if not rows:
+            return
+        stmt = (
+            cls.__table__.update()
+            .where(cls.__table__.c.id == bindparam("sync_item_id"))
+            .values(
+                parts_model=bindparam("sync_parts_model"),
+                material_quality=bindparam("sync_material_quality"),
+            )
+        )
+        payloads = [
+            {
+                "sync_item_id": row["item_id"],
+                "sync_parts_model": row["parts_model"],
+                "sync_material_quality": row["material_quality"],
+            }
+            for row in rows
+        ]
+        for offset in range(0, len(payloads), 1000):
+            await session.execute(stmt, payloads[offset:offset + 1000])
+        await session.flush()
+
+    @classmethod
     async def list_v2_indexed_item_codes(cls, session: AsyncSession) -> list[str]:
         """返回已完成 V2 索引的配件编码，供跨库询码记录筛选使用。"""
         result = await session.scalars(
@@ -585,3 +623,112 @@ class Items(Base):
     #     datas = await session.scalars(stmt)
     #     for data in datas:
     #         yield data
+
+
+class ItemSupplier(Base):
+    """持久化 SGO 物料与供应商的一对多关系，供业务接口稳定查询。"""
+
+    __tablename__ = "item_supplier_info"
+    __table_args__ = (
+        Index("uq_item_supplier_source_id", "source_supplier_id", unique=True),
+        Index("ix_item_supplier_item_id", "item_id"),
+    )
+
+    source_supplier_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_masterplate_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    item_id: Mapped[int] = mapped_column(BIGINT, nullable=True)
+    supplier_code: Mapped[str] = mapped_column(String(64), nullable=True)
+    supplier_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    supplier_item_code: Mapped[str] = mapped_column(String(100), nullable=True)
+    supplier_item_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    supplier_parts_model: Mapped[str] = mapped_column(String(255), nullable=True)
+    model_number: Mapped[str] = mapped_column(String(255), nullable=True)
+    manufacturer: Mapped[str] = mapped_column(String(255), nullable=True)
+    current_status: Mapped[str] = mapped_column(String(50), nullable=True)
+    enable_status: Mapped[str] = mapped_column(String(50), nullable=True)
+
+    @classmethod
+    async def list_sync_state(cls, session: AsyncSession):
+        result = await session.execute(
+            select(
+                cls.source_supplier_id,
+                cls.source_masterplate_id,
+                cls.item_id,
+                cls.supplier_code,
+                cls.supplier_name,
+                cls.supplier_item_code,
+                cls.supplier_item_name,
+                cls.supplier_parts_model,
+                cls.model_number,
+                cls.manufacturer,
+                cls.current_status,
+                cls.enable_status,
+            )
+        )
+        return result.all()
+
+    @classmethod
+    async def upsert_from_sgo(cls, session: AsyncSession, rows: list[dict]):
+        if not rows:
+            return
+        from sqlalchemy.dialects.mysql import insert as mysql_insert
+
+        for offset in range(0, len(rows), 1000):
+            now = datetime.now()
+            # 公共默认 ID 生成器不支持多值 INSERT，批量同步时显式补齐基础审计字段。
+            batch = [
+                {
+                    **row,
+                    "id": get_id(),
+                    "created_by": 0,
+                    "updated_by": 0,
+                    "time_created": now,
+                    "time_updated": now,
+                }
+                for row in rows[offset : offset + 1000]
+            ]
+            stmt = mysql_insert(cls).values(batch)
+            stmt = stmt.on_duplicate_key_update(
+                item_id=stmt.inserted.item_id,
+                source_masterplate_id=stmt.inserted.source_masterplate_id,
+                supplier_code=stmt.inserted.supplier_code,
+                supplier_name=stmt.inserted.supplier_name,
+                supplier_item_code=stmt.inserted.supplier_item_code,
+                supplier_item_name=stmt.inserted.supplier_item_name,
+                supplier_parts_model=stmt.inserted.supplier_parts_model,
+                model_number=stmt.inserted.model_number,
+                manufacturer=stmt.inserted.manufacturer,
+                current_status=stmt.inserted.current_status,
+                enable_status=stmt.inserted.enable_status,
+                time_updated=func.now(),
+            )
+            await session.execute(stmt)
+        await session.flush()
+
+    @classmethod
+    async def delete_by_source_ids(cls, session: AsyncSession, source_ids: list[str]):
+        for offset in range(0, len(source_ids), 1000):
+            await session.execute(
+                delete(cls).where(
+                    cls.source_supplier_id.in_(source_ids[offset:offset + 1000])
+                )
+            )
+        await session.flush()
+
+    @classmethod
+    async def list_active_by_item_ids(
+        cls,
+        session: AsyncSession,
+        item_ids: list[int],
+    ):
+        if not item_ids:
+            return []
+        result = await session.scalars(
+            select(cls)
+            .where(
+                cls.item_id.in_(item_ids),
+                or_(cls.enable_status.is_(None), cls.enable_status == "normal"),
+            )
+            .order_by(cls.item_id.asc(), cls.supplier_name.asc())
+        )
+        return result.all()

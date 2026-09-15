@@ -127,6 +127,10 @@ def test_sgo_sync_task_manager_persists_progress_and_completion():
                 "created_count": 2,
                 "skipped_count": 0,
                 "synced_image_count": 0,
+                "updated_metadata_count": 3,
+                "synced_supplier_count": 4,
+                "deleted_supplier_count": 1,
+                "unmatched_supplier_count": 2,
                 "failure_details": [],
             }
 
@@ -140,6 +144,10 @@ def test_sgo_sync_task_manager_persists_progress_and_completion():
         completed = await wait_terminal(manager, started["task_id"])
         assert completed["status"] == "success"
         assert completed["created_count"] == 2
+        assert completed["updated_metadata_count"] == 3
+        assert completed["synced_supplier_count"] == 4
+        assert completed["deleted_supplier_count"] == 1
+        assert completed["unmatched_supplier_count"] == 2
         assert completed["progress"] == 100
 
     asyncio.run(scenario())

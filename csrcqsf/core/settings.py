@@ -405,6 +405,9 @@ reconstruction_server_download_timeout_sec = float(
         default="300",
     )
 )
+sgo_parts_sync_interval_minutes = _bounded_env_int(
+    "SGO_PARTS_SYNC_INTERVAL_MINUTES", default=100, minimum=1, maximum=10080
+)
 sgo_image_item_batch_size = _bounded_env_int(
     "SGO_IMAGE_ITEM_BATCH_SIZE", default=300, minimum=1, maximum=5000
 )

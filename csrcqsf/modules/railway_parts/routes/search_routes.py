@@ -544,6 +544,9 @@ async def list_v2_search_history(req: SearchHistoryListReq):
 返回值补充说明：
 
 - 同样返回 `search_item_*`、`correct_item_*`、`correct_source`、`ranking_feedback_type`
+- `result.items[].parts_model`: 配件同步到业务库的规格型号
+- `result.items[].material_quality`: 配件同步到业务库的材料材质
+- `result.items[].suppliers`: 配件同步到业务库的有效供应商列表及供应商侧型号信息
 """)
 async def get_v2_search_history_detail(req: SearchHistoryDetailReq):
     return await RailwayPartsManager.get_v2_search_history_detail(int(req.history_id))

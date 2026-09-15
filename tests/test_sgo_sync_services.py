@@ -3,8 +3,8 @@ import importlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from csrcqsf.models.orm.item import Items
-from csrcqsf.models.orm.sgo_external import SgoMaterielMasterplate
+from csrcqsf.models.orm.item import ItemSupplier, Items
+from csrcqsf.models.orm.sgo_external import SgoMaterielMasterplate, SgoMaterielSupplier
 from csrcqsf.modules.sgo.schemas import ImageSourceType
 from csrcqsf.modules.sgo.services import (
     ImageSyncCandidate,
@@ -394,12 +394,32 @@ def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
         side_effect=FakeSession,
     ), patch.object(
         Items,
-        "list_all_item_id_codes",
-        AsyncMock(return_value=[(101, "existing")]),
+        "list_all_item_sync_state",
+        AsyncMock(return_value=[SimpleNamespace(id=101, item_code="existing", parts_model=None, material_quality=None)]),
+    ), patch.object(
+        ItemSupplier,
+        "list_sync_state",
+        AsyncMock(return_value=[]),
     ), patch.object(
         SgoMaterielMasterplate,
         "list_sgo_items",
         AsyncMock(return_value=source_rows),
+    ), patch.object(
+        SgoMaterielSupplier,
+        "list_sgo_suppliers",
+        AsyncMock(return_value=[]),
+    ), patch.object(
+        Items,
+        "update_sgo_metadata",
+        AsyncMock(),
+    ), patch.object(
+        ItemSupplier,
+        "upsert_from_sgo",
+        AsyncMock(),
+    ), patch.object(
+        ItemSupplier,
+        "delete_by_source_ids",
+        AsyncMock(),
     ):
         result = asyncio.run(
             SGOBiz.sync_parts_items(progress_callback=capture_progress)
@@ -457,12 +477,32 @@ def test_sync_parts_items_skips_existing_and_batch_duplicate_item_codes():
         side_effect=FakeSession,
     ), patch.object(
         Items,
-        "list_all_item_id_codes",
-        AsyncMock(return_value=[(101, " Existing-Code ")]),
+        "list_all_item_sync_state",
+        AsyncMock(return_value=[SimpleNamespace(id=101, item_code=" Existing-Code ", parts_model=None, material_quality=None)]),
+    ), patch.object(
+        ItemSupplier,
+        "list_sync_state",
+        AsyncMock(return_value=[]),
     ), patch.object(
         SgoMaterielMasterplate,
         "list_sgo_items",
         AsyncMock(return_value=source_rows),
+    ), patch.object(
+        SgoMaterielSupplier,
+        "list_sgo_suppliers",
+        AsyncMock(return_value=[]),
+    ), patch.object(
+        Items,
+        "update_sgo_metadata",
+        AsyncMock(),
+    ), patch.object(
+        ItemSupplier,
+        "upsert_from_sgo",
+        AsyncMock(),
+    ), patch.object(
+        ItemSupplier,
+        "delete_by_source_ids",
+        AsyncMock(),
     ):
         result = asyncio.run(SGOBiz.sync_parts_items())
 
@@ -470,6 +510,139 @@ def test_sync_parts_items_skips_existing_and_batch_duplicate_item_codes():
     assert result["skipped_count"] == 2
     assert FakeSession.added_items[0].id == 104
     assert FakeSession.added_items[0].item_code == "new-code"
+
+
+def test_sync_parts_items_persists_metadata_and_supplier_snapshot():
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        def add_all(self, items):
+            self.items = list(items)
+
+        async def commit(self):
+            return None
+
+    item_states = [
+        SimpleNamespace(
+            id=101,
+            item_code="CODE-1",
+            parts_model=None,
+            material_quality=None,
+        )
+    ]
+    supplier_states = [
+        SimpleNamespace(
+            source_supplier_id="supplier-1",
+            source_masterplate_id="101",
+            item_id=101,
+            supplier_code="OLD",
+            supplier_name="旧供应商",
+            supplier_item_code=None,
+            supplier_item_name=None,
+            supplier_parts_model=None,
+            model_number=None,
+            manufacturer=None,
+            current_status="Draft",
+            enable_status="normal",
+        ),
+        SimpleNamespace(
+            source_supplier_id="stale-supplier",
+            source_masterplate_id="101",
+            item_id=101,
+            supplier_code="STALE",
+            supplier_name="已删除供应商",
+            supplier_item_code=None,
+            supplier_item_name=None,
+            supplier_parts_model=None,
+            model_number=None,
+            manufacturer=None,
+            current_status="Draft",
+            enable_status="normal",
+        ),
+    ]
+    source_parts = [
+        SimpleNamespace(
+            id="101",
+            MATNR="CODE-1",
+            maktx="配件一",
+            wrkst="M10x20",
+            material_quality="不锈钢",
+        )
+    ]
+    source_suppliers = [
+        SimpleNamespace(
+            id="supplier-1",
+            masterplate_id="101",
+            supplier_code="NEW",
+            supplier_name="新供应商",
+            supplier_matnr="SUP-CODE-1",
+            supplier_maktx="供方配件一",
+            supplier_wrkst="SUP-M10x20",
+            model_number="MODEL-1",
+            manufacturer="制造商一",
+            current_status="Draft",
+            enable_status="normal",
+        )
+    ]
+    update_metadata = AsyncMock()
+    upsert_suppliers = AsyncMock()
+    delete_suppliers = AsyncMock()
+
+    with patch.object(sgo_services, "SessionLocal", side_effect=FakeSession), patch.object(
+        sgo_services,
+        "sgo_sessionLocal",
+        side_effect=FakeSession,
+    ), patch.object(
+        Items,
+        "list_all_item_sync_state",
+        AsyncMock(return_value=item_states),
+    ), patch.object(
+        ItemSupplier,
+        "list_sync_state",
+        AsyncMock(return_value=supplier_states),
+    ), patch.object(
+        SgoMaterielMasterplate,
+        "list_sgo_items",
+        AsyncMock(return_value=source_parts),
+    ), patch.object(
+        SgoMaterielSupplier,
+        "list_sgo_suppliers",
+        AsyncMock(return_value=source_suppliers),
+    ), patch.object(
+        Items,
+        "update_sgo_metadata",
+        update_metadata,
+    ), patch.object(
+        ItemSupplier,
+        "upsert_from_sgo",
+        upsert_suppliers,
+    ), patch.object(
+        ItemSupplier,
+        "delete_by_source_ids",
+        delete_suppliers,
+    ):
+        result = asyncio.run(SGOBiz.sync_parts_items())
+
+    metadata_rows = update_metadata.await_args.args[1]
+    assert metadata_rows == [
+        {
+            "item_id": 101,
+            "parts_model": "M10x20",
+            "material_quality": "不锈钢",
+        }
+    ]
+    supplier_rows = upsert_suppliers.await_args.args[1]
+    assert supplier_rows[0]["supplier_name"] == "新供应商"
+    assert supplier_rows[0]["model_number"] == "MODEL-1"
+    delete_suppliers.assert_awaited_once()
+    assert delete_suppliers.await_args.args[1] == ["stale-supplier"]
+    assert result["updated_metadata_count"] == 1
+    assert result["synced_supplier_count"] == 1
+    assert result["deleted_supplier_count"] == 1
 
 
 def test_sync_inquiry_history_maps_item_codes_and_reports_progress():

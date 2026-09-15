@@ -10,6 +10,9 @@ from csrcqsf.modules.railway_parts.services.contextual_search_service import (
 from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
     get_inquiry_semantic_index_service,
 )
+from csrcqsf.modules.railway_parts.services.search_result_metadata_service import (
+    enrich_search_result_metadata,
+)
 
 
 SearchHistoryListReq: Any = None
@@ -63,6 +66,7 @@ async def get_v2_search_history_detail(cls, history_id: int, runtime=None):
         )
         if row is not None:
             await cls._enrich_search_history_result_item_names(session, [row])
+            await enrich_search_result_metadata(session, row.search_results)
             latest_ticket_map = await runtime.SearchHistoryRepository.list_latest_by_history_ids(
                 session,
                 [history_id],

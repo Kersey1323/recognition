@@ -27,6 +27,10 @@ PROGRESS_FIELDS = (
     "created_count",
     "skipped_count",
     "synced_image_count",
+    "updated_metadata_count",
+    "synced_supplier_count",
+    "deleted_supplier_count",
+    "unmatched_supplier_count",
     "estimated_remaining_seconds",
 )
 

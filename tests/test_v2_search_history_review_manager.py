@@ -405,7 +405,12 @@ def test_get_v2_search_history_detail_returns_full_record():
 
     with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
          patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=fake_history)), \
-         patch.object(parts_module.SearchReviewTicket, "list_latest_by_history_ids", AsyncMock(return_value={})):
+         patch.object(parts_module.SearchReviewTicket, "list_latest_by_history_ids", AsyncMock(return_value={})), \
+         patch.object(
+             parts_module.parts_search_service.search_service,
+             "enrich_search_result_metadata",
+             AsyncMock(),
+         ):
         detail = asyncio.run(RailwayPartsManager.get_v2_search_history_detail(1))
 
     assert detail.history_id == "1"

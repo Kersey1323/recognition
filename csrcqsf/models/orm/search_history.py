@@ -41,6 +41,16 @@ class MatchedImage(BaseModel):
     matched_query_indexes: list[int] = Field(default_factory=list)
 
 
+class SearchResultSupplier(BaseModel):
+    supplier_code: str | None = None
+    supplier_name: str | None = None
+    supplier_item_code: str | None = None
+    supplier_item_name: str | None = None
+    supplier_parts_model: str | None = None
+    model_number: str | None = None
+    manufacturer: str | None = None
+
+
 class SearchResultItem(BaseModel):
     item_id: str
     item_code: str
@@ -50,6 +60,9 @@ class SearchResultItem(BaseModel):
     matched_images: list[MatchedImage] = []
     matched_description: str | None = None
     matched_inquiry_id: str | None = None
+    parts_model: str | None = None
+    material_quality: str | None = None
+    suppliers: list[SearchResultSupplier] = Field(default_factory=list)
 
 
 class SearchResults(BaseModel):
