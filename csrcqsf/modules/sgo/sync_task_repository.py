@@ -123,6 +123,15 @@ class SgoSyncTaskRepository:
             )
             return [_record_to_dict(record) for record in records], total
 
+    async def count_by_status(self, task_type: str) -> dict[str, int]:
+        async with SessionLocal() as session:
+            rows = await session.execute(
+                select(SgoSyncTask.status, func.count())
+                .where(SgoSyncTask.task_type == task_type)
+                .group_by(SgoSyncTask.status)
+            )
+            return {status: int(count) for status, count in rows}
+
     async def replace_failures(self, task_id: str, failures: list[dict]) -> None:
         # 非增量执行器在任务结束时用完整失败集合覆盖旧明细。
         async with SessionLocal() as session:

@@ -355,3 +355,25 @@ def test_sync_task_list_cancel_retry_and_failures_routes():
         error_message=None,
         error_code="SOURCE_ITEM_NAME_EMPTY",
     )
+
+
+def test_sync_task_statistics_route_selects_tab_type():
+    assert any(
+        route.path == "/sgo/sgo/sync/tasks/statistics" and "POST" in route.methods
+        for route in routes.sgo_router.routes
+    )
+    manager = MagicMock()
+    manager.statistics = AsyncMock(return_value={
+        "task_success_rate": 99,
+        "total_tasks": 324,
+        "successful_tasks": 322,
+        "failed_tasks": 0,
+        "active_tasks": 0,
+    })
+    with patch.object(routes, "sgo_sync_task_manager", manager):
+        result = asyncio.run(routes.get_sgo_sync_task_statistics(
+            routes.SgoSyncTaskStatisticsReq(type="parts")
+        ))
+    assert result.task_success_rate == 99
+    assert result.total_tasks == 324
+    manager.statistics.assert_awaited_once_with("parts")

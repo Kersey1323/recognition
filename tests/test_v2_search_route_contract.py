@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from csrcqsf.modules.railway_parts.schemas.search import SearchRes, SearchTextReq
+from csrcqsf.modules.railway_parts.schemas.search import SearchItem, SearchRes, SearchTextReq
 
 
 def _clear_module(prefix: str) -> None:
@@ -24,6 +24,9 @@ def _seed_routes_package() -> None:
 
 
 def _import_parts_service():
+    cached = getattr(_import_parts_service, "_cached", None)
+    if cached is not None:
+        return cached
     _clear_module("csrcqsf.modules.railway_parts.routes")
     _clear_module("csrcqsf.runtime")
     _seed_routes_package()
@@ -60,6 +63,9 @@ def _import_parts_service():
         module.parts_router = router_module.parts_router
         module.RailwayPartsManager = search_routes_module.RailwayPartsManager
         module.search_v2_by_text = search_routes_module.search_v2_by_text
+        module.search_v2_by_image = search_routes_module.search_v2_by_image
+        module.search_routes_module = search_routes_module
+        _import_parts_service._cached = module
         return module
 
 
@@ -98,3 +104,34 @@ def test_parts_service_unifies_single_and_multi_image_search_on_one_route():
     assert "file" in body_schema["properties"]
     assert body_schema["properties"]["file"]["type"] == "array"
     assert body_schema["properties"]["file"]["items"]["format"] == "binary"
+
+
+def test_text_search_route_enriches_each_candidate_with_hierarchy():
+    routes = _import_parts_service()
+    payload = SearchRes(
+        history_id="123",
+        data=[SearchItem(item_id="1", item_code="A")],
+        message=None,
+    )
+    with patch.object(routes.RailwayPartsManager, "search_v2_by_text", AsyncMock(return_value=payload), create=True), patch.object(
+        routes.search_routes_module, "enrich_search_items", AsyncMock()
+    ) as enrich:
+        asyncio.run(routes.search_v2_by_text(SearchTextReq(query_text="按钮")))
+    enrich.assert_awaited_once_with(payload.data)
+
+
+def test_image_search_route_enriches_single_and_multi_image_candidates():
+    routes = _import_parts_service()
+    payload = SearchRes(
+        history_id="123",
+        data=[SearchItem(item_id="1", item_code="A")],
+        message=None,
+    )
+    file = object()
+    with patch.object(routes.RailwayPartsManager, "search_v2_by_image", AsyncMock(return_value=payload), create=True), patch.object(
+        routes.RailwayPartsManager, "search_v2_by_images", AsyncMock(return_value=payload), create=True
+    ), patch.object(routes.search_routes_module, "enrich_search_items", AsyncMock()) as enrich:
+        asyncio.run(routes.search_v2_by_image(file=[file]))
+        asyncio.run(routes.search_v2_by_image(file=[file, file]))
+    assert enrich.await_count == 2
+    assert all(call.args == (payload.data,) for call in enrich.await_args_list)

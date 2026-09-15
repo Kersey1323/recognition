@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from csrcqsf.modules.railway_parts.schemas.search import (
     ContextualSearchRes,
+    SearchItem,
     SearchHistoryListItem,
 )
 from csrcqsf.modules.railway_parts.services.contextual_search_service import (
@@ -138,6 +139,36 @@ def test_contextual_search_route_delegates_all_business_inputs():
         "search_mode": "siglip",
         "search_equipment": "web",
     }
+
+
+def test_contextual_search_route_enriches_each_snapshot_with_its_vehicle():
+    routes, _ = _import_search_routes()
+    payload = ContextualSearchRes(
+        history_id="101",
+        previous={
+            "query_images": [],
+            "parameters": {"vehicle_batch": "SFE28", "search_mode": "siglip"},
+            "searched_at": "2026-08-18 09:00:00",
+            "data": [SearchItem(item_id="1", item_code="A")],
+        },
+        current={
+            "query_images": [],
+            "parameters": {"vehicle_batch": "SFE27", "search_mode": "siglip"},
+            "searched_at": "2026-08-18 10:00:00",
+            "data": [SearchItem(item_id="2", item_code="B")],
+        },
+    )
+    with patch.object(
+        routes.RailwayPartsManager, "search_v2_contextual",
+        AsyncMock(return_value=payload), create=True,
+    ), patch.object(routes, "enrich_search_items", AsyncMock()) as enrich:
+        asyncio.run(routes.search_v2_contextual(history_id="101", file=[]))
+
+    assert enrich.await_count == 2
+    assert enrich.await_args_list[0].args == (payload.current.data,)
+    assert enrich.await_args_list[0].kwargs == {"vehicle_batch": "SFE27"}
+    assert enrich.await_args_list[1].args == (payload.previous.data,)
+    assert enrich.await_args_list[1].kwargs == {"vehicle_batch": "SFE28"}
 
 
 def test_contextual_search_route_accepts_swagger_empty_file_field():

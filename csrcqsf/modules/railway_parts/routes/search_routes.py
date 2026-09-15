@@ -37,6 +37,7 @@ from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsMan
 from csrcqsf.modules.railway_parts.services.contextual_search_service import (
     ContextualSearchBusinessError,
 )
+from csrcqsf.modules.railway_parts.services.search_hierarchy_service import enrich_search_items
 from csrcqsf.modules.railway_parts.vector_search.storage.milvus_state_manager import (
     MilvusStateManagerV2,
 )
@@ -388,6 +389,7 @@ async def search_v2_by_text(
         search_equipment=req.search_equipment,
         # use_image_vector=use_image_vector
     )
+    await enrich_search_items(result.data)
     return result
 
 
@@ -436,6 +438,7 @@ async def search_v2_by_image(
             search_mode=search_mode,
             search_equipment=search_equipment,
         )
+        await enrich_search_items(result.data)
         return result
 
     result = await RailwayPartsManager.search_v2_by_images(
@@ -444,6 +447,7 @@ async def search_v2_by_image(
         search_mode=search_mode,
         search_equipment=search_equipment,
     )
+    await enrich_search_items(result.data)
     return result
 
 
@@ -485,7 +489,7 @@ async def search_v2_contextual(
     # Swagger 勾选 Send empty value 时会把空文件解析成空字符串，业务上按未上传图片处理。
     uploaded_files = [value for value in raw_files if not isinstance(value, str)]
     try:
-        return await RailwayPartsManager.search_v2_contextual(
+        result = await RailwayPartsManager.search_v2_contextual(
             history_id=normalized_history_id,
             files=uploaded_files,
             vehicle_batch=vehicle_batch,
@@ -497,6 +501,16 @@ async def search_v2_contextual(
             search_mode=search_mode,
             search_equipment=search_equipment,
         )
+        await enrich_search_items(
+            result.current.data,
+            vehicle_batch=result.current.parameters.vehicle_batch,
+        )
+        if result.previous is not None:
+            await enrich_search_items(
+                result.previous.data,
+                vehicle_batch=result.previous.parameters.vehicle_batch,
+            )
+        return result
     except ContextualSearchBusinessError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 

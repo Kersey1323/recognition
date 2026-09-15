@@ -251,6 +251,11 @@ class SearchTextReq(BaseModel):
         }
 
 
+class SearchHierarchyPart(BaseModel):
+    item_code: str
+    item_name: str | None = None
+
+
 class SearchItem(BaseModel):
     item_id: str = 0
     item_code: str = ''
@@ -258,6 +263,8 @@ class SearchItem(BaseModel):
     image_url: str = ''
     rate: float = 0
     matched_images: list[MatchedImage] = []
+    parent_parts: list[SearchHierarchyPart] = Field(default_factory=list, description="关联的直接父配件（可能有多个）")
+    child_parts: list[SearchHierarchyPart] = Field(default_factory=list, description="关联的直接子配件")
     matched_description: str | None = Field(
         None,
         description="文本检索命中的历史询码名称描述；图片检索为空",

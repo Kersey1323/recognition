@@ -17,6 +17,8 @@ from csrcqsf.modules.sgo.schemas import (
     SgoSyncTaskCancelReq,
     SgoSyncTaskListReq,
     SgoSyncTaskListRes,
+    SgoSyncTaskStatisticsReq,
+    SgoSyncTaskStatisticsRes,
     SgoSyncTaskStartRes,
     SgoSyncTaskStatusRes,
 )
@@ -204,6 +206,18 @@ async def list_sgo_sync_tasks(req: SgoSyncTaskListReq):
         page=req.page,
         pageSize=req.per_page,
         records=[SgoSyncTaskStatusRes(**record) for record in records],
+    )
+
+
+@sgo_router.post(
+    '/sgo/sync/tasks/statistics',
+    tags=["业务-SGO集成"],
+    summary='按同步类型统计任务状态',
+    response_model=SgoSyncTaskStatisticsRes,
+)
+async def get_sgo_sync_task_statistics(req: SgoSyncTaskStatisticsReq):
+    return SgoSyncTaskStatisticsRes(
+        **(await sgo_sync_task_manager.statistics(req.type))
     )
 
 

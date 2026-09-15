@@ -347,6 +347,19 @@ class SgoSyncTaskManager:
         records, total = await self._repository.list(**filters)
         return [_decorate(record) for record in records], total
 
+    async def statistics(self, task_type: str) -> dict[str, int]:
+        counts = await self._repository.count_by_status(task_type)
+        total = sum(counts.values())
+        successful = counts.get("success", 0)
+        # 取消和中断保留在任务总数中，但不归入成功、失败或执行中。
+        return {
+            "task_success_rate": (successful * 100 * 2 + total) // (2 * total) if total else 0,
+            "total_tasks": total,
+            "successful_tasks": successful,
+            "failed_tasks": counts.get("failed", 0),
+            "active_tasks": sum(counts.get(status, 0) for status in ACTIVE_STATUSES),
+        }
+
     async def list_failures(
         self,
         task_id: str,

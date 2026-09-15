@@ -112,6 +112,32 @@ class ItemHierarchyRelation(Base):
     source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
     @classmethod
+    async def list_search_relations(cls, session: AsyncSession, item_codes: list[str]):
+        if not item_codes:
+            return []
+        rows = []
+        # 候选配件按编码关联，虚拟父节点没有 parent_item_id 也仍可展示。
+        for offset in range(0, len(item_codes), 500):
+            codes = item_codes[offset:offset + 500]
+            result = await session.execute(
+                select(
+                    cls.materiel_code,
+                    cls.materiel_name,
+                    cls.parent_materiel_code,
+                    cls.parent_materiel_name,
+                    cls.vehicle_batch,
+                ).where(
+                    or_(
+                        cls.materiel_code.in_(codes),
+                        cls.parent_materiel_code.in_(codes),
+                    ),
+                    cls.is_valid.is_(True),
+                )
+            )
+            rows.extend(result.all())
+        return rows
+
+    @classmethod
     async def list_sync_state(cls, session: AsyncSession):
         result = await session.execute(
             select(cls.source_relation_id, cls.source_hash)

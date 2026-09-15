@@ -183,6 +183,20 @@ class SgoSyncTaskListRes(BaseModel):
     records: list[SgoSyncTaskStatusRes] = Field(default_factory=list)
 
 
+class SgoSyncTaskStatisticsReq(BaseModel):
+    type: Literal["parts", "images", "inquiry-history"] = Field(
+        ..., description="同步页签类型：配件、图片或询码历史"
+    )
+
+
+class SgoSyncTaskStatisticsRes(BaseModel):
+    task_success_rate: int = Field(..., description="任务成功率，按全部任务计算的整数百分比")
+    total_tasks: int = Field(..., description="任务总数，包含取消和中断")
+    successful_tasks: int = Field(..., description="成功任务数")
+    failed_tasks: int = Field(..., description="失败任务数")
+    active_tasks: int = Field(..., description="执行中任务数，包含等待、执行和取消中")
+
+
 class SgoSyncTaskCancelReq(BaseModel):
     cancel_reason: str | None = Field(None, max_length=500, description="可选取消原因")
 

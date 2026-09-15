@@ -76,6 +76,13 @@ class FakeSgoSyncTaskRepository:
         )
         return [deepcopy(item) for item in records], len(records)
 
+    async def count_by_status(self, task_type):
+        return dict(Counter(
+            record["status"]
+            for record in self.records.values()
+            if record["task_type"] == task_type
+        ))
+
     async def list_failures(
         self,
         task_id,
@@ -139,6 +146,43 @@ async def wait_terminal(manager, task_id):
         if record["status"] not in ACTIVE:
             return record
     raise AssertionError("任务未进入终态")
+
+
+def test_sync_task_statistics_count_statuses_by_type():
+    async def scenario():
+        repository = FakeSgoSyncTaskRepository()
+        manager = SgoSyncTaskManager(repository=repository)
+        for index, status in enumerate(
+            ["success", "success", "failed", "pending", "running", "cancelling", "cancelled", "interrupted"]
+        ):
+            await repository.create(task_id=f"parts-{index}", task_type="parts", status=status)
+        await repository.create(task_id="images-1", task_type="images", status="success")
+
+        assert await manager.statistics("parts") == {
+            "task_success_rate": 25,
+            "total_tasks": 8,
+            "successful_tasks": 2,
+            "failed_tasks": 1,
+            "active_tasks": 3,
+        }
+        assert await manager.statistics("images") == {
+            "task_success_rate": 100,
+            "total_tasks": 1,
+            "successful_tasks": 1,
+            "failed_tasks": 0,
+            "active_tasks": 0,
+        }
+        assert (await manager.statistics("inquiry-history"))["task_success_rate"] == 0
+
+        for index in range(200):
+            await repository.create(
+                task_id=f"inquiry-{index}",
+                task_type="inquiry-history",
+                status="success" if index == 0 else "cancelled",
+            )
+        assert (await manager.statistics("inquiry-history"))["task_success_rate"] == 1
+
+    asyncio.run(scenario())
 
 
 def test_sgo_sync_task_manager_persists_progress_and_completion():
