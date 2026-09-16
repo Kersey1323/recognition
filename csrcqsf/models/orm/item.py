@@ -225,6 +225,7 @@ class Items(Base):
     v2_index_updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     size_str: Mapped[str] = mapped_column(Text, nullable=True)
     parts_model: Mapped[str] = mapped_column(String(255), nullable=True)
+    drawing_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     material_quality: Mapped[str] = mapped_column(String(255), nullable=True)
     item_type: Mapped[ItemType] = mapped_column(
         String(200), nullable=False, default='real')
@@ -611,7 +612,9 @@ class Items(Base):
         stmt = select(
             cls.id,
             cls.item_code,
+            cls.item_name,
             cls.parts_model,
+            cls.drawing_number,
             cls.material_quality,
         )
         result = await session.execute(stmt)
@@ -625,14 +628,18 @@ class Items(Base):
             cls.__table__.update()
             .where(cls.__table__.c.id == bindparam("sync_item_id"))
             .values(
+                item_name=bindparam("sync_item_name"),
                 parts_model=bindparam("sync_parts_model"),
+                drawing_number=bindparam("sync_drawing_number"),
                 material_quality=bindparam("sync_material_quality"),
             )
         )
         payloads = [
             {
                 "sync_item_id": row["item_id"],
+                "sync_item_name": row["item_name"],
                 "sync_parts_model": row["parts_model"],
+                "sync_drawing_number": row["drawing_number"],
                 "sync_material_quality": row["material_quality"],
             }
             for row in rows

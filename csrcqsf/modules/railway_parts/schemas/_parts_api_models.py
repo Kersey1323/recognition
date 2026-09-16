@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from bfrcommon.api_models import PageReq, PageRes
 from pydantic import Field, validator
 
-from csrcqsf.models.orm.search_history import MatchedImage, SearchParameters, SearchResults
+from csrcqsf.models.orm.search_history import MatchedImage, SearchHierarchyPart, SearchParameters, SearchResults
 from csrcqsf.modules.sgo.schemas import ImageSourceType
 
 
@@ -183,9 +183,36 @@ class GetItemDetailRes(BaseModel):
     parent_item_name: str | None
     parent_item_code: str | None
     parent_item_id: str | None
+    parent_parts: list[SearchHierarchyPart] = Field(default_factory=list, description='直接父配件编码和名称')
+    child_parts: list[SearchHierarchyPart] = Field(default_factory=list, description='直接子配件编码和名称')
     size_str: str | None
     features: list[str] = Field(default_factory=list, description='当前BGE文字索引中的询码名称描述')
     features_num: int = Field(default=0, description='当前BGE文字索引的去重描述数量')
+
+
+class HierarchyItemDetailReq(BaseModel):
+    item_code: str = Field(min_length=1, max_length=100, description='层级配件编码，如 A124')
+    vehicle_batch: str | None = Field(default=None, description='可选车型精确过滤，如 E27')
+
+    @validator('item_code')
+    def normalize_item_code(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError('配件编码不能为空')
+        return value
+
+    @validator('vehicle_batch')
+    def normalize_vehicle_batch(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
+
+
+class HierarchyItemDetailRes(BaseModel):
+    item_code: str
+    item_name: str | None = None
+    item_names: list[str] = Field(default_factory=list, description='层级表中该编码对应的全部名称变体')
+    vehicle_batches: list[str] = Field(default_factory=list, description='本次匹配的车型列表')
+    parent_parts: list[SearchHierarchyPart] = Field(default_factory=list)
+    child_parts: list[SearchHierarchyPart] = Field(default_factory=list)
 
 
 class CreateItemImagesReq(BaseModel):
@@ -249,11 +276,6 @@ class SearchTextReq(BaseModel):
                 "search_equipment": "web",
             }
         }
-
-
-class SearchHierarchyPart(BaseModel):
-    item_code: str
-    item_name: str | None = None
 
 
 class SearchItem(BaseModel):

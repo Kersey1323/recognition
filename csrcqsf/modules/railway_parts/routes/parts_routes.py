@@ -1,6 +1,6 @@
 """配件维护、图片管理和分割入口路由。"""
 
-from fastapi import File, Form, Request, UploadFile
+from fastapi import File, Form, HTTPException, Request, UploadFile
 
 from csrcqsf.modules.railway_parts.schemas.parts import (
     CreateItemImagesReq,
@@ -11,6 +11,8 @@ from csrcqsf.modules.railway_parts.schemas.parts import (
     DeleteItemReq,
     GetItemDetailReq,
     GetItemDetailRes,
+    HierarchyItemDetailReq,
+    HierarchyItemDetailRes,
     IndexStatisticsReq,
     IndexStatisticsRes,
     ItemSuggestReq,
@@ -25,6 +27,7 @@ from csrcqsf.modules.railway_parts.schemas.parts import (
 )
 from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
+from csrcqsf.modules.railway_parts.services.search_hierarchy_service import enrich_search_items, get_hierarchy_item_detail as load_hierarchy_item_detail
 
 from .router import parts_router
 
@@ -166,7 +169,18 @@ async def delete_item_image(req: DeleteItemImageReq):
     }
 })
 async def get_item_image_detail(req: GetItemDetailReq):
-    return await RailwayPartsManager.get_item_detail(int(req.item_id))
+    detail = await RailwayPartsManager.get_item_detail(int(req.item_id))
+    # 配件详情按当前业务库层级展示直接父子件，不按单一车型隐藏其他关联。
+    await enrich_search_items([detail])
+    return detail
+
+
+@parts_router.post('/hierarchy/item/detail', tags=["业务-配件管理"], summary='按编码查询层级配件详情', response_model=HierarchyItemDetailRes, description='从已同步的层级关系读取节点名称、车型和直接父子配件；不要求该编码存在于 item_info。')
+async def get_hierarchy_item_detail(req: HierarchyItemDetailReq):
+    detail = await load_hierarchy_item_detail(req.item_code, vehicle_batch=req.vehicle_batch)
+    if detail is None:
+        raise HTTPException(status_code=404, detail='未找到该配件编码的有效层级关系')
+    return detail
 
 
 @parts_router.post('/data/statistics',  tags=["业务-数据统计"], summary='索引统计', responses={

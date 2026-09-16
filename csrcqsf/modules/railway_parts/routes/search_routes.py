@@ -561,9 +561,22 @@ async def list_v2_search_history(req: SearchHistoryListReq):
 - `result.items[].parts_model`: 配件同步到业务库的规格型号
 - `result.items[].material_quality`: 配件同步到业务库的材料材质
 - `result.items[].suppliers`: 配件同步到业务库的有效供应商列表及供应商侧型号信息
+- `result.items[]` 和 `previous_result.items[]` 的 `parent_parts`、`child_parts`: 当前业务库中的直接父子配件编码和名称；各轮按其检索时的车型筛选
 """)
 async def get_v2_search_history_detail(req: SearchHistoryDetailReq):
-    return await RailwayPartsManager.get_v2_search_history_detail(int(req.history_id))
+    detail = await RailwayPartsManager.get_v2_search_history_detail(int(req.history_id))
+    # 历史候选保留检索当时的顺序和得分，父子关系按当前业务库实时补齐。
+    if detail.result is not None:
+        await enrich_search_items(
+            detail.result.items,
+            vehicle_batch=getattr(detail.search_parameter, "vehicle_batch", None),
+        )
+    if detail.previous_result is not None:
+        await enrich_search_items(
+            detail.previous_result.items,
+            vehicle_batch=getattr(detail.previous_search_parameter, "vehicle_batch", None),
+        )
+    return detail
 
 
 @parts_router.post('/v2/search/history/summary', tags=["算法-向量检索V2"], summary='V2检索历史统计', responses={

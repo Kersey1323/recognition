@@ -2,7 +2,7 @@ from typing import Optional
 import datetime
 import decimal
 
-from sqlalchemy import BigInteger, Computed, DECIMAL, Date, DateTime, Double, ForeignKeyConstraint, Index, Integer, SmallInteger, String, TIMESTAMP, case, cast, false, or_, select, text
+from sqlalchemy import BigInteger, Computed, DECIMAL, Date, DateTime, Double, ForeignKeyConstraint, Index, Integer, SmallInteger, String, TIMESTAMP, case, cast, false, func, or_, select, text
 from sqlalchemy.dialects.mysql import CHAR, LONGBLOB, LONGTEXT, TEXT, TINYINT, VARCHAR
 from sqlalchemy.orm import DeclarativeBase, Mapped, load_only, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1770,14 +1770,25 @@ class SgoMaterielMasterplate(Base):
         VARCHAR(5), comment='是否适合快递发运（0 适合  1不适合）')
 
     @classmethod
-    async def list_sgo_items(cls, session: AsyncSession):
-        stmt = select(
+    def sync_items_statement(cls):
+        # 模板决定板块范围及关联 ID；原物料表只补模板缺失的基础字段。
+        return select(
             cls.id,
-            cls.maktx,
+            cls.column_id,
+            func.coalesce(func.nullif(func.trim(cls.maktx), ''), func.nullif(func.trim(SgoMaterielInfo.MAKTX), '')).label('maktx'),
             cls.MATNR,
-            cls.wrkst,
+            func.coalesce(func.nullif(func.trim(cls.wrkst), ''), func.nullif(func.trim(SgoMaterielInfo.WRKST), '')).label('wrkst'),
+            func.coalesce(func.nullif(func.trim(cls.zeinr), ''), func.nullif(func.trim(SgoMaterielInfo.ZEINR), '')).label('zeinr'),
             cls.material_quality,
-        ).where(cls.column_id == 'A1')
+        ).outerjoin(
+            SgoMaterielInfo,
+            (cls.materiel_info_id == SgoMaterielInfo.id) &
+            (cls.MATNR == SgoMaterielInfo.MATNR),
+        ).where(cls.column_id.in_(('A1', 'A5', 'A9')))
+
+    @classmethod
+    async def list_sgo_items(cls, session: AsyncSession):
+        stmt = cls.sync_items_statement()
         result = await session.execute(stmt)
         return result.all()
 

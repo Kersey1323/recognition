@@ -837,7 +837,9 @@ def test_sync_parts_items_persists_metadata_and_supplier_snapshot():
     assert metadata_rows == [
         {
             "item_id": 101,
+            "item_name": "配件一",
             "parts_model": "M10x20",
+            "drawing_number": None,
             "material_quality": "不锈钢",
         }
     ]

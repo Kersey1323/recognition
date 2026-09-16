@@ -85,6 +85,12 @@ INQUIRY_HISTORY_COLUMNS = (
 MAX_SYNC_FAILURE_DETAILS = 20
 
 
+def _sync_template_sort_key(row) -> tuple[int, int]:
+    priority = {"A1": 0, "A5": 1, "A9": 2}.get(getattr(row, "column_id", "A1"), 3)
+    template_id = int(row.id) if str(row.id).isdigit() else -1
+    return priority, -template_id
+
+
 def _elapsed_ms(started_at: float) -> float:
     return (time.perf_counter() - started_at) * 1000
 
@@ -549,7 +555,9 @@ class SGOBiz:
             }
             item_metadata_by_id = {
                 int(row.id): (
+                    _clean_text(getattr(row, "item_name", None)),
                     _clean_text(row.parts_model),
+                    _clean_text(getattr(row, "drawing_number", None)),
                     _clean_text(row.material_quality),
                 )
                 for row in item_states
@@ -609,11 +617,10 @@ class SGOBiz:
             source_suppliers = list(
                 await SgoMaterielSupplier.list_sgo_suppliers(session=session)
             )
-            # SGO 可能为同一物料编码保留多个模板 ID。主库编码全局唯一，优先保留
-            # 已有关联数据的主库记录；新编码按 Snowflake ID 倒序只接收最新模板。
+            # 跨板块同编码优先动车模板，避免扩大同步范围后更换已有图片和供应商关联 ID；
+            # 同板块重复编码按模板 ID 倒序选择较新记录。
             source_parts.sort(
-                key=lambda row: int(row.id) if str(row.id).isdigit() else -1,
-                reverse=True,
+                key=_sync_template_sort_key,
             )
             total_items = len(source_parts)
             if progress_callback is not None:
@@ -660,6 +667,7 @@ class SGOBiz:
                         new_part.item_name = item_name
                         new_part.item_code = item_code
                         new_part.parts_model = _clean_text(getattr(data, "wrkst", None))
+                        new_part.drawing_number = _clean_text(getattr(data, "zeinr", None))
                         new_part.material_quality = _clean_text(
                             getattr(data, "material_quality", None)
                         )
@@ -670,24 +678,28 @@ class SGOBiz:
 
                     if local_item_id is not None:
                         local_item_id_by_masterplate_id[str(data.id)] = local_item_id
-                        # 同编码存在多个模板时，按上面的倒序规则只采用最新模板的业务属性。
+                        # 同编码存在多个板块模板时，只采用优先板块的业务属性。
                         if local_item_id not in metadata_item_ids:
                             metadata_item_ids.add(local_item_id)
-                            source_metadata = (
-                                _clean_text(getattr(data, "wrkst", None)),
-                                _clean_text(getattr(data, "material_quality", None)),
-                            )
-                            if (
-                                local_item_id in item_metadata_by_id
-                                and item_metadata_by_id[local_item_id] != source_metadata
-                            ):
-                                metadata_updates.append(
-                                    {
-                                        "item_id": local_item_id,
-                                        "parts_model": source_metadata[0],
-                                        "material_quality": source_metadata[1],
-                                    }
+                            if local_item_id in item_metadata_by_id:
+                                original = item_metadata_by_id[local_item_id]
+                                # 已有业务名称和基础属性优先保留；只回填缺失字段。
+                                target = (
+                                    original[0] or item_name or "",
+                                    original[1] or _clean_text(getattr(data, "wrkst", None)),
+                                    original[2] or _clean_text(getattr(data, "zeinr", None)),
+                                    original[3] or _clean_text(getattr(data, "material_quality", None)),
                                 )
+                                if original != target:
+                                    metadata_updates.append(
+                                        {
+                                            "item_id": local_item_id,
+                                            "item_name": target[0],
+                                            "parts_model": target[1],
+                                            "drawing_number": target[2],
+                                            "material_quality": target[3],
+                                        }
+                                    )
 
                 if progress_callback is not None and (
                     index == total_items or index % report_interval == 0

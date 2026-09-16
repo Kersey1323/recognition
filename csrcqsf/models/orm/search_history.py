@@ -41,6 +41,11 @@ class MatchedImage(BaseModel):
     matched_query_indexes: list[int] = Field(default_factory=list)
 
 
+class SearchHierarchyPart(BaseModel):
+    item_code: str
+    item_name: str | None = None
+
+
 class SearchResultSupplier(BaseModel):
     supplier_code: str | None = None
     supplier_name: str | None = None
@@ -58,6 +63,8 @@ class SearchResultItem(BaseModel):
     similar: float
     image_url: str | None = None
     matched_images: list[MatchedImage] = []
+    parent_parts: list[SearchHierarchyPart] = Field(default_factory=list)
+    child_parts: list[SearchHierarchyPart] = Field(default_factory=list)
     matched_description: str | None = None
     matched_inquiry_id: str | None = None
     parts_model: str | None = None

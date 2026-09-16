@@ -27,6 +27,7 @@ list_item_images = parts_routes.list_item_images
 create_item_image = parts_routes.create_item_image
 delete_item_image = parts_routes.delete_item_image
 get_item_image_detail = parts_routes.get_item_image_detail
+get_hierarchy_item_detail = parts_routes.get_hierarchy_item_detail
 indexstatistics = parts_routes.indexstatistics
 suggest_items = parts_routes.suggest_items
 
@@ -99,6 +100,7 @@ __all__ = [
     "create_item_image",
     "delete_item_image",
     "get_item_image_detail",
+    "get_hierarchy_item_detail",
     "indexstatistics",
     "suggest_items",
     "drop_v2_collections",
