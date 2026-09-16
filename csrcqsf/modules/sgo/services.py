@@ -118,6 +118,10 @@ class SgoImageDownloadError(RuntimeError):
     pass
 
 
+class SgoImageSourceFileError(SgoImageDownloadError):
+    pass
+
+
 class SgoImageRetryableError(SgoImageDownloadError):
     pass
 
@@ -228,6 +232,35 @@ def _summarize_sgo_auth_response(response) -> str:
                 safe_value = " ".join(str(value).split())[:300]
                 details.append(f"response_{key}={safe_value}")
     return ", ".join(details)
+
+
+def _sgo_download_error_detail(response) -> str:
+    """提取甲方文件服务的错误正文，供同步失败明细直接展示。"""
+    status = getattr(response, "status", "unknown")
+    data = getattr(response, "data", b"") or b""
+    try:
+        payload = json.loads(data.decode("utf-8", errors="replace"))
+    except Exception:
+        payload = None
+
+    details = [f"SGO 文件服务返回 HTTP {status}"]
+    if isinstance(payload, dict):
+        message = payload.get("message") or payload.get("msg") or payload.get("error")
+        if message is not None and str(message).strip():
+            details.append(f"message={' '.join(str(message).split())}")
+        log_id = payload.get("logId") or payload.get("log_id")
+        if log_id is not None and str(log_id).strip():
+            details.append(f"logId={str(log_id).strip()}")
+    elif data:
+        details.append(
+            f"body={' '.join(data.decode('utf-8', errors='replace').split())[:1000]}"
+        )
+    return "; ".join(details)
+
+
+def _is_sgo_source_file_error(error_detail: str) -> bool:
+    normalized = error_detail.casefold().replace("：", ":").replace(" ", "")
+    return "platform:sftp-1" in normalized and "fileinfo:" in normalized
 
 
 def _normalize_vehicle_batch(vehicle: str | None) -> str | None:
@@ -1786,7 +1819,7 @@ class SGOBiz:
 
     @classmethod
     def download_images_from_sgo(cls, files_name: list[str]):
-        """调用 SGO 批量下载接口，校验 ZIP 完整性并对可恢复错误重试。"""
+        """调用 SGO 批量下载接口，校验 ZIP 完整性并重试传输异常。"""
         # 关闭启动时的图片同步不应阻断手动同步；首次下载时按需建立认证会话。
         if not cls.token:
             cls.get_token()
@@ -1825,9 +1858,15 @@ class SGOBiz:
                             )
                         continue
                     if response.status >= 500:
-                        raise SgoImageRetryableError(
-                            f"SGO 文件服务返回 {response.status}"
+                        # 甲方 SFTP 源文件异常与服务过载都以 500 返回；原地重试会
+                        # 长时间占用下载并发，因此记录响应详情后交给后续任务处理。
+                        error_detail = _sgo_download_error_detail(response)
+                        error_class = (
+                            SgoImageSourceFileError
+                            if _is_sgo_source_file_error(error_detail)
+                            else SgoImageDownloadError
                         )
+                        raise error_class(error_detail)
                     if response.status != 200:
                         raise SgoImageDownloadError(
                             f"SGO 文件下载失败，HTTP {response.status}"

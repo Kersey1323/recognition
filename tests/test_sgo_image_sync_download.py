@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import threading
 import time
 import zipfile
@@ -14,6 +15,7 @@ from csrcqsf.modules.sgo.services import (
     ImageSyncCandidate,
     SGOBiz,
     SgoImageDownloadError,
+    SgoImageSourceFileError,
     SgoImageZipError,
     SgoZipTooLargeError,
 )
@@ -123,9 +125,42 @@ def test_download_images_exposes_token_failure_details():
             SGOBiz.download_images_from_sgo(["file-1"])
 
 
-def test_download_images_retries_server_error_and_refreshes_token_on_401():
+def test_download_images_does_not_retry_server_error_and_exposes_message():
+    response = FakeResponse(
+        500,
+        data=json.dumps(
+            {
+                "state": False,
+                "message": (
+                    "文件下载失败！platform：sftp-1,"
+                    "fileInfo：FileInfo(...)"
+                ),
+                "logId": "2100119211291447296",
+            },
+            ensure_ascii=False,
+        ).encode(),
+        headers={"Content-Type": "application/json;charset=UTF-8"},
+    )
+    pool = FakePool([response])
+
+    with patch.object(sgo_services, "PoolManager", return_value=pool), patch.object(
+        sgo_services.time,
+        "sleep",
+    ) as sleep:
+        SGOBiz.token = "token"
+        with pytest.raises(SgoImageSourceFileError) as exc_info:
+            SGOBiz.download_images_from_sgo(["file-1"])
+
+    error_message = str(exc_info.value)
+    assert pool.request_count == 1
+    assert "platform：sftp-1,fileInfo：FileInfo(...)" in error_message
+    assert "logId=2100119211291447296" in error_message
+    sleep.assert_not_called()
+    assert response.released is True
+
+
+def test_download_images_refreshes_token_on_401():
     responses = [
-        FakeResponse(500),
         FakeResponse(401),
         FakeResponse(200, [b"zip-data"]),
     ]
@@ -143,7 +178,7 @@ def test_download_images_retries_server_error_and_refreshes_token_on_401():
         result = SGOBiz.download_images_from_sgo(["file-1"])
 
     assert result == b"zip-data"
-    assert pool.request_count == 3
+    assert pool.request_count == 2
     get_token.assert_called_once()
     assert all(response.released for response in responses)
 

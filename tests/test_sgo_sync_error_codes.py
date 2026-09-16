@@ -17,6 +17,14 @@ def test_dynamic_exception_messages_do_not_affect_classification():
     assert failure_error_code("unknown_stage", "NewException", "message") == "SYNC_FAILURE_UNKNOWN"
 
 
+def test_sgo_source_file_error_has_non_retryable_business_code():
+    assert failure_error_code(
+        "sgo_download",
+        "SgoImageSourceFileError",
+        "SGO 文件服务返回 HTTP 500; message=文件下载失败！platform：sftp-1",
+    ) == "SGO_SOURCE_FILE_UNAVAILABLE"
+
+
 def test_repository_populates_code_without_changing_original_error_detail():
     failure = {
         "item_id": "101", "stage": "minio_upload", "error_type": "ConnectionError",

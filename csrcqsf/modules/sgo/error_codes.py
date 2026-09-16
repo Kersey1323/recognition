@@ -20,4 +20,6 @@ def failure_error_code(stage: str, error_type: str, error_message: str) -> str:
         if error_type == "ItemNotFound":
             return "ITEM_NOT_FOUND"
         return SOURCE_ERROR_CODES.get(error_message, "SOURCE_DATA_INVALID")
+    if stage == "sgo_download" and error_type == "SgoImageSourceFileError":
+        return "SGO_SOURCE_FILE_UNAVAILABLE"
     return STAGE_ERROR_CODES.get(stage, "SYNC_FAILURE_UNKNOWN")
