@@ -360,6 +360,11 @@ class SgoSyncTaskManager:
             "active_tasks": sum(counts.get(status, 0) for status in ACTIVE_STATUSES),
         }
 
+    async def delete_tasks(self, task_ids: list[str]) -> dict[str, Any]:
+        # 与任务提交、取消共用进程锁，避免检查状态后恰好进入执行流程。
+        async with self._lock:
+            return await self._repository.delete_tasks(task_ids)
+
     async def list_failures(
         self,
         task_id: str,

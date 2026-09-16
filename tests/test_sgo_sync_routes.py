@@ -357,6 +357,42 @@ def test_sync_task_list_cancel_retry_and_failures_routes():
     )
 
 
+def test_delete_sync_tasks_route_returns_cleanup_counts():
+    assert any(
+        route.path == "/sgo/sgo/sync/tasks/delete" and "POST" in route.methods
+        for route in routes.sgo_router.routes
+    )
+    manager = MagicMock()
+    manager.delete_tasks = AsyncMock(return_value={
+        "requested_count": 3,
+        "deleted_task_count": 2,
+        "deleted_failure_count": 3974,
+        "missing_task_ids": ["missing"],
+    })
+
+    with patch.object(routes, "sgo_sync_task_manager", manager):
+        result = asyncio.run(routes.delete_sgo_sync_tasks(
+            routes.SgoSyncTaskDeleteReq(task_id_list=["task-1", "task-2", "missing"])
+        ))
+
+    assert result.deleted_task_count == 2
+    assert result.deleted_failure_count == 3974
+    assert result.missing_task_ids == ["missing"]
+    manager.delete_tasks.assert_awaited_once_with(["task-1", "task-2", "missing"])
+
+
+def test_delete_sync_tasks_route_maps_active_task_conflict():
+    manager = MagicMock()
+    manager.delete_tasks = AsyncMock(side_effect=RuntimeError("运行中的 SGO 同步任务不可删除"))
+
+    with patch.object(routes, "sgo_sync_task_manager", manager), pytest.raises(HTTPException) as error:
+        asyncio.run(routes.delete_sgo_sync_tasks(
+            routes.SgoSyncTaskDeleteReq(task_id_list=["active-task"])
+        ))
+
+    assert error.value.status_code == 409
+
+
 def test_sync_task_statistics_route_selects_tab_type():
     assert any(
         route.path == "/sgo/sgo/sync/tasks/statistics" and "POST" in route.methods

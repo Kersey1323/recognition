@@ -15,6 +15,8 @@ from csrcqsf.modules.sgo.schemas import (
     SgoSyncFailureListRes,
     SgoSyncFailureRecord,
     SgoSyncTaskCancelReq,
+    SgoSyncTaskDeleteReq,
+    SgoSyncTaskDeleteRes,
     SgoSyncTaskListReq,
     SgoSyncTaskListRes,
     SgoSyncTaskStatisticsReq,
@@ -207,6 +209,21 @@ async def list_sgo_sync_tasks(req: SgoSyncTaskListReq):
         pageSize=req.per_page,
         records=[SgoSyncTaskStatusRes(**record) for record in records],
     )
+
+
+@sgo_router.post(
+    '/sgo/sync/tasks/delete',
+    tags=["业务-SGO集成"],
+    summary='批量删除已结束的 SGO 同步任务',
+    response_model=SgoSyncTaskDeleteRes,
+    description='删除明确指定的历史任务及其失败明细；请求中包含活动任务时整批拒绝，不级联删除重试链或语义索引任务。',
+)
+async def delete_sgo_sync_tasks(req: SgoSyncTaskDeleteReq):
+    try:
+        result = await sgo_sync_task_manager.delete_tasks(req.task_id_list)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return SgoSyncTaskDeleteRes(**result)
 
 
 @sgo_router.post(

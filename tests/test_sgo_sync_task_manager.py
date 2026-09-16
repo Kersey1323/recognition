@@ -138,6 +138,24 @@ class FakeSgoSyncTaskRepository:
             error_message="活动任务在当前服务进程中不存在",
         )
 
+    async def delete_tasks(self, task_ids):
+        records = [self.records[task_id] for task_id in task_ids if task_id in self.records]
+        active = sorted(record["task_id"] for record in records if record["status"] in ACTIVE)
+        if active:
+            raise RuntimeError(f"运行中的 SGO 同步任务不可删除: task_id={','.join(active)}")
+        deleted_failure_count = sum(len(self.failures.get(task_id, [])) for task_id in task_ids)
+        deleted_task_count = 0
+        for task_id in task_ids:
+            if self.records.pop(task_id, None) is not None:
+                deleted_task_count += 1
+            self.failures.pop(task_id, None)
+        return {
+            "requested_count": len(task_ids),
+            "deleted_task_count": deleted_task_count,
+            "deleted_failure_count": deleted_failure_count,
+            "missing_task_ids": sorted(set(task_ids) - {record["task_id"] for record in records}),
+        }
+
 
 async def wait_terminal(manager, task_id):
     for _ in range(50):
@@ -549,5 +567,56 @@ def test_sgo_sync_task_manager_retries_with_original_parameters():
         assert retried["retry_from_task_id"] == "old-task"
         await wait_terminal(manager, retried["task_id"])
         assert calls == [["101"]]
+
+    asyncio.run(scenario())
+
+
+def test_sgo_sync_task_manager_deletes_terminal_tasks_and_failure_details():
+    async def scenario():
+        repository = FakeSgoSyncTaskRepository()
+        manager = SgoSyncTaskManager(repository=repository)
+        for task_id, status in (("done-1", "success"), ("done-2", "failed")):
+            await repository.create(
+                task_id=task_id,
+                root_task_id=task_id,
+                retry_from_task_id=None,
+                task_type="parts",
+                task_params_json={},
+                status=status,
+            )
+            repository.failures[task_id] = [{"item_id": task_id}]
+
+        result = await manager.delete_tasks(["done-1", "done-2", "missing"])
+
+        assert result == {
+            "requested_count": 3,
+            "deleted_task_count": 2,
+            "deleted_failure_count": 2,
+            "missing_task_ids": ["missing"],
+        }
+        assert repository.records == {}
+        assert repository.failures == {}
+
+    asyncio.run(scenario())
+
+
+def test_sgo_sync_task_manager_rejects_batch_containing_active_task():
+    async def scenario():
+        repository = FakeSgoSyncTaskRepository()
+        manager = SgoSyncTaskManager(repository=repository)
+        for task_id, status in (("done", "success"), ("active", "running")):
+            await repository.create(
+                task_id=task_id,
+                root_task_id=task_id,
+                retry_from_task_id=None,
+                task_type="parts",
+                task_params_json={},
+                status=status,
+            )
+
+        with pytest.raises(RuntimeError, match="运行中的 SGO 同步任务不可删除"):
+            await manager.delete_tasks(["done", "active"])
+
+        assert set(repository.records) == {"done", "active"}
 
     asyncio.run(scenario())

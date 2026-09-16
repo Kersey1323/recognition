@@ -140,3 +140,50 @@ def test_sgo_sync_repository_appends_failure_rows_in_one_transaction():
     assert len(session.records) == 1
     assert session.records[0].task_id == "task-1"
     assert session.records[0].item_id == "101"
+
+
+def test_sgo_sync_repository_deletes_tasks_and_failures_in_one_transaction():
+    from csrcqsf.modules.sgo import sync_task_repository as repository_module
+
+    class Result:
+        def __init__(self, *, rows=None, rowcount=0):
+            self._rows = rows or []
+            self.rowcount = rowcount
+
+        def all(self):
+            return self._rows
+
+    class Session:
+        def __init__(self):
+            self.results = [
+                Result(rows=[SimpleNamespace(task_id="done", status="success")]),
+                Result(rowcount=3),
+                Result(rowcount=1),
+            ]
+            self.committed = False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def execute(self, _statement):
+            return self.results.pop(0)
+
+        async def commit(self):
+            self.committed = True
+
+    session = Session()
+    with patch.object(repository_module, "SessionLocal", return_value=session):
+        result = asyncio.run(
+            repository_module.SgoSyncTaskRepository().delete_tasks(["done", "missing"])
+        )
+
+    assert session.committed is True
+    assert result == {
+        "requested_count": 2,
+        "deleted_task_count": 1,
+        "deleted_failure_count": 3,
+        "missing_task_ids": ["missing"],
+    }

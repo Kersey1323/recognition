@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 
 class ListInqueryItem(BaseModel):
@@ -199,6 +199,29 @@ class SgoSyncTaskStatisticsRes(BaseModel):
 
 class SgoSyncTaskCancelReq(BaseModel):
     cancel_reason: str | None = Field(None, max_length=500, description="可选取消原因")
+
+
+class SgoSyncTaskDeleteReq(BaseModel):
+    task_id_list: list[str] = Field(
+        ...,
+        min_items=1,
+        max_items=100,
+        description="待删除的已结束同步任务 ID，最多 100 个",
+    )
+
+    @validator("task_id_list")
+    def normalize_task_ids(cls, values: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(str(value).strip() for value in values))
+        if not normalized or any(not value for value in normalized):
+            raise ValueError("任务 ID 不能为空")
+        return normalized
+
+
+class SgoSyncTaskDeleteRes(BaseModel):
+    requested_count: int = Field(..., ge=1, description="请求删除的去重任务数")
+    deleted_task_count: int = Field(..., ge=0, description="实际删除的任务数")
+    deleted_failure_count: int = Field(..., ge=0, description="同步删除的失败明细数")
+    missing_task_ids: list[str] = Field(default_factory=list, description="删除前已不存在的任务 ID")
 
 
 class SgoSyncFailureListReq(BaseModel):

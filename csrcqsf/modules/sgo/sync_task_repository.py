@@ -132,6 +132,44 @@ class SgoSyncTaskRepository:
             )
             return {status: int(count) for status, count in rows}
 
+    async def delete_tasks(self, task_ids: list[str]) -> dict[str, Any]:
+        """原子删除明确指定的终态任务及其失败明细。"""
+        unique_ids = list(dict.fromkeys(task_ids))
+        async with SessionLocal() as session:
+            rows = (
+                await session.execute(
+                    select(SgoSyncTask.task_id, SgoSyncTask.status).where(
+                        SgoSyncTask.task_id.in_(unique_ids)
+                    )
+                )
+            ).all()
+            found_ids = {str(row.task_id) for row in rows}
+            active_ids = sorted(
+                str(row.task_id)
+                for row in rows
+                if row.status in ACTIVE_SGO_SYNC_TASK_STATUSES
+            )
+            if active_ids:
+                raise RuntimeError(
+                    "运行中的 SGO 同步任务不可删除: task_id=" + ",".join(active_ids)
+                )
+
+            failure_result = await session.execute(
+                delete(SgoSyncTaskFailure).where(
+                    SgoSyncTaskFailure.task_id.in_(found_ids)
+                )
+            )
+            task_result = await session.execute(
+                delete(SgoSyncTask).where(SgoSyncTask.task_id.in_(found_ids))
+            )
+            await session.commit()
+            return {
+                "requested_count": len(unique_ids),
+                "deleted_task_count": int(task_result.rowcount or 0),
+                "deleted_failure_count": int(failure_result.rowcount or 0),
+                "missing_task_ids": sorted(set(unique_ids) - found_ids),
+            }
+
     async def replace_failures(self, task_id: str, failures: list[dict]) -> None:
         # 非增量执行器在任务结束时用完整失败集合覆盖旧明细。
         async with SessionLocal() as session:
