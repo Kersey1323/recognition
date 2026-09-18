@@ -163,7 +163,7 @@ class SearchHistory(Base):
     ):
         """按检索来源、校验状态和日期筛选历史记录。"""
         offset = (page-1) * per_page
-        stmt = select(cls)
+        stmt = select(cls.id)
 
         if search_type == "text":
             stmt = stmt.where(cls.query_text.is_not(None))
@@ -210,12 +210,26 @@ class SearchHistory(Base):
             stmt = stmt.where(cls.time_created < end)
 
         count = await async_get_count(session, stmt)
-        stmt = stmt.order_by(cls.time_created.desc())
+        # 历史记录包含候选结果和上一轮快照等大 JSON；分页时先排序主键，
+        # 避免 MySQL filesort 把完整 JSON 行放入排序缓冲区而耗尽内存。
+        id_stmt = stmt.order_by(cls.time_created.desc(), cls.id.desc())
         if page != -1:
-            stmt = stmt.limit(
+            id_stmt = id_stmt.limit(
                 per_page).offset(offset)
-        datas = await session.scalars(stmt)
-        return PageQueryResult(total=count, data=datas.all())
+        ordered_ids = list((await session.scalars(id_stmt)).all())
+        if not ordered_ids:
+            return PageQueryResult(total=count, data=[])
+
+        rows = list(
+            (
+                await session.scalars(
+                    select(cls).where(cls.id.in_(ordered_ids))
+                )
+            ).all()
+        )
+        rows_by_id = {int(row.id): row for row in rows}
+        ordered_rows = [rows_by_id[int(row_id)] for row_id in ordered_ids]
+        return PageQueryResult(total=count, data=ordered_rows)
 
     @classmethod
     async def get_history_by_id(cls, session: AsyncSession, history_id: int):
