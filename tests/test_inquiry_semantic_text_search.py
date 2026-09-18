@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -143,6 +144,58 @@ def test_direct_text_search_allows_empty_semantic_results():
 
     assert response.data == []
     persist.assert_awaited_once()
+
+
+def test_agent_switch_controls_global_text_history_boundary():
+    cutoff = datetime(2026, 3, 5, 10, 30, 26)
+    semantic_service = SimpleNamespace(search=AsyncMock(return_value=[]))
+    runtime = SimpleNamespace(get_id=lambda: 1004, SearchRes=SearchRes)
+    manager_cls = SimpleNamespace(_persist_v2_search_history=AsyncMock())
+
+    with patch.object(
+        search_service,
+        "get_inquiry_semantic_index_service",
+        return_value=semantic_service,
+    ), patch.object(search_service, "agent_running", False):
+        asyncio.run(
+            search_service.search_v2_by_text(
+                manager_cls,
+                query_text="门控器",
+                source_inquiry_id="current-inquiry",
+                source_inquiry_time=cutoff,
+                runtime=runtime,
+            )
+        )
+
+    assert semantic_service.search.await_args.kwargs == {
+        "query_text": "门控器",
+        "top_k": 100,
+        "item_ids": None,
+    }
+
+    semantic_service.search.reset_mock()
+    with patch.object(
+        search_service,
+        "get_inquiry_semantic_index_service",
+        return_value=semantic_service,
+    ), patch.object(search_service, "agent_running", True):
+        asyncio.run(
+            search_service.search_v2_by_text(
+                manager_cls,
+                query_text="门控器",
+                source_inquiry_id="current-inquiry",
+                source_inquiry_time=cutoff,
+                runtime=runtime,
+            )
+        )
+
+    assert semantic_service.search.await_args.kwargs == {
+        "query_text": "门控器",
+        "top_k": 100,
+        "item_ids": None,
+        "exclude_inquiry_id": "current-inquiry",
+        "before_inquiry_time": cutoff,
+    }
 
 
 def test_direct_text_search_reranks_with_item_names():

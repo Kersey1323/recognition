@@ -32,6 +32,8 @@ class SearchParameters(BaseModel):
     train_no: str | None = None
     car_num: str | None = None
     subordinate_component: str | None = None
+    source_inquiry_id: str | None = None
+    source_inquiry_time: datetime | None = None
     search_mode: str = "siglip"
 
 
@@ -116,7 +118,7 @@ class SearchHistory(Base):
         String(500), nullable=True)
     search_result_item_code: Mapped[str] = mapped_column(String(200))
     search_parameter: Mapped[SearchParameters] = mapped_column(
-        PydanticType(SearchParameters), nullable=True)
+        JsonSerializablePydanticType(SearchParameters), nullable=True)
     query_text: Mapped[str] = mapped_column(String(1000), nullable=True)
     query_image: Mapped[str] = mapped_column(String(1000), nullable=True)
     query_images_json: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)

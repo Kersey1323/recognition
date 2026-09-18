@@ -8,9 +8,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, load_only, mapped_column, re
 from sqlalchemy.ext.asyncio import AsyncSession
 from bfrcommon.db import PageQueryResult, async_get_count
 
-
-SYNC_MATERIEL_COLUMN_IDS = ('A1', 'A3', 'A5')
-A9_DEMO_COLUMN_ID = 'A9'
+from csrcqsf.models.orm.sgo_constants import (
+    A9_DEMO_COLUMN_ID,
+    SYNC_MATERIEL_COLUMN_IDS,
+)
 
 
 class Base(DeclarativeBase):

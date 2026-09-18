@@ -15,6 +15,7 @@ from bfrcommon.db import PydanticType
 from csrcqsf.infra.db.main_db import Base
 from csrcqsf.models.orm.item_inquiry_history import ItemInquiryHistory
 from csrcqsf.models.orm.sgo import SgoItemImages
+from csrcqsf.models.orm.sgo_constants import SYNC_MATERIEL_COLUMN_IDS
 
 
 class ItemType(str, Enum):
@@ -116,6 +117,7 @@ class ItemHierarchyRelation(Base):
         if not item_codes:
             return []
         rows = []
+        # 父子关系只展示正式业务板块；A9 演示关系不应出现在甲方可见结果中。
         # 候选配件按编码关联，虚拟父节点没有 parent_item_id 也仍可展示。
         for offset in range(0, len(item_codes), 500):
             codes = item_codes[offset:offset + 500]
@@ -132,6 +134,7 @@ class ItemHierarchyRelation(Base):
                         cls.parent_materiel_code.in_(codes),
                     ),
                     cls.is_valid.is_(True),
+                    cls.column_id.in_(SYNC_MATERIEL_COLUMN_IDS),
                 )
             )
             rows.extend(result.all())

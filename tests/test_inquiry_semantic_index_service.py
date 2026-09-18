@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from types import SimpleNamespace
 
 import numpy as np
@@ -18,6 +19,22 @@ class FakeRepository:
             for row in self.rows
             if row.item_id is not None and str(row.inquiry_item_name or "").strip()
         ]
+
+    async def list_eligible_inquiry_ids(
+        self,
+        inquiry_ids,
+        *,
+        exclude_inquiry_id,
+        before_inquiry_time,
+    ):
+        wanted = set(inquiry_ids)
+        return {
+            row.inquiry_id
+            for row in self.rows
+            if row.inquiry_id in wanted
+            and row.inquiry_id != exclude_inquiry_id
+            and row.inquiry_time < before_inquiry_time
+        }
 
 
 class FakeModelClient:
@@ -92,6 +109,7 @@ def make_row(
     item_code="40001",
     return_item_code=None,
     source="sgo",
+    inquiry_time=None,
 ):
     return SimpleNamespace(
         id=row_id,
@@ -101,6 +119,7 @@ def make_row(
         item_code=item_code,
         return_item_code=return_item_code or item_code,
         source=source,
+        inquiry_time=inquiry_time or datetime(2026, 1, 1),
     )
 
 
@@ -230,7 +249,6 @@ def test_full_build_does_not_drop_active_collection_when_state_persistence_fails
 def test_full_build_indexes_each_distinct_return_for_the_same_inquiry():
     from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
         InquirySemanticIndexService,
-        build_document_key,
     )
 
     store = FakeStore()
@@ -324,6 +342,44 @@ def test_search_applies_threshold_and_aggregates_by_best_item_hit():
     assert result[0]["entity"]["inquiry_id"] == "a"
     assert store.search_limit == 30
     assert store.search_item_ids == [10, 20, 30]
+
+
+def test_search_filters_current_and_future_hits_before_item_deduplication():
+    from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+        InquirySemanticIndexService,
+    )
+
+    cutoff = datetime(2026, 3, 5, 10, 30, 26)
+    store = FakeStore()
+    store.search_hits = [
+        {"distance": 0.99, "entity": {"history_id": 0, "item_id": 10, "inquiry_id": "current", "description": "当前"}},
+        {"distance": 0.95, "entity": {"history_id": 0, "item_id": 10, "inquiry_id": "future", "description": "未来"}},
+        {"distance": 0.82, "entity": {"history_id": 0, "item_id": 10, "inquiry_id": "older", "description": "历史"}},
+    ]
+    service = InquirySemanticIndexService(
+        repository=FakeRepository(
+            [
+                make_row(1, "current", "当前", inquiry_time=cutoff),
+                make_row(2, "future", "未来", inquiry_time=datetime(2026, 3, 6)),
+                make_row(3, "older", "历史", inquiry_time=datetime(2026, 3, 4)),
+            ]
+        ),
+        state_repository=FakeStateRepository(),
+        store=store,
+        model_client=FakeModelClient(),
+        config=make_config(),
+    )
+
+    results = asyncio.run(
+        service.search(
+            "门控器",
+            top_k=20,
+            exclude_inquiry_id="current",
+            before_inquiry_time=cutoff,
+        )
+    )
+
+    assert [hit["entity"]["inquiry_id"] for hit in results] == ["older"]
 
 
 def test_incremental_progress_only_reports_failures_from_current_batch():

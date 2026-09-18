@@ -32,6 +32,20 @@ def test_previous_search_snapshot_can_be_encoded_by_database_json_type():
     assert encoded["searched_at"] == "2026-08-20T09:30:00"
 
 
+def test_search_parameters_with_source_time_can_be_encoded_by_database_json_type():
+    parameters = SearchParameters(
+        source_inquiry_id="current-inquiry",
+        source_inquiry_time=datetime(2026, 3, 5, 10, 30, 26),
+    )
+
+    column_type = SearchHistory.__table__.columns["search_parameter"].type
+    bound_value = column_type.process_bind_param(parameters, dialect=None)
+
+    encoded = json.loads(json.dumps(bound_value))
+    assert encoded["source_inquiry_id"] == "current-inquiry"
+    assert encoded["source_inquiry_time"] == "2026-03-05T10:30:26"
+
+
 def test_search_parameters_support_contextual_fields_and_default_to_siglip():
     parameters = SearchParameters()
 

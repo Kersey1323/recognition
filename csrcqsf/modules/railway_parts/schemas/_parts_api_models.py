@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 from bfrcommon.api_models import PageReq, PageRes
 from pydantic import Field, validator
@@ -169,6 +171,8 @@ class ListItemImagesRes(BaseModel):
 
 class GetItemDetailReq(BaseModel):
     item_id: str = Field(description='配件ID', example="2023080809420000001")
+    source_inquiry_id: str | None = Field(default=None, description="Agent 当前询码 ID")
+    source_inquiry_time: datetime | None = Field(default=None, description="Agent 当前询码时间")
 
     class Config:
         json_schema_extra = {
@@ -279,6 +283,8 @@ class SearchTextReq(BaseModel):
         description="检索来源，支持 `web`、`terminal`",
         example="web",
     )
+    source_inquiry_id: str | None = Field(default=None, description="Agent 当前询码 ID")
+    source_inquiry_time: datetime | None = Field(default=None, description="Agent 当前询码时间")
 
     class Config:
         schema_extra = {

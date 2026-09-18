@@ -1,5 +1,6 @@
 """向量索引、配件检索和检索历史路由。"""
 
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import File, Form, HTTPException, Path, Query, UploadFile
@@ -353,6 +354,8 @@ async def search_v2_by_text(
     query_text: str | None = None,
     top_k: int | None = None,
     search_equipment: str | None = None,
+    source_inquiry_id: str | None = None,
+    source_inquiry_time: datetime | None = None,
     # use_image_vector: bool = False
 ):
     """
@@ -381,14 +384,21 @@ async def search_v2_by_text(
             query_text=query_text,
             top_k=top_k if top_k is not None else 10,
             search_equipment=search_equipment or "web",
+            source_inquiry_id=source_inquiry_id,
+            source_inquiry_time=source_inquiry_time,
         )
 
-    result = await RailwayPartsManager.search_v2_by_text(
-        query_text=req.query_text,
-        top_k=req.top_k,
-        search_equipment=req.search_equipment,
-        # use_image_vector=use_image_vector
-    )
+    search_kwargs = {
+        "query_text": req.query_text,
+        "top_k": req.top_k,
+        "search_equipment": req.search_equipment,
+    }
+    if req.source_inquiry_id and req.source_inquiry_time:
+        search_kwargs.update(
+            source_inquiry_id=req.source_inquiry_id,
+            source_inquiry_time=req.source_inquiry_time,
+        )
+    result = await RailwayPartsManager.search_v2_by_text(**search_kwargs)
     await enrich_search_items(result.data)
     return result
 
@@ -469,6 +479,8 @@ async def search_v2_contextual(
     train_no: str | None = Form(default=None),
     car_num: str | None = Form(default=None),
     subordinate_component: str | None = Form(default=None),
+    source_inquiry_id: str | None = Form(default=None, description="Agent 当前询码 ID"),
+    source_inquiry_time: datetime | None = Form(default=None, description="Agent 当前询码时间"),
     search_mode: str = Form(default="siglip"),
     search_equipment: str = Form(default="web"),
 ):
@@ -498,6 +510,8 @@ async def search_v2_contextual(
             train_no=train_no,
             car_num=car_num,
             subordinate_component=subordinate_component,
+            source_inquiry_id=source_inquiry_id,
+            source_inquiry_time=source_inquiry_time,
             search_mode=search_mode,
             search_equipment=search_equipment,
         )

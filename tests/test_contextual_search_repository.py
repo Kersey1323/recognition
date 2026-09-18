@@ -70,6 +70,39 @@ def test_history_vehicle_candidate_query_returns_distinct_local_item_ids():
     assert "DISTINCT" in sql
 
 
+def test_agent_history_queries_exclude_current_and_future_inquiries():
+    cutoff = datetime(2026, 3, 5, 10, 30, 26)
+    result = SimpleNamespace(all=lambda: [])
+    result.scalars = lambda: result
+    session = _ExecuteSession(result)
+
+    asyncio.run(
+        ContextualSearchRepository.list_history_item_ids_by_vehicle(
+            session,
+            "SFE28",
+            exclude_inquiry_id="current-inquiry",
+            before_inquiry_time=cutoff,
+        )
+    )
+    asyncio.run(
+        ContextualSearchRepository.list_histories_by_item_ids(
+            session,
+            [101],
+            exclude_inquiry_id="current-inquiry",
+            before_inquiry_time=cutoff,
+        )
+    )
+
+    for statement in session.statements:
+        sql = str(
+            statement.compile(
+                dialect=mysql.dialect(), compile_kwargs={"literal_binds": True}
+            )
+        )
+        assert "item_inquiry_history.inquiry_id != 'current-inquiry'" in sql
+        assert "item_inquiry_history.inquiry_time < '2026-03-05 10:30:26'" in sql
+
+
 def test_item_name_candidate_query_uses_normalized_exact_match():
     result = SimpleNamespace(all=lambda: [(101,), (102,)])
     session = _ExecuteSession(result)

@@ -169,7 +169,13 @@ async def delete_item_image(req: DeleteItemImageReq):
     }
 })
 async def get_item_image_detail(req: GetItemDetailReq):
-    detail = await RailwayPartsManager.get_item_detail(int(req.item_id))
+    detail_kwargs = {"item_id": int(req.item_id)}
+    if req.source_inquiry_id and req.source_inquiry_time:
+        detail_kwargs.update(
+            source_inquiry_id=req.source_inquiry_id,
+            source_inquiry_time=req.source_inquiry_time,
+        )
+    detail = await RailwayPartsManager.get_item_detail(**detail_kwargs)
     # 配件详情按当前业务库层级展示直接父子件，不按单一车型隐藏其他关联。
     await enrich_search_items([detail])
     return detail

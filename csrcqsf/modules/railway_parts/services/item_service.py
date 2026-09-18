@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from types import ModuleType
 
+from csrcqsf.core.settings import agent_running
 
 def bind_runtime_dependencies(parts_service_module: ModuleType | None = None) -> None:
     """绑定配件兼容门面的数据库、存储和索引依赖。"""
@@ -377,7 +378,13 @@ async def update_item_size(cls, item_id: int, item_size_str: str, runtime=None):
         await session.commit()
 
 
-async def get_item_detail(cls, item_id: int, runtime=None):
+async def get_item_detail(
+    cls,
+    item_id: int,
+    source_inquiry_id: str | None = None,
+    source_inquiry_time=None,
+    runtime=None,
+):
     runtime = runtime or _runtime()
     async with runtime.SessionLocal() as session:
         item = await runtime.Items.get_item_by_id(session=session, item_id=item_id)
@@ -398,10 +405,19 @@ async def get_item_detail(cls, item_id: int, runtime=None):
             if int(image.is_indexed or 0) == 1
         }
         segmented_records = list(await runtime.SegmentedImage.list_by_item_id(session, item_id))
+        history_filter = (
+            {
+                "exclude_inquiry_id": source_inquiry_id,
+                "before_inquiry_time": source_inquiry_time,
+            }
+            if agent_running and source_inquiry_id and source_inquiry_time
+            else {}
+        )
         features_by_item = (
             await runtime.InquiryTextIndexDocumentRepository.list_features_by_item_ids(
                 session,
                 [item_id],
+                **history_filter,
             )
         )
         segmented_image_dict: dict[int, str | None] = {}

@@ -85,6 +85,8 @@ def test_contextual_search_openapi_uses_optional_files_and_siglip_default():
     assert "history_id" in body["properties"]
     assert "file" in body["properties"]
     assert "item_description" in body["properties"]
+    assert "source_inquiry_id" in body["properties"]
+    assert "source_inquiry_time" in body["properties"]
     assert "top_k" not in body["properties"]
     assert body["properties"]["search_mode"]["default"] == "siglip"
     assert "file" not in body.get("required", [])
@@ -121,6 +123,8 @@ def test_contextual_search_route_delegates_all_business_inputs():
                 train_no="2777",
                 car_num="01",
                 subordinate_component="卫生间",
+                source_inquiry_id="inquiry-1",
+                source_inquiry_time="2026-03-05 10:30:26",
                 search_mode="siglip",
                 search_equipment="web",
             )
@@ -136,6 +140,8 @@ def test_contextual_search_route_delegates_all_business_inputs():
         "train_no": "2777",
         "car_num": "01",
         "subordinate_component": "卫生间",
+        "source_inquiry_id": "inquiry-1",
+        "source_inquiry_time": "2026-03-05 10:30:26",
         "search_mode": "siglip",
         "search_equipment": "web",
     }

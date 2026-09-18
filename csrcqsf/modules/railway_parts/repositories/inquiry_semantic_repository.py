@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import select
 
 from csrcqsf.infra.db.main_db import SessionLocal
@@ -20,6 +22,25 @@ class InquirySemanticRepository:
                 .order_by(ItemInquiryHistory.id.asc())
             )
             return list(records)
+
+    async def list_eligible_inquiry_ids(
+        self,
+        inquiry_ids: list[str],
+        *,
+        exclude_inquiry_id: str,
+        before_inquiry_time: datetime,
+    ) -> set[str]:
+        normalized = sorted({str(inquiry_id) for inquiry_id in inquiry_ids if inquiry_id})
+        if not normalized:
+            return set()
+        async with SessionLocal() as session:
+            records = await session.execute(
+                select(ItemInquiryHistory.inquiry_id)
+                .where(ItemInquiryHistory.inquiry_id.in_(normalized))
+                .where(ItemInquiryHistory.inquiry_id != exclude_inquiry_id)
+                .where(ItemInquiryHistory.inquiry_time < before_inquiry_time)
+            )
+            return {str(inquiry_id) for (inquiry_id,) in records.all()}
 
     async def list_valid(self) -> list[ItemInquiryHistory]:
         async with SessionLocal() as session:

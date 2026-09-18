@@ -12,6 +12,7 @@ from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.models.orm.inquiry_text_index_document import (
     InquiryTextIndexDocument,
 )
+from csrcqsf.models.orm.item_inquiry_history import ItemInquiryHistory
 
 
 class InquiryTextIndexDocumentRepository:
@@ -83,10 +84,13 @@ class InquiryTextIndexDocumentRepository:
         cls,
         session,
         item_ids: list[int],
+        *,
+        exclude_inquiry_id: str | None = None,
+        before_inquiry_time: datetime | None = None,
     ) -> dict[int, list[str]]:
         if not item_ids:
             return {}
-        rows = await session.execute(
+        stmt = (
             select(
                 InquiryTextIndexDocument.item_id,
                 InquiryTextIndexDocument.description,
@@ -98,6 +102,16 @@ class InquiryTextIndexDocumentRepository:
                 InquiryTextIndexDocument.document_key,
             )
         )
+        if exclude_inquiry_id and before_inquiry_time:
+            # Agent 查看候选证据时只展示询码发生前已经存在的历史描述。
+            stmt = stmt.join(
+                ItemInquiryHistory,
+                ItemInquiryHistory.id == InquiryTextIndexDocument.history_id,
+            ).where(
+                ItemInquiryHistory.inquiry_id != exclude_inquiry_id,
+                ItemInquiryHistory.inquiry_time < before_inquiry_time,
+            )
+        rows = await session.execute(stmt)
         features_by_item: dict[int, list[str]] = {}
         seen_by_item: dict[int, set[str]] = {}
         for item_id, description in rows:

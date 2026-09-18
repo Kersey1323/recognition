@@ -811,12 +811,16 @@ async def search_v2_by_text(
     query_text: str,
     top_k: int = 10,
     search_equipment: str = "web",
+    source_inquiry_id: str | None = None,
+    source_inquiry_time=None,
 ):
     return await search_service.search_v2_by_text(
         cls,
         query_text=query_text,
         top_k=top_k,
         search_equipment=search_equipment,
+        source_inquiry_id=source_inquiry_id,
+        source_inquiry_time=source_inquiry_time,
         runtime=_runtime_context(),
     )
 

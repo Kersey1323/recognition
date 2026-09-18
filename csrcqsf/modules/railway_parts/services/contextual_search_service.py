@@ -10,6 +10,7 @@ from typing import Any
 
 from PIL import Image
 
+from csrcqsf.core.settings import agent_running
 from csrcqsf.models.orm.search_history import (
     SearchParameters,
     SearchResults,
@@ -445,15 +446,24 @@ def _current_response(
 async def _vehicle_candidate_item_ids(
     vehicle_batch: str | None,
     *,
+    exclude_inquiry_id: str | None = None,
+    before_inquiry_time: datetime | None = None,
     runtime=None,
 ) -> list[int] | None:
     runtime = runtime or _runtime()
     if not vehicle_batch:
         return None
     async with runtime.SessionLocal() as session:
+        if not exclude_inquiry_id or not before_inquiry_time:
+            return await runtime.ContextualSearchRepository.list_history_item_ids_by_vehicle(
+                session,
+                vehicle_batch,
+            )
         return await runtime.ContextualSearchRepository.list_history_item_ids_by_vehicle(
             session,
             vehicle_batch,
+            exclude_inquiry_id=exclude_inquiry_id,
+            before_inquiry_time=before_inquiry_time,
         )
 
 
@@ -482,8 +492,23 @@ async def _execute_contextual_search(
     runtime=None,
 ) -> tuple[list[SearchItem], str | None]:
     runtime = runtime or _runtime()
+    leakage_filter_enabled = bool(
+        agent_running
+        and parameters.source_inquiry_id
+        and parameters.source_inquiry_time
+    )
+    history_filter = (
+        {
+            "exclude_inquiry_id": parameters.source_inquiry_id,
+            "before_inquiry_time": parameters.source_inquiry_time,
+        }
+        if leakage_filter_enabled
+        else {}
+    )
     vehicle_filter = await _vehicle_candidate_item_ids(
-        parameters.vehicle_batch, runtime=runtime
+        parameters.vehicle_batch,
+        runtime=runtime,
+        **history_filter,
     )
     if vehicle_filter == []:
         return [], f"车型 {parameters.vehicle_batch} 下没有可检索配件"
@@ -529,12 +554,11 @@ async def _execute_contextual_search(
             parameters.item_description,
             top_k=100,
             item_ids=candidate_filter,
+            **history_filter,
         )
 
     image_scores: dict[int, float] = {}
-    text_scores: dict[int, float] = {}
     visual_hits_by_item: dict[int, list[dict]] = {}
-    text_hits_by_item: dict[int, list[dict]] = {}
     for hit in image_hits:
         entity = hit.get("entity", {})
         if entity.get("item_id") is None:
@@ -543,26 +567,54 @@ async def _execute_contextual_search(
         score = float(hit.get("best_similarity", hit.get("distance", 0)) or 0)
         image_scores[item_id] = max(score, image_scores.get(item_id, float("-inf")))
         visual_hits_by_item.setdefault(item_id, []).append(hit)
-    for hit in text_hits:
-        entity = hit.get("entity", {})
-        if entity.get("item_id") is None:
-            continue
-        item_id = int(entity["item_id"])
-        score = float(hit.get("distance", 0) or 0)
-        text_scores[item_id] = max(score, text_scores.get(item_id, float("-inf")))
-        text_hits_by_item.setdefault(item_id, []).append(hit)
-
-    recalled_item_ids = list(dict.fromkeys([*image_scores, *text_scores]))
-    if not recalled_item_ids:
+    raw_text_item_ids = [
+        int(hit["entity"]["item_id"])
+        for hit in text_hits
+        if hit.get("entity", {}).get("item_id") is not None
+    ]
+    preliminary_item_ids = list(dict.fromkeys([*image_scores, *raw_text_item_ids]))
+    if not preliminary_item_ids:
         return [], None
 
     async with runtime.SessionLocal() as session:
         items = await runtime.ContextualSearchRepository.list_items_by_ids(
-            session, recalled_item_ids
+            session, preliminary_item_ids
         )
         history_rows = await runtime.ContextualSearchRepository.list_histories_by_item_ids(
-            session, recalled_item_ids
+            session,
+            preliminary_item_ids,
+            **history_filter,
         )
+        if leakage_filter_enabled:
+            eligible_inquiry_ids = {
+                str(row.inquiry_id)
+                for row in history_rows
+                if getattr(row, "inquiry_id", None)
+            }
+            text_hits = [
+                hit
+                for hit in text_hits
+                if str(hit.get("entity", {}).get("inquiry_id") or "")
+                in eligible_inquiry_ids
+            ]
+
+        text_scores: dict[int, float] = {}
+        text_hits_by_item: dict[int, list[dict]] = {}
+        for hit in text_hits:
+            entity = hit.get("entity", {})
+            if entity.get("item_id") is None:
+                continue
+            item_id = int(entity["item_id"])
+            score = float(hit.get("distance", 0) or 0)
+            text_scores[item_id] = max(
+                score,
+                text_scores.get(item_id, float("-inf")),
+            )
+            text_hits_by_item.setdefault(item_id, []).append(hit)
+
+        recalled_item_ids = list(dict.fromkeys([*image_scores, *text_scores]))
+        if not recalled_item_ids:
+            return [], None
         text_only_item_ids = [
             item_id
             for item_id in recalled_item_ids
@@ -673,6 +725,8 @@ async def search_v2_contextual(
     train_no: str | None = None,
     car_num: str | None = None,
     subordinate_component: str | None = None,
+    source_inquiry_id: str | None = None,
+    source_inquiry_time: str | datetime | None = None,
     search_mode: str = "siglip",
     search_equipment: str = "web",
     runtime=None,
@@ -690,6 +744,8 @@ async def search_v2_contextual(
         train_no=_clean_optional(train_no),
         car_num=_clean_optional(car_num),
         subordinate_component=_clean_optional(subordinate_component),
+        source_inquiry_id=_clean_optional(source_inquiry_id),
+        source_inquiry_time=source_inquiry_time,
         search_mode=search_mode,
     )
     has_metadata = any(

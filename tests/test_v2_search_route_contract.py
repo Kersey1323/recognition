@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 import importlib
 import sys
 from pathlib import Path
@@ -86,6 +87,36 @@ def test_text_search_route_accepts_request_body_model():
         "top_k": 5,
         "search_equipment": "web",
     }
+
+
+def test_text_search_route_delegates_agent_history_boundary():
+    parts_service = _import_parts_service()
+    payload = SearchRes(history_id="2048696242753638400", data=[], message=None)
+    cutoff = datetime(2026, 3, 5, 10, 30, 26)
+
+    with patch.object(
+        parts_service.RailwayPartsManager,
+        "search_v2_by_text",
+        AsyncMock(return_value=payload),
+        create=True,
+    ) as search_mock:
+        asyncio.run(
+            parts_service.search_v2_by_text(
+                SearchTextReq(
+                    query_text="门控器",
+                    source_inquiry_id="current-inquiry",
+                    source_inquiry_time=cutoff,
+                )
+            )
+        )
+
+    search_mock.assert_awaited_once_with(
+        query_text="门控器",
+        top_k=10,
+        search_equipment="web",
+        source_inquiry_id="current-inquiry",
+        source_inquiry_time=cutoff,
+    )
 
 
 def test_parts_service_unifies_single_and_multi_image_search_on_one_route():

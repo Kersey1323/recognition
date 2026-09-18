@@ -531,6 +531,8 @@ class RailwayPartsManager:
         query_text: str,
         top_k: int = 10,
         search_equipment: str = "web",
+        source_inquiry_id: str | None = None,
+        source_inquiry_time: str | datetime | None = None,
     ):
         _bind_parts_search_runtime()
         return await parts_search_service.search_v2_by_text(
@@ -538,6 +540,8 @@ class RailwayPartsManager:
             query_text=query_text,
             top_k=top_k,
             search_equipment=search_equipment,
+            source_inquiry_id=source_inquiry_id,
+            source_inquiry_time=source_inquiry_time,
         )
 
     @classmethod
@@ -586,6 +590,8 @@ class RailwayPartsManager:
         train_no: str | None = None,
         car_num: str | None = None,
         subordinate_component: str | None = None,
+        source_inquiry_id: str | None = None,
+        source_inquiry_time: str | datetime | None = None,
         search_mode: str = "siglip",
         search_equipment: str = "web",
     ):
@@ -599,6 +605,8 @@ class RailwayPartsManager:
             train_no=train_no,
             car_num=car_num,
             subordinate_component=subordinate_component,
+            source_inquiry_id=source_inquiry_id,
+            source_inquiry_time=source_inquiry_time,
             search_mode=search_mode,
             search_equipment=search_equipment,
             runtime=_runtime_context(),
@@ -633,9 +641,20 @@ class RailwayPartsManager:
         )
 
     @classmethod
-    async def get_item_detail(cls, item_id: int):
+    async def get_item_detail(
+        cls,
+        item_id: int,
+        source_inquiry_id: str | None = None,
+        source_inquiry_time: str | datetime | None = None,
+    ):
         _bind_item_runtime()
-        return await item_service.get_item_detail(cls, item_id=item_id, runtime=_runtime_context())
+        return await item_service.get_item_detail(
+            cls,
+            item_id=item_id,
+            source_inquiry_id=source_inquiry_id,
+            source_inquiry_time=source_inquiry_time,
+            runtime=_runtime_context(),
+        )
 
     @classmethod
     async def create_item_image(cls, item_id: int, image_url_list: list[str]):

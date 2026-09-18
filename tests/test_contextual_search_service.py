@@ -527,6 +527,124 @@ def test_description_only_search_skips_image_model_and_uses_representative_image
     assert results[0].matched_images == []
 
 
+def test_agent_mode_removes_current_and_future_semantic_hits():
+    cutoff = datetime(2026, 3, 5, 10, 30, 26)
+    session = _Session()
+    repository = SimpleNamespace(
+        list_items_by_ids=AsyncMock(
+            return_value=[
+                SimpleNamespace(id=1, item_code="CURRENT", item_name="当前询码"),
+                SimpleNamespace(id=2, item_code="OLDER", item_name="历史询码"),
+                SimpleNamespace(id=3, item_code="FUTURE", item_name="未来询码"),
+            ]
+        ),
+        list_histories_by_item_ids=AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    item_id=2,
+                    inquiry_id="older-inquiry",
+                    inquiry_time=datetime(2026, 3, 4, 10, 0, 0),
+                    inquiry_item_name="门控器",
+                    return_item_name="门控器",
+                    vehicle_batch="SFE28",
+                    subordinate_component="内端门",
+                    train_no="2256",
+                    car_num="01",
+                )
+            ]
+        ),
+        list_first_images_by_item_ids=AsyncMock(return_value=[]),
+    )
+    semantic_service = SimpleNamespace(
+        search=AsyncMock(
+            return_value=[
+                {"distance": 0.99, "entity": {"item_id": 1, "description": "门控器", "inquiry_id": "current-inquiry"}},
+                {"distance": 0.98, "entity": {"item_id": 3, "description": "门控器", "inquiry_id": "future-inquiry"}},
+                {"distance": 0.90, "entity": {"item_id": 2, "description": "门控器", "inquiry_id": "older-inquiry"}},
+            ]
+        )
+    )
+    runtime = _runtime(session, repository)
+
+    with patch.object(contextual_search_service, "agent_running", True), patch.object(
+        contextual_search_service,
+        "get_inquiry_semantic_index_service",
+        return_value=semantic_service,
+    ):
+        results, message = asyncio.run(
+            contextual_search_service._execute_contextual_search(
+                object,
+                query_images=[],
+                parameters=SearchParameters(
+                    item_description="门控器",
+                    source_inquiry_id="current-inquiry",
+                    source_inquiry_time=cutoff,
+                ),
+                runtime=runtime,
+            )
+        )
+
+    assert message is None
+    assert [item.item_code for item in results] == ["OLDER"]
+    repository.list_histories_by_item_ids.assert_awaited_once_with(
+        session,
+        [1, 3, 2],
+        exclude_inquiry_id="current-inquiry",
+        before_inquiry_time=cutoff,
+    )
+
+
+def test_agent_leakage_filter_is_disabled_by_default():
+    cutoff = datetime(2026, 3, 5, 10, 30, 26)
+    session = _Session()
+    repository = SimpleNamespace(
+        list_items_by_ids=AsyncMock(
+            return_value=[
+                SimpleNamespace(id=1, item_code="CURRENT", item_name="门控器")
+            ]
+        ),
+        list_histories_by_item_ids=AsyncMock(return_value=[]),
+        list_first_images_by_item_ids=AsyncMock(return_value=[]),
+    )
+    semantic_service = SimpleNamespace(
+        search=AsyncMock(
+            return_value=[
+                {
+                    "distance": 0.99,
+                    "entity": {
+                        "item_id": 1,
+                        "description": "门控器",
+                        "inquiry_id": "current-inquiry",
+                    },
+                }
+            ]
+        )
+    )
+    runtime = _runtime(session, repository)
+
+    with patch.object(contextual_search_service, "agent_running", False), patch.object(
+        contextual_search_service,
+        "get_inquiry_semantic_index_service",
+        return_value=semantic_service,
+    ):
+        results, message = asyncio.run(
+            contextual_search_service._execute_contextual_search(
+                object,
+                query_images=[],
+                parameters=SearchParameters(
+                    item_description="门控器",
+                    source_inquiry_id="current-inquiry",
+                    source_inquiry_time=cutoff,
+                ),
+                runtime=runtime,
+            )
+        )
+
+    assert message is None
+    assert [item.item_code for item in results] == ["CURRENT"]
+    repository.list_histories_by_item_ids.assert_awaited_once_with(session, [1])
+
+
 def test_contextual_search_returns_top_twenty_items():
     session = _Session()
     items = [

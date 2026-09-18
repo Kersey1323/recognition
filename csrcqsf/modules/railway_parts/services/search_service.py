@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import io
+from datetime import datetime
 from typing import Any
 
+from csrcqsf.core.settings import agent_running
 from csrcqsf.models.orm.search_history import SearchParameters
 from csrcqsf.modules.railway_parts.services.contextual_search_service import (
     rank_contextual_candidates,
@@ -185,6 +187,8 @@ async def search_v2_by_text(
     query_text: str,
     top_k: int = 10,
     search_equipment: str = "web",
+    source_inquiry_id: str | None = None,
+    source_inquiry_time: str | datetime | None = None,
     runtime=None,
 ):
     """对询码描述做文本对文本语义检索，不再使用 SigLIP 文本找图片。"""
@@ -194,10 +198,22 @@ async def search_v2_by_text(
     # 融合排序前至少保留 100 个配件候选，与 contextual 使用相同候选池；
     # API 的 top_k 只控制最终返回数量，避免较小 top_k 提前淘汰名称强匹配项。
     enrichment_limit = min(200, max(100, int(top_k) * 5))
+    leakage_filter_enabled = bool(
+        agent_running and source_inquiry_id and source_inquiry_time
+    )
+    history_filter = (
+        {
+            "exclude_inquiry_id": source_inquiry_id,
+            "before_inquiry_time": source_inquiry_time,
+        }
+        if leakage_filter_enabled
+        else {}
+    )
     results = await semantic_service.search(
         query_text=query_text,
         top_k=enrichment_limit,
         item_ids=None,
+        **history_filter,
     )
 
     search_items = []
@@ -209,7 +225,9 @@ async def search_v2_by_text(
             )
             history_rows = (
                 await runtime.ContextualSearchRepository.list_histories_by_item_ids(
-                    session, item_ids
+                    session,
+                    item_ids,
+                    **history_filter,
                 )
             )
             first_images = (
@@ -238,7 +256,11 @@ async def search_v2_by_text(
             },
             item_names={int(item.id): item.item_name for item in items},
             histories_by_item=histories_by_item,
-            parameters=SearchParameters(item_description=query_text),
+            parameters=SearchParameters(
+                item_description=query_text,
+                source_inquiry_id=source_inquiry_id,
+                source_inquiry_time=source_inquiry_time,
+            ),
         )
         for score_row in ranked:
             item_id = int(score_row["item_id"])

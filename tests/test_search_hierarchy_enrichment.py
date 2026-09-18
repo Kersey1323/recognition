@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy.dialects import mysql
 
 from csrcqsf.models.orm.item import ItemHierarchyRelation
 from csrcqsf.models.orm.search_history import SearchParameters, SearchResultItem, SearchResults
@@ -19,6 +20,30 @@ class FakeSession:
 
     async def __aexit__(self, exc_type, exc, traceback):
         return False
+
+
+class RecordingSession:
+    def __init__(self):
+        self.statement = None
+
+    async def execute(self, statement):
+        self.statement = statement
+        return SimpleNamespace(all=lambda: [])
+
+
+def test_hierarchy_relation_query_only_reads_business_columns():
+    session = RecordingSession()
+
+    asyncio.run(ItemHierarchyRelation.list_search_relations(session, ["A"]))
+
+    sql = str(
+        session.statement.compile(
+            dialect=mysql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    assert "item_hierarchy_relation.column_id IN ('A1', 'A3', 'A5')" in sql
+    assert "'A9'" not in sql
 
 
 def test_enrich_search_items_returns_all_unique_parent_and_child_names():

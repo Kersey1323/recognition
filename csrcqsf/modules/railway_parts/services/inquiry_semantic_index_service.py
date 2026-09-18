@@ -381,6 +381,8 @@ class InquirySemanticIndexService:
         *,
         top_k: int,
         item_ids: list[int] | None = None,
+        exclude_inquiry_id: str | None = None,
+        before_inquiry_time: datetime | None = None,
     ) -> list[dict]:
         """检索历史询码描述样本，并按配件去重返回最高分语义候选。"""
         normalized = normalize_inquiry_description(query_text)
@@ -401,6 +403,23 @@ class InquirySemanticIndexService:
                 item_ids=item_ids,
             )
         )
+        if exclude_inquiry_id and before_inquiry_time:
+            # Agent 回放在按配件去重前剔除当前及未来询码，保留同一配件更早的合法命中。
+            eligible_inquiry_ids = await self.repository.list_eligible_inquiry_ids(
+                [
+                    str(hit.get("entity", {}).get("inquiry_id") or "")
+                    for hit in hits
+                    if hit.get("entity", {}).get("inquiry_id")
+                ],
+                exclude_inquiry_id=exclude_inquiry_id,
+                before_inquiry_time=before_inquiry_time,
+            )
+            hits = [
+                hit
+                for hit in hits
+                if str(hit.get("entity", {}).get("inquiry_id") or "")
+                in eligible_inquiry_ids
+            ]
         best_by_item: dict[int, dict] = {}
         for hit in hits:
             score = float(hit.get("distance", 0) or 0)

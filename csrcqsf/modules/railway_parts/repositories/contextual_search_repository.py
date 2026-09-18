@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import func, select, update
 
 from csrcqsf.models.orm.item import Items
@@ -57,6 +59,9 @@ class ContextualSearchRepository:
         cls,
         session,
         vehicle_batch: str,
+        *,
+        exclude_inquiry_id: str | None = None,
+        before_inquiry_time: datetime | None = None,
     ) -> list[int]:
         normalized_batch = str(vehicle_batch).strip().upper()
         if not normalized_batch:
@@ -64,12 +69,19 @@ class ContextualSearchRepository:
         # 车型候选以真实询码记录为准；新数据使用归一化车型字段，旧数据缺失时
         # 回退到原始车型文本，避免正式物料车型关系缺失造成目标配件被提前排除。
         history_vehicle = ItemInquiryHistory.normalized_vehicle_batch_expr()
-        result = await session.execute(
+        stmt = (
             select(ItemInquiryHistory.item_id)
             .where(ItemInquiryHistory.item_id.is_not(None))
             .where(history_vehicle == normalized_batch)
             .distinct()
         )
+        if exclude_inquiry_id and before_inquiry_time:
+            # Agent 回放只允许使用当前询码之前的历史，当前记录和未来记录均不参与候选过滤。
+            stmt = stmt.where(
+                ItemInquiryHistory.inquiry_id != exclude_inquiry_id,
+                ItemInquiryHistory.inquiry_time < before_inquiry_time,
+            )
+        result = await session.execute(stmt)
         return [int(item_id) for (item_id,) in result.all()]
 
     @classmethod
@@ -119,14 +131,26 @@ class ContextualSearchRepository:
         return list(result.scalars().all())
 
     @classmethod
-    async def list_histories_by_item_ids(cls, session, item_ids: list[int]):
+    async def list_histories_by_item_ids(
+        cls,
+        session,
+        item_ids: list[int],
+        *,
+        exclude_inquiry_id: str | None = None,
+        before_inquiry_time: datetime | None = None,
+    ):
         if not item_ids:
             return []
-        result = await session.execute(
-            select(ItemInquiryHistory).where(
-                ItemInquiryHistory.item_id.in_(sorted(set(item_ids)))
-            )
+        stmt = select(ItemInquiryHistory).where(
+            ItemInquiryHistory.item_id.in_(sorted(set(item_ids)))
         )
+        if exclude_inquiry_id and before_inquiry_time:
+            # 历史上下文与语义命中共用相同时间边界，避免测试答案从任一阶段泄漏。
+            stmt = stmt.where(
+                ItemInquiryHistory.inquiry_id != exclude_inquiry_id,
+                ItemInquiryHistory.inquiry_time < before_inquiry_time,
+            )
+        result = await session.execute(stmt)
         return list(result.scalars().all())
 
     @classmethod
