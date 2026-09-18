@@ -61,6 +61,30 @@ class SgoSyncTaskStartRes(BaseModel):
     status: str = Field(..., description="任务提交时状态，通常为 pending")
 
 
+class SgoA9CleanupItem(BaseModel):
+    item_id: str
+    item_code: str
+    item_name: str | None = None
+
+
+class SgoA9CleanupPreviewRes(BaseModel):
+    source_a9_code_count: int = Field(..., ge=0, description="甲方 A9 板块编码数")
+    shared_code_count: int = Field(..., ge=0, description="同时存在于 A1/A3/A5 的编码数")
+    exclusive_code_count: int = Field(..., ge=0, description="仅存在于 A9 的编码数")
+    local_item_count: int = Field(..., ge=0, description="已进入 item_info 的独占 A9 配件数")
+    sample_items: list[SgoA9CleanupItem] = Field(
+        default_factory=list,
+        description="待清理配件样例，最多返回 100 条",
+    )
+
+
+class SgoA9CleanupExecuteReq(BaseModel):
+    confirmation: Literal["DELETE_A9_DEMO_DATA"] = Field(
+        ...,
+        description="固定确认词，防止误触发演示数据清理",
+    )
+
+
 class SgoSyncFailureDetail(BaseModel):
     item_id: str = Field(..., description="同步失败的配件内部 ID 或源数据 ID")
     item_code: str | None = Field(None, description="同步失败的甲方配件编码")
@@ -167,7 +191,7 @@ class SgoSyncTaskListReq(BaseModel):
         "cancelled",
         "interrupted",
     ] = Field("all", description="任务状态筛选，active 表示所有活动状态")
-    task_type: Literal["all", "parts", "images", "inquiry-history"] = Field(
+    task_type: Literal["all", "parts", "images", "inquiry-history", "parts-cleanup"] = Field(
         "all",
         description="任务类型筛选",
     )
@@ -184,7 +208,7 @@ class SgoSyncTaskListRes(BaseModel):
 
 
 class SgoSyncTaskStatisticsReq(BaseModel):
-    type: Literal["parts", "images", "inquiry-history"] = Field(
+    type: Literal["parts", "images", "inquiry-history", "parts-cleanup"] = Field(
         ..., description="同步页签类型：配件、图片或询码历史"
     )
 

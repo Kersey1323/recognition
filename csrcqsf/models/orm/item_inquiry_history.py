@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BIGINT, DateTime, Index, String, Text, UniqueConstraint, select
+from sqlalchemy import BIGINT, DateTime, Index, String, Text, UniqueConstraint, func, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from csrcqsf.infra.db.main_db import Base
@@ -46,6 +46,19 @@ class ItemInquiryHistory(Base):
     return_item_code: Mapped[str] = mapped_column(String(100), nullable=False)
     inquiry_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="sgo")
+
+    @staticmethod
+    def normalized_vehicle_batch_expr():
+        """车型候选归一化表达式：优先归一化车型字段，旧数据回退原始车型文本。
+
+        条件检索与配件列表的车型过滤共用该表达式，避免两处规则漂移。
+        """
+        return func.upper(
+            func.coalesce(
+                func.nullif(func.trim(ItemInquiryHistory.vehicle_batch), ""),
+                func.trim(ItemInquiryHistory.vehicle),
+            )
+        )
 
     @classmethod
     async def list_summary_by_item_ids(cls, session, item_id_list: list[int]):

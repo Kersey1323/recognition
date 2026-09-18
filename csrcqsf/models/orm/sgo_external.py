@@ -9,6 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bfrcommon.db import PageQueryResult, async_get_count
 
 
+SYNC_MATERIEL_COLUMN_IDS = ('A1', 'A3', 'A5')
+A9_DEMO_COLUMN_ID = 'A9'
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -1651,21 +1655,24 @@ class SgoMaterielInfoTree(Base):
     tenant_id_: Mapped[Optional[str]] = mapped_column(VARCHAR(64))
 
     @classmethod
+    def sync_hierarchy_statement(cls):
+        # 父子层级与配件主数据使用同一板块边界，避免 A9 演示关系重新进入业务库。
+        return select(
+            cls.id,
+            cls.materiel_code,
+            cls.materiel_name,
+            cls.parent_materiel_code,
+            cls.figure_number,
+            cls.train_type_group,
+            cls.b_vehicle_id,
+            cls.serial_number,
+            cls.column_id,
+            cls.tenant_id_,
+        ).where(cls.column_id.in_(SYNC_MATERIEL_COLUMN_IDS))
+
+    @classmethod
     async def list_hierarchy_relations(cls, session: AsyncSession):
-        result = await session.execute(
-            select(
-                cls.id,
-                cls.materiel_code,
-                cls.materiel_name,
-                cls.parent_materiel_code,
-                cls.figure_number,
-                cls.train_type_group,
-                cls.b_vehicle_id,
-                cls.serial_number,
-                cls.column_id,
-                cls.tenant_id_,
-            )
-        )
+        result = await session.execute(cls.sync_hierarchy_statement())
         return result.all()
 
 
@@ -1771,7 +1778,8 @@ class SgoMaterielMasterplate(Base):
 
     @classmethod
     def sync_items_statement(cls):
-        # 模板决定板块范围及关联 ID；原物料表只补模板缺失的基础字段。
+        # 配件业务库只接收 A1/A3/A5 板块；A9 演示配件不进入同步范围。
+        # 模板保留关联 ID，原物料表仅补齐模板缺失的基础字段。
         return select(
             cls.id,
             cls.column_id,
@@ -1784,7 +1792,17 @@ class SgoMaterielMasterplate(Base):
             SgoMaterielInfo,
             (cls.materiel_info_id == SgoMaterielInfo.id) &
             (cls.MATNR == SgoMaterielInfo.MATNR),
-        ).where(cls.column_id.in_(('A1', 'A5', 'A9')))
+        ).where(cls.column_id.in_(SYNC_MATERIEL_COLUMN_IDS))
+
+    @classmethod
+    async def list_cleanup_column_item_codes(cls, session: AsyncSession):
+        result = await session.execute(
+            select(cls.column_id, cls.MATNR).where(
+                cls.column_id.in_((*SYNC_MATERIEL_COLUMN_IDS, A9_DEMO_COLUMN_ID)),
+                cls.MATNR.is_not(None),
+            )
+        )
+        return result.all()
 
     @classmethod
     async def list_sgo_items(cls, session: AsyncSession):
@@ -1869,9 +1887,10 @@ class SgoMaterielSupplier(Base):
         VARCHAR(50), comment='数据状态：normal 正常，discontinue 停用')
 
     @classmethod
-    async def list_sgo_suppliers(cls, session: AsyncSession):
+    def sync_suppliers_statement(cls):
         # 配件同步只读取业务库需要展示的字段，避免复制供应商维护表中的无关信息。
-        result = await session.execute(
+        # 供应商跟随主配件板块范围，A9 演示关系不进入业务库。
+        return (
             select(
                 cls.id,
                 cls.masterplate_id,
@@ -1885,7 +1904,16 @@ class SgoMaterielSupplier(Base):
                 cls.current_status,
                 cls.enable_status,
             )
+            .join(
+                SgoMaterielMasterplate,
+                cls.masterplate_id == SgoMaterielMasterplate.id,
+            )
+            .where(SgoMaterielMasterplate.column_id.in_(SYNC_MATERIEL_COLUMN_IDS))
         )
+
+    @classmethod
+    async def list_sgo_suppliers(cls, session: AsyncSession):
+        result = await session.execute(cls.sync_suppliers_statement())
         return result.all()
 
 

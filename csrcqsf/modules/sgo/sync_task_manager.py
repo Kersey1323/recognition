@@ -80,6 +80,7 @@ def _default_runner_resolver(task_type: str) -> SgoSyncRunner:
         "parts": SGOBiz.sync_parts_items,
         "images": SGOBiz.sync_images,
         "inquiry-history": SGOBiz.sync_inquiry_history,
+        "parts-cleanup": SGOBiz.cleanup_a9_demo_data,
     }
     try:
         return runners[task_type]

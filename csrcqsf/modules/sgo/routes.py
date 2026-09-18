@@ -11,6 +11,8 @@ from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.modules.sgo.item_mapping import normalize_sgo_return_item
 from csrcqsf.modules.sgo.schemas import (
     ListInqueryItem,
+    SgoA9CleanupExecuteReq,
+    SgoA9CleanupPreviewRes,
     SgoSyncFailureListReq,
     SgoSyncFailureListRes,
     SgoSyncFailureRecord,
@@ -126,6 +128,39 @@ async def sgo_parts_sync(_: SyncItemsReq):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return SgoSyncTaskStartRes(
         message="配件、供应商及父子层级同步任务已在后台启动",
+        task_id=task["task_id"],
+        task_type=task["task_type"],
+        status=task["status"],
+    )
+
+
+@sgo_router.get(
+    '/sgo/parts/cleanup/a9/preview',
+    tags=["业务-SGO集成"],
+    summary='预览待清理的 A9 演示配件',
+    response_model=SgoA9CleanupPreviewRes,
+)
+async def preview_sgo_a9_cleanup():
+    return SgoA9CleanupPreviewRes(**(await SGOBiz.preview_a9_cleanup()))
+
+
+@sgo_router.post(
+    '/sgo/parts/cleanup/a9',
+    tags=["业务-SGO集成"],
+    summary='清理已同步的 A9 演示配件',
+    response_model=SgoSyncTaskStartRes,
+    description='仅清理未同时出现在 A1/A3/A5 的 A9 配件；必须先调用预览接口确认范围。',
+)
+async def execute_sgo_a9_cleanup(_: SgoA9CleanupExecuteReq):
+    try:
+        task = await sgo_sync_task_manager.start(
+            "parts-cleanup",
+            SGOBiz.cleanup_a9_demo_data,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return SgoSyncTaskStartRes(
+        message="A9 演示配件清理任务已在后台启动",
         task_id=task["task_id"],
         task_type=task["task_type"],
         status=task["status"],

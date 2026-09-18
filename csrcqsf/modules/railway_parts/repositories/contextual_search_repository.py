@@ -63,12 +63,7 @@ class ContextualSearchRepository:
             return []
         # 车型候选以真实询码记录为准；新数据使用归一化车型字段，旧数据缺失时
         # 回退到原始车型文本，避免正式物料车型关系缺失造成目标配件被提前排除。
-        history_vehicle = func.upper(
-            func.coalesce(
-                func.nullif(func.trim(ItemInquiryHistory.vehicle_batch), ""),
-                func.trim(ItemInquiryHistory.vehicle),
-            )
-        )
+        history_vehicle = ItemInquiryHistory.normalized_vehicle_batch_expr()
         result = await session.execute(
             select(ItemInquiryHistory.item_id)
             .where(ItemInquiryHistory.item_id.is_not(None))

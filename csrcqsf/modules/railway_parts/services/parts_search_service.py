@@ -824,7 +824,7 @@ async def search_v2_by_image(
     cls,
     file,
     top_k: int = 10,
-    search_mode: str = "hybrid",
+    search_mode: str = "siglip",
     search_equipment: str = "web",
 ):
     return await search_service.search_v2_by_image(
@@ -840,7 +840,7 @@ async def search_v2_by_images(
     cls,
     files: list,
     top_k: int = 10,
-    search_mode: str = "hybrid",
+    search_mode: str = "siglip",
     search_equipment: str = "web",
 ):
     return await search_service.search_v2_by_images(

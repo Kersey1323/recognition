@@ -397,7 +397,7 @@ async def search_v2_by_text(
 async def search_v2_by_image(
     file: list[UploadFile] = File(...),
     top_k: int = Form(10),
-    search_mode: str = Form("hybrid"),
+    search_mode: str = Form("siglip"),
     search_equipment: str = Form("web"),
 ):
     """
@@ -410,7 +410,7 @@ async def search_v2_by_image(
     - search_mode: 检索模式
         - "siglip": SigLIP 模式 - 使用 image_vector 字段，简单快速
         - "dinov2": DINOv2 两阶段检索 - global_vector 粗排 + patch_tokens 精排
-        - "hybrid": 混合检索（推荐）- RRF 融合 + Patch Token 精排
+        - "hybrid": 混合检索 - RRF 融合 + Patch Token 精排
     - search_equipment: 检索来源，支持 `web`、`terminal`
 
     算法流程（hybrid模式）：
@@ -421,7 +421,7 @@ async def search_v2_by_image(
     注意：
     - siglip 模式：默认使用 text_vector 进行文本匹配，image_vector 是可选字段
     - dinov2 模式：两阶段检索，适合需要精确匹配视觉细节的场景
-    - hybrid 模式：推荐使用，融合两个模型的优势
+    - hybrid 模式：可按需启用，融合两个模型的优势
     - 上传 1 张图时走单图检索链路；上传多张图时走后端融合检索链路
     - 返回结果按 item_id 聚合为候选配件列表
     - image_url: 当前候选配件的代表图
@@ -692,6 +692,6 @@ async def get_v2_search_modes():
                 'accuracy': '最高'
             }
         ],
-        'recommendation': 'hybrid 模式在准确率和速度之间取得最佳平衡，推荐用于生产环境',
+        'recommendation': '默认使用 siglip 模式；需要细粒度视觉重排时可显式选择 hybrid 模式',
         'text_search_note': '文本检索默认使用 text_vector 字段，可选 use_image_vector=true 使用 image_vector 字段'
     }

@@ -57,3 +57,33 @@ def test_list_items_openapi_exposes_item_code_filter():
 
     assert "item_code" in body_schema["properties"]
     assert body_schema["properties"]["item_code"]["type"] == "string"
+
+
+def test_list_items_openapi_exposes_exact_item_name_filter():
+    route_subset = _import_parts_route_subset()
+    app = FastAPI()
+    app.include_router(route_subset.parts_router)
+    schema = app.openapi()
+
+    request_body = schema["paths"]["/railway/parts/list_items"]["post"]["requestBody"]
+    body_schema_ref = request_body["content"]["application/json"]["schema"]["$ref"]
+    body_schema_name = body_schema_ref.split("/")[-1]
+    body_schema = schema["components"]["schemas"][body_schema_name]
+
+    assert "item_name" in body_schema["properties"]
+    assert body_schema["properties"]["item_name"]["type"] == "string"
+
+
+def test_list_items_openapi_exposes_vehicle_batch_filter():
+    route_subset = _import_parts_route_subset()
+    app = FastAPI()
+    app.include_router(route_subset.parts_router)
+    schema = app.openapi()
+
+    request_body = schema["paths"]["/railway/parts/list_items"]["post"]["requestBody"]
+    body_schema_ref = request_body["content"]["application/json"]["schema"]["$ref"]
+    body_schema_name = body_schema_ref.split("/")[-1]
+    body_schema = schema["components"]["schemas"][body_schema_name]
+
+    assert "vehicle_batch" in body_schema["properties"]
+    assert body_schema["properties"]["vehicle_batch"]["type"] == "string"

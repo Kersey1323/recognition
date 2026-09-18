@@ -25,6 +25,16 @@ class CreateItemReq(BaseModel):
 
 class ListItemReq(PageReq):
     query: str | None = Field(default=None, description='搜索关键词', example="司机室")
+    item_name: str | None = Field(
+        default=None,
+        description='配件名称精确筛选；忽略大小写和首尾空格，不做模糊匹配',
+        example="司机室",
+    )
+    vehicle_batch: str | None = Field(
+        default=None,
+        description='车型项目号精确筛选，如 SFE27；按历史询码记录匹配车型',
+        example="SFE27",
+    )
     item_code: str | None = Field(default=None, description='配件编码精确筛选', example="12312321")
     parent_item_id: str | None = Field(default=None, description='父配件ID', example=None)
     only_has_index: int = Field(description='只查看有索引的配件.1 为是 0为否', default=0, example=0)
@@ -38,6 +48,8 @@ class ListItemReq(PageReq):
                 "page": 1,
                 "pageSize": 20,
                 "query": "司机室",
+                "item_name": "司机室",
+                "vehicle_batch": "SFE27",
                 "item_code": "12312321",
                 "parent_item_id": None,
                 "only_has_index": 0,

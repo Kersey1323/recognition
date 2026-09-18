@@ -131,6 +131,44 @@ def test_list_item_passes_item_code_as_exact_filter():
     assert kwargs["item_code_list"] == ["12312321"]
 
 
+def test_list_item_passes_item_name_as_exact_filter():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    page_result = SimpleNamespace(total=0, data=[])
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "list_items", AsyncMock(return_value=page_result)) as list_mock, \
+         patch.object(parts_module.ItemInquiryHistory, "list_summary_by_item_ids", AsyncMock(return_value=[])), \
+         patch.object(parts_module.InquiryTextIndexDocumentRepository, "list_features_by_item_ids", AsyncMock(return_value={})), \
+         patch.object(parts_module.RailwayPartsManager, "list_item_images", AsyncMock(return_value=[])):
+        asyncio.run(
+            parts_module.RailwayPartsManager.list_item(
+                ListItemReq(page=1, pageSize=20, item_name="橡胶套")
+            )
+        )
+
+    assert list_mock.await_args.kwargs["item_name"] == "橡胶套"
+
+
+def test_list_item_passes_vehicle_batch_as_exact_filter():
+    parts_module = _import_railway_parts_manager()
+    session = AsyncMock()
+    page_result = SimpleNamespace(total=0, data=[])
+
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(session)), \
+         patch.object(parts_module.Items, "list_items", AsyncMock(return_value=page_result)) as list_mock, \
+         patch.object(parts_module.ItemInquiryHistory, "list_summary_by_item_ids", AsyncMock(return_value=[])), \
+         patch.object(parts_module.InquiryTextIndexDocumentRepository, "list_features_by_item_ids", AsyncMock(return_value={})), \
+         patch.object(parts_module.RailwayPartsManager, "list_item_images", AsyncMock(return_value=[])):
+        asyncio.run(
+            parts_module.RailwayPartsManager.list_item(
+                ListItemReq(page=1, pageSize=20, vehicle_batch="SFE27")
+            )
+        )
+
+    assert list_mock.await_args.kwargs["vehicle_batch"] == "SFE27"
+
+
 def test_list_item_filters_inquiry_records_from_local_history():
     parts_module = _import_railway_parts_manager()
     session = AsyncMock()

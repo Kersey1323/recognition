@@ -111,6 +111,46 @@ def test_parts_sync_route_submits_background_task_without_awaiting_runner():
     assert result.status == "pending"
 
 
+def test_a9_cleanup_preview_and_execute_routes_are_separated():
+    manager = MagicMock()
+    manager.start = AsyncMock(return_value={
+        "task_id": "cleanup-task-1",
+        "status": "pending",
+        "task_type": "parts-cleanup",
+    })
+    preview = {
+        "source_a9_code_count": 12,
+        "shared_code_count": 2,
+        "exclusive_code_count": 10,
+        "local_item_count": 8,
+        "sample_items": [{"item_id": "101", "item_code": "A9-1", "item_name": "演示配件"}],
+    }
+
+    with patch.object(routes, "sgo_sync_task_manager", manager), patch.object(
+        routes.SGOBiz,
+        "preview_a9_cleanup",
+        AsyncMock(return_value=preview),
+    ), patch.object(
+        routes.SGOBiz,
+        "cleanup_a9_demo_data",
+        AsyncMock(),
+    ) as runner:
+        preview_result = asyncio.run(routes.preview_sgo_a9_cleanup())
+        started = asyncio.run(routes.execute_sgo_a9_cleanup(
+            routes.SgoA9CleanupExecuteReq(confirmation="DELETE_A9_DEMO_DATA")
+        ))
+
+    assert preview_result.local_item_count == 8
+    runner.assert_not_awaited()
+    manager.start.assert_awaited_once_with("parts-cleanup", runner)
+    assert started.task_id == "cleanup-task-1"
+
+
+def test_a9_cleanup_execute_request_requires_fixed_confirmation():
+    with pytest.raises(ValidationError):
+        routes.SgoA9CleanupExecuteReq(confirmation="yes")
+
+
 def test_images_sync_route_and_status_use_same_task_manager():
     manager = MagicMock()
     manager.start = AsyncMock(return_value={

@@ -704,7 +704,8 @@ class Items(Base):
                          has_images: bool = False,
                          item_id_list: list[int] = [], item_code_list: list[str] = [], need_index: bool = False,
                          need_v2_index: bool = False, has_source_video: int = 2,
-                         has_inquiry_history: bool = False):
+                         has_inquiry_history: bool = False, item_name: str | None = None,
+                         vehicle_batch: str | None = None):
         """按配件主数据、图片和索引汇总状态组合筛选列表。"""
         offset = (page-1) * per_page
         stmt = select(cls)
@@ -713,6 +714,12 @@ class Items(Base):
         if query is not None and query != '':
             stmt = stmt.where(cls.item_name.like(f'%{query}%').__or__(
                 cls.item_code.like(f'%{query}%')))
+        normalized_item_name = str(item_name or '').strip()
+        if normalized_item_name:
+            # 配件名称精确筛选：忽略大小写与首尾空格，但绝不退化成模糊匹配。
+            stmt = stmt.where(
+                func.lower(func.trim(cls.item_name)) == normalized_item_name.casefold()
+            )
         if has_images:
             item_id_stmt = select(SgoItemImages.item_id.distinct()).where(
                 SgoItemImages.is_deleted == 0
@@ -726,6 +733,15 @@ class Items(Base):
                 ItemInquiryHistory.item_id == cls.id
             )
             stmt = stmt.where(has_linked_inquiry.exists())
+        normalized_vehicle_batch = str(vehicle_batch or '').strip().upper()
+        if normalized_vehicle_batch:
+            # 车型精确筛选：与 V2 条件检索同口径，只认历史询码记录中的车型。
+            vehicle_match = select(ItemInquiryHistory.id).where(
+                ItemInquiryHistory.item_id == cls.id,
+                ItemInquiryHistory.normalized_vehicle_batch_expr()
+                == normalized_vehicle_batch,
+            )
+            stmt = stmt.where(vehicle_match.exists())
         if need_index:
             stmt = stmt.where(cls.image_index_num.__gt__(0).__and__(cls.feature_index_num.__gt__(0)))
         if need_v2_index:

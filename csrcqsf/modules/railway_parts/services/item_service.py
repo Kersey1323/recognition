@@ -295,6 +295,8 @@ async def list_item(cls, req, runtime=None):
         items = await runtime.Items.list_items(
             session=session,
             query=req.query,
+            item_name=getattr(req, "item_name", None),
+            vehicle_batch=getattr(req, "vehicle_batch", None),
             page=req.page,
             per_page=req.per_page,
             has_images=req.has_images == 1,

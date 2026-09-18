@@ -545,7 +545,7 @@ class RailwayPartsManager:
         cls,
         file,
         top_k: int = 10,
-        search_mode: str = "hybrid",
+        search_mode: str = "siglip",
         search_equipment: str = "web",
     ):
         _bind_parts_search_runtime()
@@ -562,7 +562,7 @@ class RailwayPartsManager:
         cls,
         files: list,
         top_k: int = 10,
-        search_mode: str = "hybrid",
+        search_mode: str = "siglip",
         search_equipment: str = "web",
     ):
         _bind_parts_search_runtime()

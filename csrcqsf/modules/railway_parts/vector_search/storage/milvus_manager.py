@@ -569,7 +569,7 @@ class MilvusManagerV2:
         self,
         image: Image.Image,
         top_k: int = 5,
-        mode: Literal["siglip", "dinov2", "hybrid"] = "hybrid",
+        mode: Literal["siglip", "dinov2", "hybrid"] = "siglip",
         coarse_top_k: int = 30,
         alpha: float = 0.6,
         item_ids: list[int] | None = None,
@@ -583,7 +583,7 @@ class MilvusManagerV2:
             mode: 检索模式
                 - "siglip": 仅使用 SigLIP
                 - "dinov2": 仅使用 DINOv2 两阶段检索
-                - "hybrid": 混合检索（默认）
+                - "hybrid": 混合检索（可选）
             coarse_top_k: 粗排候选数量（仅用于 hybrid 和 dinov2 模式）
             alpha: 加权系数（仅用于 hybrid 模式）
 

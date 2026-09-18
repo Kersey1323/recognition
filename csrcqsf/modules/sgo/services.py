@@ -17,7 +17,7 @@ from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
 from csrcqsf.core.logging_config import logger
 from pydantic import BaseModel
-from sqlalchemy import String, case, cast, or_, select, text, tuple_
+from sqlalchemy import String, case, cast, delete, or_, select, text, tuple_, update
 from urllib3 import PoolManager
 from urllib3.util import create_urllib3_context
 
@@ -36,9 +36,16 @@ from csrcqsf.core.settings import (
 from csrcqsf.infra.db.main_db import SessionLocal
 from csrcqsf.infra.db.mdp_db import sgo_sessionLocal
 from csrcqsf.infra.storage.minio import minio_bucket, minio_instance
-from csrcqsf.models.orm.item import ItemHierarchyRelation, ItemSupplier, Items
+from csrcqsf.models.orm.inquiry_text_index_document import InquiryTextIndexDocument
+from csrcqsf.models.orm.item import (
+    ItemHierarchyRelation,
+    ItemSupplier,
+    Items,
+    ItemsParent,
+    ItemsVechile,
+)
 from csrcqsf.models.orm.item_inquiry_history import ItemInquiryHistory
-from csrcqsf.models.orm.sgo import SgoItemImages
+from csrcqsf.models.orm.sgo import SegmentedImage, SgoItemImages
 from csrcqsf.models.orm.sgo_external import (
     SgoCodeInquiry,
     SgoCodeInquiryReturn,
@@ -49,6 +56,10 @@ from csrcqsf.models.orm.sgo_external import (
     SgoMaterielVehicle,
 )
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
+from csrcqsf.modules.railway_parts.integrations.milvus_state_manager import MilvusManager
+from csrcqsf.modules.railway_parts.vector_search.storage.inquiry_semantic_store import (
+    InquirySemanticStore,
+)
 from csrcqsf.modules.sgo.item_mapping import normalize_sgo_return_item
 from csrcqsf.modules.sgo.photo_parser import extract_photo_raw_urls
 from csrcqsf.modules.sgo.schemas import ImageSourceType
@@ -86,9 +97,26 @@ MAX_SYNC_FAILURE_DETAILS = 20
 
 
 def _sync_template_sort_key(row) -> tuple[int, int]:
-    priority = {"A1": 0, "A5": 1, "A9": 2}.get(getattr(row, "column_id", "A1"), 3)
+    # 同一编码存在多个模板时，按当前同步板块顺序选择唯一业务配件。
+    priority = {"A1": 0, "A3": 1, "A5": 2}.get(getattr(row, "column_id", "A1"), 3)
     template_id = int(row.id) if str(row.id).isdigit() else -1
     return priority, -template_id
+
+
+def _partition_a9_cleanup_codes(rows) -> dict[str, set[str]]:
+    codes_by_column = {column_id: set() for column_id in ("A1", "A3", "A5", "A9")}
+    for column_id, item_code in rows:
+        normalized_column = _clean_text(column_id)
+        normalized_code = _clean_text(item_code)
+        if normalized_column in codes_by_column and normalized_code is not None:
+            codes_by_column[normalized_column].add(normalized_code)
+    retained_codes = codes_by_column["A1"] | codes_by_column["A3"] | codes_by_column["A5"]
+    a9_codes = codes_by_column["A9"]
+    return {
+        "a9_codes": a9_codes,
+        "shared_codes": a9_codes & retained_codes,
+        "exclusive_codes": a9_codes - retained_codes,
+    }
 
 
 def _elapsed_ms(started_at: float) -> float:
@@ -112,6 +140,17 @@ class ImageSyncCandidate:
     raw_url: str
     item_id: str
     image_source: ImageSourceType
+
+
+@dataclass(frozen=True)
+class A9CleanupCandidate:
+    item_id: int
+    item_code: str
+    item_name: str | None
+    has_legacy_index: bool = False
+    has_v2_index: bool = False
+    object_paths: tuple[str, ...] = ()
+    document_keys: tuple[str, ...] = ()
 
 
 class SgoImageDownloadError(RuntimeError):
@@ -569,6 +608,228 @@ class SGOBiz:
             _elapsed_ms(parse_started),
         )
         return candidates, failures
+
+    @classmethod
+    async def _load_a9_cleanup_scope(cls) -> dict:
+        async with sgo_sessionLocal() as session:
+            source_rows = await SgoMaterielMasterplate.list_cleanup_column_item_codes(session)
+        code_scope = _partition_a9_cleanup_codes(source_rows)
+        exclusive_codes = sorted(code_scope["exclusive_codes"])
+
+        local_items = []
+        async with SessionLocal() as session:
+            for offset in range(0, len(exclusive_codes), 500):
+                rows = await session.scalars(
+                    select(Items).where(
+                        Items.item_code.in_(exclusive_codes[offset:offset + 500])
+                    )
+                )
+                local_items.extend(rows.all())
+        local_items.sort(key=lambda item: (str(item.item_code), int(item.id)))
+        return {
+            "source_a9_code_count": len(code_scope["a9_codes"]),
+            "shared_code_count": len(code_scope["shared_codes"]),
+            "exclusive_code_count": len(code_scope["exclusive_codes"]),
+            "local_items": local_items,
+        }
+
+    @classmethod
+    async def preview_a9_cleanup(cls) -> dict:
+        scope = await cls._load_a9_cleanup_scope()
+        local_items = scope.pop("local_items")
+        return {
+            **scope,
+            "local_item_count": len(local_items),
+            "sample_items": [
+                {
+                    "item_id": str(item.id),
+                    "item_code": str(item.item_code),
+                    "item_name": _clean_text(item.item_name),
+                }
+                for item in local_items[:100]
+            ],
+        }
+
+    @classmethod
+    async def _load_a9_cleanup_candidates(cls, local_items) -> list[A9CleanupCandidate]:
+        if not local_items:
+            return []
+        item_ids = [int(item.id) for item in local_items]
+        object_paths_by_item = {item_id: set() for item_id in item_ids}
+        document_keys_by_item = {item_id: [] for item_id in item_ids}
+
+        async with SessionLocal() as session:
+            for offset in range(0, len(item_ids), 500):
+                batch = item_ids[offset:offset + 500]
+                image_rows = await session.execute(
+                    select(SgoItemImages.item_id, SgoItemImages.image_url).where(
+                        SgoItemImages.item_id.in_(batch)
+                    )
+                )
+                for item_id, image_url in image_rows:
+                    if path := _clean_text(image_url):
+                        object_paths_by_item[int(item_id)].add(path)
+
+                segmented_rows = await session.execute(
+                    select(
+                        SegmentedImage.item_id,
+                        SegmentedImage.segmented_image_url,
+                    ).where(SegmentedImage.item_id.in_(batch))
+                )
+                for item_id, image_url in segmented_rows:
+                    if path := _clean_text(image_url):
+                        object_paths_by_item[int(item_id)].add(path)
+
+                document_rows = await session.execute(
+                    select(
+                        InquiryTextIndexDocument.item_id,
+                        InquiryTextIndexDocument.document_key,
+                    ).where(InquiryTextIndexDocument.item_id.in_(batch))
+                )
+                for item_id, document_key in document_rows:
+                    document_keys_by_item[int(item_id)].append(str(document_key))
+
+        return [
+            A9CleanupCandidate(
+                item_id=int(item.id),
+                item_code=str(item.item_code),
+                item_name=_clean_text(item.item_name),
+                has_legacy_index=bool(item.image_index_num or item.feature_index_num),
+                has_v2_index=bool(item.has_v2_index),
+                object_paths=tuple(sorted(object_paths_by_item[int(item.id)])),
+                document_keys=tuple(document_keys_by_item[int(item.id)]),
+            )
+            for item in local_items
+        ]
+
+    @classmethod
+    async def _cleanup_a9_external_artifacts(cls, candidate: A9CleanupCandidate) -> None:
+        # 外部索引和对象先删；全部成功后才删除业务主数据，失败任务可按原 item_id 重试。
+        if candidate.has_legacy_index:
+            await MilvusManager.delete_part_index(candidate.item_id)
+            await MilvusManager.delete_hp_part_index(candidate.item_id)
+        if candidate.has_v2_index:
+            await RailwayPartsManager.delete_v2_index(candidate.item_id)
+        if candidate.document_keys:
+            semantic_store = InquirySemanticStore()
+            await run_sync(lambda: semantic_store.delete(list(candidate.document_keys)))
+        for object_path in candidate.object_paths:
+            await RailwayPartsManager._delete_minio_object(object_path)
+
+    @classmethod
+    async def _delete_a9_local_records(cls, item_ids: list[int]) -> None:
+        async with SessionLocal() as session:
+            # A9 层级记录即使没有本地配件也属于演示数据，统一清理且不会再次同步。
+            await session.execute(
+                delete(ItemHierarchyRelation).where(ItemHierarchyRelation.column_id == "A9")
+            )
+            for offset in range(0, len(item_ids), 500):
+                batch = item_ids[offset:offset + 500]
+                await session.execute(
+                    update(ItemInquiryHistory)
+                    .where(ItemInquiryHistory.item_id.in_(batch))
+                    .values(item_id=None)
+                )
+                await session.execute(
+                    update(ItemHierarchyRelation)
+                    .where(ItemHierarchyRelation.item_id.in_(batch))
+                    .values(item_id=None)
+                )
+                await session.execute(
+                    update(ItemHierarchyRelation)
+                    .where(ItemHierarchyRelation.parent_item_id.in_(batch))
+                    .values(parent_item_id=None)
+                )
+                await session.execute(
+                    update(Items)
+                    .where(Items.parent_item_id.in_(batch))
+                    .values(parent_item_id=0)
+                )
+                await session.execute(
+                    delete(ItemsParent).where(
+                        or_(
+                            ItemsParent.item_id.in_(batch),
+                            ItemsParent.parent_item_id.in_(batch),
+                        )
+                    )
+                )
+                for model in (
+                    ItemsVechile,
+                    ItemSupplier,
+                    InquiryTextIndexDocument,
+                    SegmentedImage,
+                    SgoItemImages,
+                ):
+                    await session.execute(delete(model).where(model.item_id.in_(batch)))
+                await session.execute(delete(Items).where(Items.id.in_(batch)))
+            await session.commit()
+
+    @classmethod
+    async def cleanup_a9_demo_data(
+        cls,
+        progress_callback: Callable[[dict], None] | None = None,
+    ) -> dict:
+        scope = await cls._load_a9_cleanup_scope()
+        candidates = await cls._load_a9_cleanup_candidates(scope["local_items"])
+        total_items = len(candidates)
+        successful_item_ids = []
+        failures = []
+
+        for index, candidate in enumerate(candidates, start=1):
+            new_failures = []
+            try:
+                await cls._cleanup_a9_external_artifacts(candidate)
+                successful_item_ids.append(candidate.item_id)
+            except Exception as exc:
+                failure = {
+                    "item_id": str(candidate.item_id),
+                    "item_code": candidate.item_code,
+                    "item_name": candidate.item_name,
+                    "error_code": "A9_CLEANUP_FAILED",
+                    "stage": "cleanup",
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc) or repr(exc),
+                }
+                failures.append(failure)
+                new_failures.append(failure)
+
+            await _notify_progress(
+                progress_callback,
+                {
+                    "progress": int(index * 90 / total_items) if total_items else 90,
+                    "total_items": total_items,
+                    "processed_items": index,
+                    "success_count": len(successful_item_ids),
+                    "fail_count": len(failures),
+                    "current_item_id": candidate.item_id,
+                    "new_failure_details": new_failures,
+                },
+            )
+            await asyncio.sleep(0)
+
+        await cls._delete_a9_local_records(successful_item_ids)
+        await _notify_progress(
+            progress_callback,
+            {
+                "progress": 100,
+                "total_items": total_items,
+                "processed_items": total_items,
+                "success_count": len(successful_item_ids),
+                "fail_count": len(failures),
+                "current_item_id": None,
+            },
+        )
+        return {
+            "total_items": total_items,
+            "processed_items": total_items,
+            "success_count": len(successful_item_ids),
+            "fail_count": len(failures),
+            "created_count": 0,
+            "skipped_count": 0,
+            "synced_image_count": 0,
+            "failure_details": failures,
+            "failures_persisted_incrementally": True,
+        }
 
     @classmethod
     async def sync_parts_items(

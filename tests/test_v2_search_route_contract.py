@@ -104,6 +104,7 @@ def test_parts_service_unifies_single_and_multi_image_search_on_one_route():
     assert "file" in body_schema["properties"]
     assert body_schema["properties"]["file"]["type"] == "array"
     assert body_schema["properties"]["file"]["items"]["format"] == "binary"
+    assert body_schema["properties"]["search_mode"]["default"] == "siglip"
 
 
 def test_text_search_route_enriches_each_candidate_with_hierarchy():
