@@ -117,7 +117,7 @@ class ItemHierarchyRelation(Base):
         if not item_codes:
             return []
         rows = []
-        # 父子关系只展示正式业务板块；A9 演示关系不应出现在甲方可见结果中。
+        # 父子关系只展示当前纳入业务范围的 A1 板块。
         # 候选配件按编码关联，虚拟父节点没有 parent_item_id 也仍可展示。
         for offset in range(0, len(item_codes), 500):
             codes = item_codes[offset:offset + 500]
@@ -230,6 +230,7 @@ class Items(Base):
     parts_model: Mapped[str] = mapped_column(String(255), nullable=True)
     drawing_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     material_quality: Mapped[str] = mapped_column(String(255), nullable=True)
+    vehicle_batch: Mapped[str | None] = mapped_column(Text, nullable=True)
     item_type: Mapped[ItemType] = mapped_column(
         String(200), nullable=False, default='real')
     parent_num: Mapped[int] = mapped_column(INT, nullable=False, default=0)
@@ -624,6 +625,48 @@ class Items(Base):
         return result.all()
 
     @classmethod
+    async def list_vehicle_sync_state(cls, session: AsyncSession):
+        result = await session.execute(select(cls.id, cls.item_code, cls.vehicle_batch))
+        return result.all()
+
+    @classmethod
+    async def list_cleanup_state(cls, session: AsyncSession):
+        # 线上清洗只读取判定范围和索引状态所需字段，避免加载完整配件对象。
+        result = await session.execute(
+            select(
+                cls.id,
+                cls.item_code,
+                cls.item_name,
+                cls.source_video_path,
+                cls.image_index_num,
+                cls.feature_index_num,
+                cls.has_v2_index,
+                cls.time_updated,
+            )
+        )
+        return result.all()
+
+    @classmethod
+    async def update_vehicle_batch(cls, session: AsyncSession, rows: list[dict]):
+        if not rows:
+            return
+        stmt = (
+            cls.__table__.update()
+            .where(cls.__table__.c.id == bindparam("sync_item_id"))
+            .values(vehicle_batch=bindparam("sync_vehicle_batch"))
+        )
+        await session.execute(
+            stmt,
+            [
+                {
+                    "sync_item_id": row["item_id"],
+                    "sync_vehicle_batch": row["vehicle_batch"],
+                }
+                for row in rows
+            ],
+        )
+
+    @classmethod
     async def update_sgo_metadata(cls, session: AsyncSession, rows: list[dict]):
         if not rows:
             return
@@ -738,13 +781,10 @@ class Items(Base):
             stmt = stmt.where(has_linked_inquiry.exists())
         normalized_vehicle_batch = str(vehicle_batch or '').strip().upper()
         if normalized_vehicle_batch:
-            # 车型精确筛选：与 V2 条件检索同口径，只认历史询码记录中的车型。
-            vehicle_match = select(ItemInquiryHistory.id).where(
-                ItemInquiryHistory.item_id == cls.id,
-                ItemInquiryHistory.normalized_vehicle_batch_expr()
-                == normalized_vehicle_batch,
+            # 车型由 SGO 直接映射持久化为逗号分隔集合，列表查询不再依赖询码历史联表。
+            stmt = stmt.where(
+                func.find_in_set(normalized_vehicle_batch, cls.vehicle_batch) > 0
             )
-            stmt = stmt.where(vehicle_match.exists())
         if need_index:
             stmt = stmt.where(cls.image_index_num.__gt__(0).__and__(cls.feature_index_num.__gt__(0)))
         if need_v2_index:

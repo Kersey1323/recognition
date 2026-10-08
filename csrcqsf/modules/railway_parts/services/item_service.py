@@ -338,6 +338,7 @@ async def list_item(cls, req, runtime=None):
             item_desc = runtime.ListItem(
                 item_name=item.item_name,
                 item_code=item.item_code,
+                vehicle_batch=getattr(item, "vehicle_batch", None),
                 ply_url=item.obj_url,
                 height=item.height,
                 width=item.width,
@@ -440,6 +441,7 @@ async def get_item_detail(
             video_path=item.source_video_path,
             name=item.item_name,
             item_code=item.item_code,
+            vehicle_batch=getattr(item, "vehicle_batch", None),
             created_at=runtime.date_to_str(item.time_created),
             updated_at=runtime.date_to_str(item.time_updated),
             size_str=item.size_str,

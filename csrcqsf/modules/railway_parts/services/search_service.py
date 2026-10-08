@@ -15,6 +15,9 @@ from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service impor
 from csrcqsf.modules.railway_parts.services.search_result_metadata_service import (
     enrich_search_result_metadata,
 )
+from csrcqsf.modules.railway_parts.services.text_search_grouping import (
+    aggregate_text_search_items_by_name,
+)
 
 
 SearchHistoryListReq: Any = None
@@ -209,52 +212,109 @@ async def search_v2_by_text(
         if leakage_filter_enabled
         else {}
     )
-    results = await semantic_service.search(
-        query_text=query_text,
-        top_k=enrichment_limit,
-        item_ids=None,
-        **history_filter,
-    )
-
     search_items = []
-    item_ids = [int(result["entity"]["item_id"]) for result in results]
-    if item_ids:
+    if hasattr(semantic_service, "search_candidate_batches"):
+        candidate_batches = semantic_service.search_candidate_batches(
+            query_text=query_text,
+            candidate_limits=(1000,),
+            item_ids=None,
+            **history_filter,
+        )
+    else:
+        # 兼容测试替身和滚动升级期间尚未提供批次接口的旧语义服务。
+        async def legacy_candidate_batches():
+            yield await semantic_service.search(
+                query_text=query_text,
+                top_k=enrichment_limit,
+                item_ids=None,
+                **history_filter,
+            )
+
+        candidate_batches = legacy_candidate_batches()
+
+    async for results in candidate_batches:
+        item_ids = [int(result["entity"]["item_id"]) for result in results]
+        if not item_ids:
+            continue
         async with runtime.SessionLocal() as session:
             items = await runtime.ContextualSearchRepository.list_items_by_ids(
                 session, item_ids
             )
-            history_rows = (
-                await runtime.ContextualSearchRepository.list_histories_by_item_ids(
-                    session,
-                    item_ids,
-                    **history_filter,
-                )
-            )
-            first_images = (
-                await runtime.ContextualSearchRepository.list_first_images_by_item_ids(
-                    session, item_ids
-                )
-            )
         item_map = {int(item.id): item for item in items}
-        image_map = {int(image.item_id): image.image_url for image in first_images}
         hit_map = {
             int(result["entity"]["item_id"]): result
             for result in results
         }
-        histories_by_item: dict[int, list[Any]] = {}
-        for row in history_rows:
-            if row.item_id is not None:
-                histories_by_item.setdefault(int(row.item_id), []).append(row)
 
-        # 纯文本入口与条件检索共享名称和询码历史融合排序，避免同一描述返回两套结果。
-        ranked = rank_contextual_candidates(
-            item_ids=item_ids,
+        # 1000 条深召回先只用向量分数和物料名称选出名称组，避免为淘汰候选加载大量询码历史。
+        preliminary_ranked = rank_contextual_candidates(
+            item_ids=[item_id for item_id in item_ids if item_id in item_map],
             image_scores={},
             text_scores={
                 item_id: float(result.get("distance", 0) or 0)
                 for item_id, result in hit_map.items()
             },
             item_names={int(item.id): item.item_name for item in items},
+            histories_by_item={},
+            parameters=SearchParameters(
+                item_description=query_text,
+                source_inquiry_id=source_inquiry_id,
+                source_inquiry_time=source_inquiry_time,
+            ),
+        )
+        preliminary_items = [
+            runtime.SearchItem(
+                item_id=str(score_row["item_id"]),
+                item_code=item_map[int(score_row["item_id"])].item_code,
+                item_name=item_map[int(score_row["item_id"])].item_name,
+                rate=float(score_row["final_score"]),
+            )
+            for score_row in preliminary_ranked
+        ]
+        preliminary_groups = aggregate_text_search_items_by_name(
+            preliminary_items,
+            limit=top_k,
+        )
+        selected_item_ids = [
+            int(member.item_id)
+            for group in preliminary_groups
+            for member in group.group_members
+        ]
+        if not selected_item_ids:
+            continue
+
+        async with runtime.SessionLocal() as session:
+            history_rows = (
+                await runtime.ContextualSearchRepository.list_histories_by_item_ids(
+                    session,
+                    selected_item_ids,
+                    **history_filter,
+                )
+            )
+            first_images = (
+                await runtime.ContextualSearchRepository.list_first_images_by_item_ids(
+                    session, selected_item_ids
+                )
+            )
+        image_map = {int(image.item_id): image.image_url for image in first_images}
+        histories_by_item: dict[int, list[Any]] = {}
+        for row in history_rows:
+            if row.item_id is not None:
+                histories_by_item.setdefault(int(row.item_id), []).append(row)
+
+        # 先按配件融合名称和询码历史分数，再让同名多编码共享一个最终召回位。
+        ranked = rank_contextual_candidates(
+            item_ids=selected_item_ids,
+            image_scores={},
+            text_scores={
+                item_id: float(result.get("distance", 0) or 0)
+                for item_id, result in hit_map.items()
+                if item_id in selected_item_ids
+            },
+            item_names={
+                item_id: item_map[item_id].item_name
+                for item_id in selected_item_ids
+            },
             histories_by_item=histories_by_item,
             parameters=SearchParameters(
                 item_description=query_text,
@@ -262,6 +322,7 @@ async def search_v2_by_text(
                 source_inquiry_time=source_inquiry_time,
             ),
         )
+        ungrouped_items = []
         for score_row in ranked:
             item_id = int(score_row["item_id"])
             result = hit_map[item_id]
@@ -269,7 +330,7 @@ async def search_v2_by_text(
             item = item_map.get(item_id)
             if item is None:
                 continue
-            search_items.append(
+            ungrouped_items.append(
                 runtime.SearchItem(
                     item_id=str(item.id),
                     item_code=item.item_code,
@@ -285,8 +346,12 @@ async def search_v2_by_text(
                     ),
                 )
             )
-            if len(search_items) >= top_k:
-                break
+        search_items = aggregate_text_search_items_by_name(
+            ungrouped_items,
+            limit=top_k,
+        )
+        if len(search_items) >= top_k:
+            break
     await cls._persist_v2_search_history(
         history_id=history_id,
         query_text=query_text,

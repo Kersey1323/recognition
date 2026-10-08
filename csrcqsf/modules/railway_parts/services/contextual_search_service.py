@@ -20,6 +20,9 @@ from csrcqsf.modules.railway_parts.schemas.search import SearchItem
 from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
     get_inquiry_semantic_index_service,
 )
+from csrcqsf.modules.railway_parts.services.text_search_grouping import (
+    aggregate_text_search_items_by_name,
+)
 
 
 FINAL_SCORE_WEIGHTS = {
@@ -375,6 +378,7 @@ def _stored_results(search_items: list[SearchItem], *, runtime=None) -> SearchRe
                 ],
                 matched_description=getattr(item, "matched_description", None),
                 matched_inquiry_id=getattr(item, "matched_inquiry_id", None),
+                group_members=list(getattr(item, "group_members", []) or []),
             )
             for item in search_items
         ]
@@ -420,6 +424,7 @@ def _snapshot_response(snapshot: SearchSnapshot, *, runtime=None):
                 ],
                 matched_description=getattr(item, "matched_description", None),
                 matched_inquiry_id=getattr(item, "matched_inquiry_id", None),
+                group_members=list(getattr(item, "group_members", []) or []),
             )
             for item in snapshot.results.items
         ],
@@ -550,12 +555,24 @@ async def _execute_contextual_search(
 
     text_hits = []
     if parameters.item_description:
-        text_hits = await get_inquiry_semantic_index_service().search(
-            parameters.item_description,
-            top_k=100,
-            item_ids=candidate_filter,
-            **history_filter,
-        )
+        semantic_service = get_inquiry_semantic_index_service()
+        if hasattr(semantic_service, "search_candidate_batches"):
+            async for batch in semantic_service.search_candidate_batches(
+                parameters.item_description,
+                candidate_limits=(1000,),
+                item_ids=candidate_filter,
+                **history_filter,
+            ):
+                text_hits = batch
+                break
+        else:
+            # 兼容滚动升级期间尚未提供批次接口的旧语义服务。
+            text_hits = await semantic_service.search(
+                parameters.item_description,
+                top_k=100,
+                item_ids=candidate_filter,
+                **history_filter,
+            )
 
     image_scores: dict[int, float] = {}
     visual_hits_by_item: dict[int, list[dict]] = {}
@@ -576,13 +593,67 @@ async def _execute_contextual_search(
     if not preliminary_item_ids:
         return [], None
 
+    text_scores: dict[int, float] = {}
+    text_hits_by_item: dict[int, list[dict]] = {}
+    for hit in text_hits:
+        entity = hit.get("entity", {})
+        if entity.get("item_id") is None:
+            continue
+        item_id = int(entity["item_id"])
+        score = float(hit.get("distance", 0) or 0)
+        text_scores[item_id] = max(
+            score,
+            text_scores.get(item_id, float("-inf")),
+        )
+        text_hits_by_item.setdefault(item_id, []).append(hit)
+
     async with runtime.SessionLocal() as session:
         items = await runtime.ContextualSearchRepository.list_items_by_ids(
             session, preliminary_item_ids
         )
+    item_map = {int(item.id): item for item in items}
+    recalled_item_ids = [
+        item_id
+        for item_id in dict.fromkeys([*image_scores, *text_scores])
+        if item_id in item_map
+    ]
+    if not recalled_item_ids:
+        return [], None
+
+    if parameters.item_description:
+        # 深召回只加载物料名称完成分组，询码历史和首图延迟到 Top20 名称组确定后再查询。
+        preliminary_ranked = rank_contextual_candidates(
+            item_ids=recalled_item_ids,
+            image_scores=image_scores,
+            text_scores=text_scores,
+            item_names={item_id: item_map[item_id].item_name for item_id in recalled_item_ids},
+            histories_by_item={},
+            parameters=parameters,
+        )
+        preliminary_groups = aggregate_text_search_items_by_name(
+            [
+                runtime.SearchItem(
+                    item_id=str(score_row["item_id"]),
+                    item_code=item_map[int(score_row["item_id"])].item_code,
+                    item_name=item_map[int(score_row["item_id"])].item_name,
+                    rate=float(score_row["final_score"]),
+                )
+                for score_row in preliminary_ranked
+            ],
+            limit=CONTEXTUAL_RESULT_LIMIT,
+        )
+        selected_item_ids = [
+            int(member.item_id)
+            for group in preliminary_groups
+            for member in group.group_members
+        ]
+    else:
+        selected_item_ids = recalled_item_ids
+
+    async with runtime.SessionLocal() as session:
         history_rows = await runtime.ContextualSearchRepository.list_histories_by_item_ids(
             session,
-            preliminary_item_ids,
+            selected_item_ids,
             **history_filter,
         )
         if leakage_filter_enabled:
@@ -597,22 +668,25 @@ async def _execute_contextual_search(
                 if str(hit.get("entity", {}).get("inquiry_id") or "")
                 in eligible_inquiry_ids
             ]
+            text_scores = {}
+            text_hits_by_item = {}
+            for hit in text_hits:
+                entity = hit.get("entity", {})
+                if entity.get("item_id") is None:
+                    continue
+                item_id = int(entity["item_id"])
+                score = float(hit.get("distance", 0) or 0)
+                text_scores[item_id] = max(
+                    score,
+                    text_scores.get(item_id, float("-inf")),
+                )
+                text_hits_by_item.setdefault(item_id, []).append(hit)
 
-        text_scores: dict[int, float] = {}
-        text_hits_by_item: dict[int, list[dict]] = {}
-        for hit in text_hits:
-            entity = hit.get("entity", {})
-            if entity.get("item_id") is None:
-                continue
-            item_id = int(entity["item_id"])
-            score = float(hit.get("distance", 0) or 0)
-            text_scores[item_id] = max(
-                score,
-                text_scores.get(item_id, float("-inf")),
-            )
-            text_hits_by_item.setdefault(item_id, []).append(hit)
-
-        recalled_item_ids = list(dict.fromkeys([*image_scores, *text_scores]))
+        recalled_item_ids = [
+            item_id
+            for item_id in selected_item_ids
+            if item_id in image_scores or item_id in text_scores
+        ]
         if not recalled_item_ids:
             return [], None
         text_only_item_ids = [
@@ -628,7 +702,6 @@ async def _execute_contextual_search(
             else []
         )
 
-    item_map = {int(item.id): item for item in items}
     first_image_by_item = {
         int(image.item_id): image.image_url
         for image in first_images
@@ -648,7 +721,7 @@ async def _execute_contextual_search(
     )
 
     search_items: list[SearchItem] = []
-    for score_row in ranked[:CONTEXTUAL_RESULT_LIMIT]:
+    for score_row in ranked:
         item_id = int(score_row["item_id"])
         item = item_map.get(item_id)
         visual_hits = visual_hits_by_item.get(item_id, [])
@@ -711,7 +784,12 @@ async def _execute_contextual_search(
                 ),
             )
         )
-    return search_items, None
+    if parameters.item_description:
+        return aggregate_text_search_items_by_name(
+            search_items,
+            limit=CONTEXTUAL_RESULT_LIMIT,
+        ), None
+    return search_items[:CONTEXTUAL_RESULT_LIMIT], None
 
 
 async def search_v2_contextual(

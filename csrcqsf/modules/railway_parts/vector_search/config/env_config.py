@@ -82,7 +82,7 @@ class VectorDBConfig:
         )
         self.inquiry_text_search_max_candidates = _positive_int_env(
             "INQUIRY_TEXT_SEARCH_MAX_CANDIDATES",
-            200,
+            1000,
         )
         self.inquiry_text_min_score = _score_env("INQUIRY_TEXT_MIN_SCORE", 0.55)
 

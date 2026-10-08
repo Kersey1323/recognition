@@ -55,6 +55,8 @@ class FakeStore:
         self.upserts = []
         self.deletes = []
         self.search_hits = []
+        self.search_hits_by_limit = {}
+        self.search_calls = []
         self.activated = []
         self.dropped = []
 
@@ -72,7 +74,8 @@ class FakeStore:
     def search(self, vector, *, limit, item_ids=None):
         self.search_limit = limit
         self.search_item_ids = item_ids
-        return self.search_hits
+        self.search_calls.append((limit, item_ids))
+        return self.search_hits_by_limit.get(limit, self.search_hits)
 
     def create_build_collection(self, task_id):
         return f"build-{task_id}"
@@ -380,6 +383,58 @@ def test_search_filters_current_and_future_hits_before_item_deduplication():
     )
 
     assert [hit["entity"]["inquiry_id"] for hit in results] == ["older"]
+
+
+def test_search_candidate_batches_expand_depth_without_reembedding_query():
+    from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+        InquirySemanticIndexService,
+    )
+
+    store = FakeStore()
+    store.search_hits_by_limit = {
+        200: [
+            {"distance": 0.91, "entity": {"item_id": 10, "inquiry_id": "a"}},
+        ]
+        * 200,
+        500: [
+            {"distance": 0.91, "entity": {"item_id": 10, "inquiry_id": "a"}},
+            {"distance": 0.81, "entity": {"item_id": 20, "inquiry_id": "b"}},
+        ]
+        * 250,
+        1000: [
+            {"distance": 0.91, "entity": {"item_id": 10, "inquiry_id": "a"}},
+            {"distance": 0.81, "entity": {"item_id": 20, "inquiry_id": "b"}},
+            {"distance": 0.71, "entity": {"item_id": 30, "inquiry_id": "c"}},
+        ]
+        * 334,
+    }
+    model = FakeModelClient()
+    service = InquirySemanticIndexService(
+        repository=FakeRepository([]),
+        state_repository=FakeStateRepository(),
+        store=store,
+        model_client=model,
+        config=make_config(inquiry_text_search_max_candidates=1000),
+    )
+
+    async def collect_batches():
+        return [
+            batch
+            async for batch in service.search_candidate_batches(
+                "  Door\u3000hinge ",
+                candidate_limits=(200, 500, 1000),
+            )
+        ]
+
+    batches = asyncio.run(collect_batches())
+
+    assert [[hit["entity"]["item_id"] for hit in batch] for batch in batches] == [
+        [10],
+        [10, 20],
+        [10, 20, 30],
+    ]
+    assert store.search_calls == [(200, None), (500, None), (1000, None)]
+    assert model.calls == [["Door hinge"]]
 
 
 def test_incremental_progress_only_reports_failures_from_current_batch():

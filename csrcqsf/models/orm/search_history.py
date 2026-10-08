@@ -58,6 +58,15 @@ class SearchResultSupplier(BaseModel):
     manufacturer: str | None = None
 
 
+class SearchGroupMember(BaseModel):
+    item_id: str
+    item_code: str
+    item_name: str | None = None
+    rate: float
+    matched_description: str | None = None
+    matched_inquiry_id: str | None = None
+
+
 class SearchResultItem(BaseModel):
     item_id: str
     item_code: str
@@ -69,6 +78,7 @@ class SearchResultItem(BaseModel):
     child_parts: list[SearchHierarchyPart] = Field(default_factory=list)
     matched_description: str | None = None
     matched_inquiry_id: str | None = None
+    group_members: list[SearchGroupMember] = Field(default_factory=list)
     parts_model: str | None = None
     material_quality: str | None = None
     suppliers: list[SearchResultSupplier] = Field(default_factory=list)

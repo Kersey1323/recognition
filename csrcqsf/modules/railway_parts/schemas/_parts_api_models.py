@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from bfrcommon.api_models import PageReq, PageRes
 from pydantic import Field, validator
 
-from csrcqsf.models.orm.search_history import MatchedImage, SearchHierarchyPart, SearchParameters, SearchResults
+from csrcqsf.models.orm.search_history import MatchedImage, SearchGroupMember, SearchHierarchyPart, SearchParameters, SearchResults
 from csrcqsf.modules.sgo.schemas import ImageSourceType
 
 
@@ -34,7 +34,7 @@ class ListItemReq(PageReq):
     )
     vehicle_batch: str | None = Field(
         default=None,
-        description='车型项目号精确筛选，如 SFE27；按历史询码记录匹配车型',
+        description='车型项目号精确筛选，如 SFE27；按配件主数据中的适用车型匹配',
         example="SFE27",
     )
     item_code: str | None = Field(default=None, description='配件编码精确筛选', example="12312321")
@@ -81,6 +81,7 @@ class ListItem(BaseModel):
     images_url: list[str] = Field(default_factory=list, description='该配件的全部图片地址')
     inquiry_nums: list[str] = Field(default_factory=list, description='该配件的全部询码流水号，按时间从新到旧排列')
     inquiry_count: int = Field(default=0, description='该配件关联的询码记录总数')
+    vehicle_batch: str | None = Field(default=None, description='适用车型项目号，多个值以逗号分隔')
     id: str
 
 
@@ -191,6 +192,7 @@ class GetItemDetailRes(BaseModel):
     video_path: str | None
     name: str
     item_code: str
+    vehicle_batch: str | None = Field(default=None, description='适用车型项目号，多个值以逗号分隔')
     id: str
     created_at: str
     updated_at: str
@@ -312,6 +314,10 @@ class SearchItem(BaseModel):
     matched_inquiry_id: str | None = Field(
         None,
         description="命中描述对应的询码记录 ID；图片检索为空",
+    )
+    group_members: list[SearchGroupMember] = Field(
+        default_factory=list,
+        description="BGE 文本召回按标准化配件名称聚合后的全部命中编码",
     )
 
 

@@ -6,6 +6,9 @@ from unittest.mock import AsyncMock, patch
 from csrcqsf.models.orm.search_history import MatchedImage, SearchResultItem, SearchResults
 from csrcqsf.modules.railway_parts.schemas.search import SearchItem, SearchRes
 from csrcqsf.modules.railway_parts.services import search_service
+from csrcqsf.modules.railway_parts.services.text_search_grouping import (
+    aggregate_text_search_items_by_name,
+)
 
 
 class _AsyncSessionContext:
@@ -27,7 +30,7 @@ class _Repository:
 
     @classmethod
     async def list_first_images_by_item_ids(cls, session, item_ids):
-        assert item_ids == [1, 999, 2]
+        assert item_ids == [1, 2]
         return [
             SimpleNamespace(id=11, item_id=1, image_url="first.jpg"),
             SimpleNamespace(id=21, item_id=2, image_url="filter.jpg"),
@@ -35,7 +38,7 @@ class _Repository:
 
     @classmethod
     async def list_histories_by_item_ids(cls, session, item_ids):
-        assert item_ids == [1, 999, 2]
+        assert item_ids == [1, 2]
         return []
 
 
@@ -257,3 +260,93 @@ def test_direct_text_search_reranks_with_item_names():
     assert [item.item_id for item in response.data] == ["2", "1"]
     assert response.data[0].matched_description == "电热开水器"
     assert response.data[0].rate > response.data[1].rate
+
+
+def test_direct_text_search_fetches_one_thousand_candidates_once_before_grouping():
+    class DeepSemanticService:
+        def __init__(self):
+            self.requested_limits = None
+
+        async def search_candidate_batches(self, query_text, *, candidate_limits, **kwargs):
+            self.requested_limits = candidate_limits
+            yield [
+                {
+                    "distance": 0.93,
+                    "entity": {"item_id": 1, "description": "铰链", "inquiry_id": "inq-1"},
+                },
+                {
+                    "distance": 0.92,
+                    "entity": {"item_id": 2, "description": "铰链", "inquiry_id": "inq-2"},
+                },
+                {
+                    "distance": 0.80,
+                    "entity": {"item_id": 3, "description": "门控器", "inquiry_id": "inq-3"},
+                },
+            ]
+
+    repository = SimpleNamespace(
+        list_items_by_ids=AsyncMock(
+            side_effect=lambda _session, item_ids: [
+                item
+                for item in [
+                    SimpleNamespace(id=1, item_code="CODE-1", item_name=" ＡＢＣ  铰链 "),
+                    SimpleNamespace(id=2, item_code="CODE-2", item_name="abc 铰链"),
+                    SimpleNamespace(id=3, item_code="CODE-3", item_name="门控器"),
+                ]
+                if item.id in item_ids
+            ]
+        ),
+        list_histories_by_item_ids=AsyncMock(return_value=[]),
+        list_first_images_by_item_ids=AsyncMock(return_value=[]),
+    )
+    semantic_service = DeepSemanticService()
+    persist = AsyncMock()
+    runtime = SimpleNamespace(
+        get_id=lambda: 1005,
+        SessionLocal=lambda: _AsyncSessionContext(),
+        ContextualSearchRepository=repository,
+        SearchItem=SearchItem,
+        SearchRes=SearchRes,
+    )
+
+    with patch.object(
+        search_service,
+        "get_inquiry_semantic_index_service",
+        return_value=semantic_service,
+    ):
+        response = asyncio.run(
+            search_service.search_v2_by_text(
+                SimpleNamespace(_persist_v2_search_history=persist),
+                query_text="铰链",
+                top_k=2,
+                runtime=runtime,
+            )
+        )
+
+    assert semantic_service.requested_limits == (1000,)
+    repository.list_items_by_ids.assert_awaited_once()
+    repository.list_histories_by_item_ids.assert_awaited_once()
+    repository.list_first_images_by_item_ids.assert_awaited_once()
+    assert [item.item_name.strip() for item in response.data] == ["ＡＢＣ  铰链", "门控器"]
+    assert [member.item_code for member in response.data[0].group_members] == [
+        "CODE-1",
+        "CODE-2",
+    ]
+    assert response.data[0].rate >= response.data[1].rate
+    assert persist.await_args.kwargs["search_items"][0].group_members[1].item_code == "CODE-2"
+
+
+def test_empty_item_names_remain_separate_groups_by_item_code():
+    grouped = aggregate_text_search_items_by_name(
+        [
+            SearchItem(item_id="1", item_code="CODE-1", item_name="", rate=0.9),
+            SearchItem(item_id="2", item_code="CODE-2", item_name=" ", rate=0.8),
+        ],
+        limit=20,
+    )
+
+    assert [item.item_code for item in grouped] == ["CODE-1", "CODE-2"]
+    assert [[member.item_code for member in item.group_members] for item in grouped] == [
+        ["CODE-1"],
+        ["CODE-2"],
+    ]

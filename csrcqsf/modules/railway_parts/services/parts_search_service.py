@@ -169,6 +169,7 @@ async def _persist_v2_search_history(
                 ],
                 matched_description=getattr(item, "matched_description", None),
                 matched_inquiry_id=getattr(item, "matched_inquiry_id", None),
+                group_members=list(getattr(item, "group_members", []) or []),
             )
             for item in search_items
         ]

@@ -42,7 +42,7 @@ def test_hierarchy_relation_query_only_reads_business_columns():
             compile_kwargs={"literal_binds": True},
         )
     )
-    assert "item_hierarchy_relation.column_id IN ('A1', 'A3', 'A5')" in sql
+    assert "item_hierarchy_relation.column_id IN ('A1')" in sql
     assert "'A9'" not in sql
 
 

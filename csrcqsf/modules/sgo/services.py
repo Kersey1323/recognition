@@ -17,7 +17,7 @@ from anyio.to_thread import run_sync
 from bfrcommon.snowflake import get_id
 from csrcqsf.core.logging_config import logger
 from pydantic import BaseModel
-from sqlalchemy import String, case, cast, delete, or_, select, text, tuple_, update
+from sqlalchemy import String, case, cast, delete, func, or_, select, text, tuple_, update
 from urllib3 import PoolManager
 from urllib3.util import create_urllib3_context
 
@@ -97,25 +97,30 @@ MAX_SYNC_FAILURE_DETAILS = 20
 
 
 def _sync_template_sort_key(row) -> tuple[int, int]:
-    # 同一编码存在多个模板时，按当前同步板块顺序选择唯一业务配件。
+    # A1 内同一编码存在多个模板时，优先使用模板 ID 较新的记录。
     priority = {"A1": 0, "A3": 1, "A5": 2}.get(getattr(row, "column_id", "A1"), 3)
     template_id = int(row.id) if str(row.id).isdigit() else -1
     return priority, -template_id
 
 
-def _partition_a9_cleanup_codes(rows) -> dict[str, set[str]]:
+def _partition_non_a1_cleanup_codes(rows) -> dict[str, set[str]]:
     codes_by_column = {column_id: set() for column_id in ("A1", "A3", "A5", "A9")}
     for column_id, item_code in rows:
         normalized_column = _clean_text(column_id)
         normalized_code = _clean_text(item_code)
         if normalized_column in codes_by_column and normalized_code is not None:
             codes_by_column[normalized_column].add(normalized_code)
-    retained_codes = codes_by_column["A1"] | codes_by_column["A3"] | codes_by_column["A5"]
-    a9_codes = codes_by_column["A9"]
+    a1_codes = codes_by_column["A1"]
+    non_a1_codes = (
+        codes_by_column["A3"]
+        | codes_by_column["A5"]
+        | codes_by_column["A9"]
+    )
     return {
-        "a9_codes": a9_codes,
-        "shared_codes": a9_codes & retained_codes,
-        "exclusive_codes": a9_codes - retained_codes,
+        "a1_codes": a1_codes,
+        "non_a1_codes": non_a1_codes,
+        "shared_codes": non_a1_codes & a1_codes,
+        "exclusive_codes": non_a1_codes - a1_codes,
     }
 
 
@@ -143,7 +148,7 @@ class ImageSyncCandidate:
 
 
 @dataclass(frozen=True)
-class A9CleanupCandidate:
+class PartsCleanupCandidate:
     item_id: int
     item_code: str
     item_name: str | None
@@ -151,6 +156,16 @@ class A9CleanupCandidate:
     has_v2_index: bool = False
     object_paths: tuple[str, ...] = ()
     document_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PartsCleanupScope:
+    source_a1_code_count: int
+    local_item_count: int
+    a1_items: tuple
+    protected_items: tuple
+    candidate_items: tuple
+    preview_token: str
 
 
 class SgoImageDownloadError(RuntimeError):
@@ -193,6 +208,62 @@ def _clean_text(value):
 def _item_code_key(value) -> str:
     cleaned = _clean_text(value)
     return str(cleaned).casefold() if cleaned is not None else ""
+
+
+def _build_non_a1_cleanup_scope(
+    a1_codes: set[str],
+    local_rows,
+) -> PartsCleanupScope:
+    normalized_a1_codes = {_item_code_key(code) for code in a1_codes if _item_code_key(code)}
+    a1_items = []
+    protected_items = []
+    candidate_items = []
+    for row in local_rows:
+        if _item_code_key(row.item_code) in normalized_a1_codes:
+            a1_items.append(row)
+        elif _clean_text(row.source_video_path) is not None:
+            # 原视频代表该配件已进入人工采集流程，即使不属于 A1 也必须完整保留。
+            protected_items.append(row)
+        else:
+            candidate_items.append(row)
+
+    candidate_items.sort(key=lambda row: int(row.id))
+    token_payload = [
+        (
+            int(row.id),
+            _item_code_key(row.item_code),
+            str(row.time_updated or ""),
+        )
+        for row in candidate_items
+    ]
+    preview_token = hashlib.sha256(
+        json.dumps(token_payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return PartsCleanupScope(
+        source_a1_code_count=len(normalized_a1_codes),
+        local_item_count=len(local_rows),
+        a1_items=tuple(a1_items),
+        protected_items=tuple(protected_items),
+        candidate_items=tuple(candidate_items),
+        preview_token=preview_token,
+    )
+
+
+def _build_item_vehicle_batch(
+    item_id_by_code: dict[str, int],
+    direct_rows: list[tuple],
+) -> dict[int, str]:
+    batches: dict[int, set[str]] = {}
+    for item_code, _vehicle_id, vehicle_batch, _vehicle_name in direct_rows:
+        item_id = item_id_by_code.get(_item_code_key(item_code))
+        batch = _clean_text(vehicle_batch)
+        if item_id is None or batch is None:
+            continue
+        batches.setdefault(item_id, set()).add(str(batch).upper())
+    return {
+        item_id: ",".join(sorted(values))
+        for item_id, values in batches.items()
+    }
 
 
 def _sync_payload_hash(payload: dict) -> str:
@@ -610,48 +681,48 @@ class SGOBiz:
         return candidates, failures
 
     @classmethod
-    async def _load_a9_cleanup_scope(cls) -> dict:
+    async def _load_non_a1_cleanup_scope(cls) -> PartsCleanupScope:
         async with sgo_sessionLocal() as session:
             source_rows = await SgoMaterielMasterplate.list_cleanup_column_item_codes(session)
-        code_scope = _partition_a9_cleanup_codes(source_rows)
-        exclusive_codes = sorted(code_scope["exclusive_codes"])
-
-        local_items = []
+        code_scope = _partition_non_a1_cleanup_codes(source_rows)
         async with SessionLocal() as session:
-            for offset in range(0, len(exclusive_codes), 500):
-                rows = await session.scalars(
-                    select(Items).where(
-                        Items.item_code.in_(exclusive_codes[offset:offset + 500])
-                    )
-                )
-                local_items.extend(rows.all())
-        local_items.sort(key=lambda item: (str(item.item_code), int(item.id)))
-        return {
-            "source_a9_code_count": len(code_scope["a9_codes"]),
-            "shared_code_count": len(code_scope["shared_codes"]),
-            "exclusive_code_count": len(code_scope["exclusive_codes"]),
-            "local_items": local_items,
-        }
+            local_items = list(await Items.list_cleanup_state(session))
+        return _build_non_a1_cleanup_scope(code_scope["a1_codes"], local_items)
 
     @classmethod
-    async def preview_a9_cleanup(cls) -> dict:
-        scope = await cls._load_a9_cleanup_scope()
-        local_items = scope.pop("local_items")
+    async def preview_non_a1_cleanup(cls) -> dict:
+        scope = await cls._load_non_a1_cleanup_scope()
+        candidates = await cls._load_cleanup_candidates(scope.candidate_items)
         return {
-            **scope,
-            "local_item_count": len(local_items),
+            "source_a1_code_count": scope.source_a1_code_count,
+            "local_item_count": scope.local_item_count,
+            "a1_retained_count": len(scope.a1_items),
+            "protected_source_video_count": len(scope.protected_items),
+            "candidate_count": len(candidates),
+            "candidate_with_images_count": sum(bool(item.object_paths) for item in candidates),
+            "candidate_with_indexes_count": sum(
+                item.has_legacy_index or item.has_v2_index or bool(item.document_keys)
+                for item in candidates
+            ),
+            "preview_token": scope.preview_token,
             "sample_items": [
                 {
                     "item_id": str(item.id),
                     "item_code": str(item.item_code),
                     "item_name": _clean_text(item.item_name),
                 }
-                for item in local_items[:100]
+                for item in scope.candidate_items[:100]
             ],
         }
 
     @classmethod
-    async def _load_a9_cleanup_candidates(cls, local_items) -> list[A9CleanupCandidate]:
+    async def validate_non_a1_cleanup_preview(cls, preview_token: str) -> None:
+        scope = await cls._load_non_a1_cleanup_scope()
+        if scope.preview_token != preview_token:
+            raise ValueError("清理范围已变化，请重新调用预览接口")
+
+    @classmethod
+    async def _load_cleanup_candidates(cls, local_items) -> list[PartsCleanupCandidate]:
         if not local_items:
             return []
         item_ids = [int(item.id) for item in local_items]
@@ -690,7 +761,7 @@ class SGOBiz:
                     document_keys_by_item[int(item_id)].append(str(document_key))
 
         return [
-            A9CleanupCandidate(
+            PartsCleanupCandidate(
                 item_id=int(item.id),
                 item_code=str(item.item_code),
                 item_name=_clean_text(item.item_name),
@@ -703,8 +774,11 @@ class SGOBiz:
         ]
 
     @classmethod
-    async def _cleanup_a9_external_artifacts(cls, candidate: A9CleanupCandidate) -> None:
-        # 外部索引和对象先删；全部成功后才删除业务主数据，失败任务可按原 item_id 重试。
+    async def _cleanup_candidate_external_indexes(
+        cls,
+        candidate: PartsCleanupCandidate,
+    ) -> None:
+        # 外部索引先删，失败时保留业务主数据；MinIO 文件留作线上误清理恢复使用。
         if candidate.has_legacy_index:
             await MilvusManager.delete_part_index(candidate.item_id)
             await MilvusManager.delete_hp_part_index(candidate.item_id)
@@ -713,32 +787,37 @@ class SGOBiz:
         if candidate.document_keys:
             semantic_store = InquirySemanticStore()
             await run_sync(lambda: semantic_store.delete(list(candidate.document_keys)))
-        for object_path in candidate.object_paths:
-            await RailwayPartsManager._delete_minio_object(object_path)
 
     @classmethod
-    async def _delete_a9_local_records(cls, item_ids: list[int]) -> None:
+    async def _delete_cleanup_local_records(cls, item_ids: list[int]) -> list[int]:
+        deleted_item_ids = []
         async with SessionLocal() as session:
-            # A9 层级记录即使没有本地配件也属于演示数据，统一清理且不会再次同步。
-            await session.execute(
-                delete(ItemHierarchyRelation).where(ItemHierarchyRelation.column_id == "A9")
-            )
             for offset in range(0, len(item_ids), 500):
-                batch = item_ids[offset:offset + 500]
+                requested_batch = item_ids[offset:offset + 500]
+                # 执行期间新上传原视频的配件再次从删除集合剔除，数据库删除仍有最终保护。
+                batch = list(await session.scalars(
+                    select(Items.id).where(
+                        Items.id.in_(requested_batch),
+                        or_(
+                            Items.source_video_path.is_(None),
+                            func.trim(Items.source_video_path) == "",
+                        ),
+                    )
+                ))
+                if not batch:
+                    continue
                 await session.execute(
                     update(ItemInquiryHistory)
                     .where(ItemInquiryHistory.item_id.in_(batch))
                     .values(item_id=None)
                 )
                 await session.execute(
-                    update(ItemHierarchyRelation)
-                    .where(ItemHierarchyRelation.item_id.in_(batch))
-                    .values(item_id=None)
-                )
-                await session.execute(
-                    update(ItemHierarchyRelation)
-                    .where(ItemHierarchyRelation.parent_item_id.in_(batch))
-                    .values(parent_item_id=None)
+                    delete(ItemHierarchyRelation).where(
+                        or_(
+                            ItemHierarchyRelation.item_id.in_(batch),
+                            ItemHierarchyRelation.parent_item_id.in_(batch),
+                        )
+                    )
                 )
                 await session.execute(
                     update(Items)
@@ -762,15 +841,20 @@ class SGOBiz:
                 ):
                     await session.execute(delete(model).where(model.item_id.in_(batch)))
                 await session.execute(delete(Items).where(Items.id.in_(batch)))
+                deleted_item_ids.extend(int(item_id) for item_id in batch)
             await session.commit()
+        return deleted_item_ids
 
     @classmethod
-    async def cleanup_a9_demo_data(
+    async def cleanup_non_a1_data(
         cls,
+        preview_token: str,
         progress_callback: Callable[[dict], None] | None = None,
     ) -> dict:
-        scope = await cls._load_a9_cleanup_scope()
-        candidates = await cls._load_a9_cleanup_candidates(scope["local_items"])
+        scope = await cls._load_non_a1_cleanup_scope()
+        if scope.preview_token != preview_token:
+            raise ValueError("清理范围已变化，请重新调用预览接口")
+        candidates = await cls._load_cleanup_candidates(scope.candidate_items)
         total_items = len(candidates)
         successful_item_ids = []
         failures = []
@@ -778,14 +862,14 @@ class SGOBiz:
         for index, candidate in enumerate(candidates, start=1):
             new_failures = []
             try:
-                await cls._cleanup_a9_external_artifacts(candidate)
+                await cls._cleanup_candidate_external_indexes(candidate)
                 successful_item_ids.append(candidate.item_id)
             except Exception as exc:
                 failure = {
                     "item_id": str(candidate.item_id),
                     "item_code": candidate.item_code,
                     "item_name": candidate.item_name,
-                    "error_code": "A9_CLEANUP_FAILED",
+                    "error_code": "NON_A1_CLEANUP_FAILED",
                     "stage": "cleanup",
                     "error_type": type(exc).__name__,
                     "error_message": str(exc) or repr(exc),
@@ -793,28 +877,30 @@ class SGOBiz:
                 failures.append(failure)
                 new_failures.append(failure)
 
-            await _notify_progress(
-                progress_callback,
-                {
-                    "progress": int(index * 90 / total_items) if total_items else 90,
-                    "total_items": total_items,
-                    "processed_items": index,
-                    "success_count": len(successful_item_ids),
-                    "fail_count": len(failures),
-                    "current_item_id": candidate.item_id,
-                    "new_failure_details": new_failures,
-                },
-            )
+            if new_failures or index == total_items or index % 100 == 0:
+                await _notify_progress(
+                    progress_callback,
+                    {
+                        "progress": int(index * 90 / total_items) if total_items else 90,
+                        "total_items": total_items,
+                        "processed_items": index,
+                        "success_count": len(successful_item_ids),
+                        "fail_count": len(failures),
+                        "current_item_id": candidate.item_id,
+                        "new_failure_details": new_failures,
+                    },
+                )
             await asyncio.sleep(0)
 
-        await cls._delete_a9_local_records(successful_item_ids)
+        deleted_item_ids = await cls._delete_cleanup_local_records(successful_item_ids)
+        protected_during_execution = len(successful_item_ids) - len(deleted_item_ids)
         await _notify_progress(
             progress_callback,
             {
                 "progress": 100,
                 "total_items": total_items,
                 "processed_items": total_items,
-                "success_count": len(successful_item_ids),
+                "success_count": len(deleted_item_ids),
                 "fail_count": len(failures),
                 "current_item_id": None,
             },
@@ -822,10 +908,10 @@ class SGOBiz:
         return {
             "total_items": total_items,
             "processed_items": total_items,
-            "success_count": len(successful_item_ids),
+            "success_count": len(deleted_item_ids),
             "fail_count": len(failures),
             "created_count": 0,
-            "skipped_count": 0,
+            "skipped_count": protected_during_execution,
             "synced_image_count": 0,
             "failure_details": failures,
             "failures_persisted_incrementally": True,
@@ -911,8 +997,7 @@ class SGOBiz:
             source_suppliers = list(
                 await SgoMaterielSupplier.list_sgo_suppliers(session=session)
             )
-            # 跨板块同编码优先动车模板，避免扩大同步范围后更换已有图片和供应商关联 ID；
-            # 同板块重复编码按模板 ID 倒序选择较新记录。
+            # A1 内同编码按模板 ID 倒序选择较新记录，保持关联图片和供应商的模板 ID 稳定。
             source_parts.sort(
                 key=_sync_template_sort_key,
             )
@@ -972,7 +1057,7 @@ class SGOBiz:
 
                     if local_item_id is not None:
                         local_item_id_by_masterplate_id[str(data.id)] = local_item_id
-                        # 同编码存在多个板块模板时，只采用优先板块的业务属性。
+                        # A1 内同编码只采用优先模板的业务属性，避免重复覆盖已有数据。
                         if local_item_id not in metadata_item_ids:
                             metadata_item_ids.add(local_item_id)
                             if local_item_id in item_metadata_by_id:
@@ -1080,8 +1165,11 @@ class SGOBiz:
                 await ItemSupplier.delete_by_source_ids(session, stale_supplier_ids)
                 await session.commit()
 
-        # 配件主数据先提交，层级同步才能把本轮新增编码映射为本地 item_id。
+        # 配件主数据先提交，层级和适用车型同步才能映射本轮新增的配件编码。
         hierarchy_result = await cls.sync_parts_hierarchy()
+        vehicle_result = await cls.sync_parts_vehicle_batch(
+            progress_callback=progress_callback,
+        )
 
         logger.info(
             "SGO 配件同步完成: source_parts={}, created_parts={}, updated_metadata={}, "
@@ -1120,6 +1208,7 @@ class SGOBiz:
                     "deleted_supplier_count": len(stale_supplier_ids),
                     "unmatched_supplier_count": supplier_unmatched_count,
                     **hierarchy_result,
+                    **vehicle_result,
                     "estimated_remaining_seconds": 0,
                     "failed_item_ids": list(failed_item_ids),
                     "new_failure_details": list(pending_failure_details),
@@ -1140,10 +1229,59 @@ class SGOBiz:
             "deleted_supplier_count": len(stale_supplier_ids),
             "unmatched_supplier_count": supplier_unmatched_count,
             **hierarchy_result,
+            **vehicle_result,
             "failed_item_ids": failed_item_ids,
             "failure_details": failure_details,
             "failures_persisted_incrementally": progress_callback is not None,
         }
+
+    @classmethod
+    async def sync_parts_vehicle_batch(
+        cls,
+        progress_callback: Callable[[dict], None] | None = None,
+    ) -> dict[str, int]:
+        """将 SGO 直接维护的适用车型去重后写入配件主表。"""
+        async with SessionLocal() as session:
+            item_states = await Items.list_vehicle_sync_state(session)
+        async with sgo_sessionLocal() as session:
+            direct_rows = await SgoMaterielVehicle.list_item_vehicle_mappings(session)
+
+        item_id_by_code = {
+            _item_code_key(row.item_code): int(row.id)
+            for row in item_states
+            if _item_code_key(row.item_code)
+        }
+        snapshot = _build_item_vehicle_batch(item_id_by_code, direct_rows)
+        changed = [
+            {"item_id": int(row.id), "vehicle_batch": snapshot.get(int(row.id))}
+            for row in item_states
+            if _clean_text(row.vehicle_batch) != snapshot.get(int(row.id))
+        ]
+        for offset in range(0, len(changed), 500):
+            async with SessionLocal() as session:
+                await Items.update_vehicle_batch(session, changed[offset:offset + 500])
+                await session.commit()
+            if progress_callback is not None and (
+                offset + 500 >= len(changed) or offset % 5000 == 0
+            ):
+                await _notify_progress(
+                    progress_callback,
+                    {
+                        "progress": 95,
+                        "vehicle_item_count": len(snapshot),
+                        "updated_vehicle_item_count": min(offset + 500, len(changed)),
+                    },
+                )
+
+        result = {
+            "vehicle_item_count": len(snapshot),
+            "updated_vehicle_item_count": len(changed),
+        }
+        logger.info(
+            "SGO 配件车型字段同步完成: direct_rows={}, matched_items={}, updated_items={}",
+            len(direct_rows), len(snapshot), len(changed),
+        )
+        return result
 
     @classmethod
     async def sync_parts_hierarchy(cls) -> dict[str, int]:

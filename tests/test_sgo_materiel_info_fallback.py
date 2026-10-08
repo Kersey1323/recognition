@@ -10,32 +10,30 @@ from csrcqsf.models.orm.sgo_external import (
 from csrcqsf.modules.sgo import services as sgo_services
 
 
-def test_template_query_uses_info_only_for_missing_fields_and_includes_a1_a3_a5():
+def test_template_query_uses_info_only_for_missing_fields_and_includes_only_a1():
     from sqlalchemy.dialects import postgresql
 
     stmt = SgoMaterielMasterplate.sync_items_statement()
     sql = str(stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
     assert "sgo_materiel_info" in sql
     assert "materiel_info_id" in sql
-    assert all(board in sql for board in ("A1", "A3", "A5"))
-    assert "A9" not in sql
+    assert "A1" in sql
+    assert all(board not in sql for board in ("A3", "A5", "A9"))
     assert "MAKTX" in sql and "WRKST" in sql and "ZEINR" in sql
 
 
-def test_same_code_prefers_a1_template_before_a3_and_a5():
+def test_same_a1_code_prefers_newer_template_id():
     from csrcqsf.modules.sgo.services import _sync_template_sort_key
 
     templates = [
-        SimpleNamespace(id="300", column_id="A5"),
-        SimpleNamespace(id="200", column_id="A3"),
         SimpleNamespace(id="100", column_id="A1"),
         SimpleNamespace(id="101", column_id="A1"),
     ]
     templates.sort(key=_sync_template_sort_key)
-    assert [row.id for row in templates] == ["101", "100", "200", "300"]
+    assert [row.id for row in templates] == ["101", "100"]
 
 
-def test_supplier_and_hierarchy_queries_exclude_a9():
+def test_supplier_and_hierarchy_queries_include_only_a1():
     from sqlalchemy.dialects import postgresql
 
     statements = (
@@ -46,11 +44,11 @@ def test_supplier_and_hierarchy_queries_exclude_a9():
         sql = str(statement.compile(
             dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
         ))
-        assert all(board in sql for board in ("A1", "A3", "A5"))
-        assert "A9" not in sql
+        assert "A1" in sql
+        assert all(board not in sql for board in ("A3", "A5", "A9"))
 
 
-def test_a9_cleanup_candidates_exclude_codes_shared_with_sync_boards():
+def test_non_a1_cleanup_preserves_codes_shared_with_a1():
     source_rows = [
         ("A9", "DEMO-ONLY"),
         ("A9", "SHARED"),
@@ -59,21 +57,48 @@ def test_a9_cleanup_candidates_exclude_codes_shared_with_sync_boards():
         ("A5", "OTHER"),
     ]
 
-    scope = sgo_services._partition_a9_cleanup_codes(source_rows)
+    scope = sgo_services._partition_non_a1_cleanup_codes(source_rows)
 
-    assert scope["a9_codes"] == {"DEMO-ONLY", "SHARED"}
+    assert scope["non_a1_codes"] == {"DEMO-ONLY", "SHARED", "METRO", "OTHER"}
     assert scope["shared_codes"] == {"SHARED"}
-    assert scope["exclusive_codes"] == {"DEMO-ONLY"}
+    assert scope["exclusive_codes"] == {"DEMO-ONLY", "METRO", "OTHER"}
 
 
-def test_a9_cleanup_keeps_item_when_external_artifact_cleanup_fails():
-    from csrcqsf.modules.sgo.services import A9CleanupCandidate, SGOBiz
+def test_non_a1_cleanup_scope_protects_a1_and_uploaded_source_video():
+    local_rows = [
+        SimpleNamespace(
+            id=101, item_code="A1-KEEP", item_name="A1 配件",
+            source_video_path=None, image_index_num=0, feature_index_num=0,
+            has_v2_index=0, time_updated=None,
+        ),
+        SimpleNamespace(
+            id=102, item_code="A5-VIDEO", item_name="已采集配件",
+            source_video_path="bfr-3d-videos/raw.mp4", image_index_num=1,
+            feature_index_num=1, has_v2_index=1, time_updated=None,
+        ),
+        SimpleNamespace(
+            id=103, item_code="A5-DELETE", item_name="待清理配件",
+            source_video_path=None, image_index_num=0, feature_index_num=0,
+            has_v2_index=0, time_updated=None,
+        ),
+    ]
+
+    scope = sgo_services._build_non_a1_cleanup_scope({"a1-keep"}, local_rows)
+
+    assert [row.id for row in scope.a1_items] == [101]
+    assert [row.id for row in scope.protected_items] == [102]
+    assert [row.id for row in scope.candidate_items] == [103]
+    assert len(scope.preview_token) == 64
+
+
+def test_non_a1_cleanup_keeps_item_when_external_artifact_cleanup_fails():
+    from csrcqsf.modules.sgo.services import PartsCleanupCandidate, SGOBiz
 
     candidates = [
-        A9CleanupCandidate(item_id=101, item_code="A9-OK", item_name="可清理"),
-        A9CleanupCandidate(item_id=102, item_code="A9-FAIL", item_name="需重试"),
+        PartsCleanupCandidate(item_id=101, item_code="A5-OK", item_name="可清理"),
+        PartsCleanupCandidate(item_id=102, item_code="A5-FAIL", item_name="需重试"),
     ]
-    delete_local = AsyncMock()
+    delete_local = AsyncMock(return_value=[101])
     progress = AsyncMock()
 
     async def cleanup_external(candidate):
@@ -82,32 +107,37 @@ def test_a9_cleanup_keeps_item_when_external_artifact_cleanup_fails():
 
     with patch.object(
         SGOBiz,
-        "_load_a9_cleanup_scope",
-        AsyncMock(return_value={"local_items": [object(), object()]}),
+        "_load_non_a1_cleanup_scope",
+        AsyncMock(return_value=SimpleNamespace(
+            candidate_items=[object(), object()], preview_token="preview-token"
+        )),
     ), patch.object(
         SGOBiz,
-        "_load_a9_cleanup_candidates",
+        "_load_cleanup_candidates",
         AsyncMock(return_value=candidates),
     ), patch.object(
         SGOBiz,
-        "_cleanup_a9_external_artifacts",
+        "_cleanup_candidate_external_indexes",
         side_effect=cleanup_external,
     ), patch.object(
         SGOBiz,
-        "_delete_a9_local_records",
+        "_delete_cleanup_local_records",
         delete_local,
     ):
-        result = asyncio.run(SGOBiz.cleanup_a9_demo_data(progress_callback=progress))
+        result = asyncio.run(SGOBiz.cleanup_non_a1_data(
+            preview_token="preview-token",
+            progress_callback=progress,
+        ))
 
     delete_local.assert_awaited_once_with([101])
     assert result["success_count"] == 1
     assert result["fail_count"] == 1
-    assert result["failure_details"][0]["item_code"] == "A9-FAIL"
-    assert result["failure_details"][0]["error_code"] == "A9_CLEANUP_FAILED"
+    assert result["failure_details"][0]["item_code"] == "A5-FAIL"
+    assert result["failure_details"][0]["error_code"] == "NON_A1_CLEANUP_FAILED"
 
 
-def test_a9_cleanup_skips_vector_services_for_unindexed_item():
-    from csrcqsf.modules.sgo.services import A9CleanupCandidate, SGOBiz
+def test_non_a1_cleanup_skips_vector_services_for_unindexed_item():
+    from csrcqsf.modules.sgo.services import PartsCleanupCandidate, SGOBiz
 
     with patch.object(
         sgo_services.MilvusManager,
@@ -122,8 +152,8 @@ def test_a9_cleanup_skips_vector_services_for_unindexed_item():
         "delete_v2_index",
         AsyncMock(),
     ) as delete_v2:
-        asyncio.run(SGOBiz._cleanup_a9_external_artifacts(
-            A9CleanupCandidate(item_id=101, item_code="A9-PLAIN", item_name="未索引")
+        asyncio.run(SGOBiz._cleanup_candidate_external_indexes(
+            PartsCleanupCandidate(item_id=101, item_code="A5-PLAIN", item_name="未索引")
         ))
 
     delete_legacy.assert_not_awaited()
@@ -170,7 +200,14 @@ def test_sync_parts_uses_fallback_name_model_and_drawing_without_overwriting_exi
         "hierarchy_total_count": 0, "synced_hierarchy_count": 0,
         "deleted_hierarchy_count": 0, "unresolved_vehicle_count": 0,
         "invalid_hierarchy_count": 0,
-    })):
+    })), patch.object(
+        SGOBiz,
+        "sync_parts_vehicle_batch",
+        AsyncMock(return_value={
+            "vehicle_item_count": 0,
+            "updated_vehicle_item_count": 0,
+        }),
+    ):
         asyncio.run(SGOBiz.sync_parts_items())
 
     assert FakeSession.inserted[0].item_name == "新配件"

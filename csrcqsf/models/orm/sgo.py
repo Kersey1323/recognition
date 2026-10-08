@@ -387,7 +387,4 @@ class SgoItemImages(Base):
 #         stmt = delete(cls).where(cls.index_id.in_(index_id_list))
 #         session.execute(stmt)
 #         await session.flush()
-
-class SgoVehicle(Base):
-    __tablename__ = 'sgo_vehicle_info'
     

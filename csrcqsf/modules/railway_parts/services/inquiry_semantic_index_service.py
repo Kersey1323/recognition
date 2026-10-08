@@ -9,7 +9,7 @@ import json
 import re
 import unicodedata
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, AsyncIterator, Callable
 
 from anyio.to_thread import run_sync
 
@@ -375,34 +375,13 @@ class InquirySemanticIndexService:
                 await run_sync(lambda: self.store.drop_build_collection(collection_name))
             raise
 
-    async def search(
+    async def _filter_search_hits(
         self,
-        query_text: str,
+        hits: list[dict],
         *,
-        top_k: int,
-        item_ids: list[int] | None = None,
-        exclude_inquiry_id: str | None = None,
-        before_inquiry_time: datetime | None = None,
+        exclude_inquiry_id: str | None,
+        before_inquiry_time: datetime | None,
     ) -> list[dict]:
-        """检索历史询码描述样本，并按配件去重返回最高分语义候选。"""
-        normalized = normalize_inquiry_description(query_text)
-        if not normalized:
-            raise ValueError("查询文本不能为空")
-        vectors = await self.model_client.text_embeddings([normalized])
-        candidate_limit = min(
-            self.config.inquiry_text_search_max_candidates,
-            max(
-                self.config.inquiry_text_search_min_candidates,
-                int(top_k) * self.config.inquiry_text_search_oversample,
-            ),
-        )
-        hits = await run_sync(
-            lambda: self.store.search(
-                vectors[0],
-                limit=candidate_limit,
-                item_ids=item_ids,
-            )
-        )
         if exclude_inquiry_id and before_inquiry_time:
             # Agent 回放在按配件去重前剔除当前及未来询码，保留同一配件更早的合法命中。
             eligible_inquiry_ids = await self.repository.list_eligible_inquiry_ids(
@@ -420,6 +399,7 @@ class InquirySemanticIndexService:
                 if str(hit.get("entity", {}).get("inquiry_id") or "")
                 in eligible_inquiry_ids
             ]
+
         best_by_item: dict[int, dict] = {}
         for hit in hits:
             score = float(hit.get("distance", 0) or 0)
@@ -435,7 +415,73 @@ class InquirySemanticIndexService:
             best_by_item.values(),
             key=lambda hit: float(hit.get("distance", 0) or 0),
             reverse=True,
-        )[:top_k]
+        )
+
+    async def search_candidate_batches(
+        self,
+        query_text: str,
+        *,
+        candidate_limits: tuple[int, ...] = (200, 500, 1000),
+        item_ids: list[int] | None = None,
+        exclude_inquiry_id: str | None = None,
+        before_inquiry_time: datetime | None = None,
+    ) -> AsyncIterator[list[dict]]:
+        """一次生成查询向量，按深度递增返回去重后的配件候选。"""
+        normalized = normalize_inquiry_description(query_text)
+        if not normalized:
+            raise ValueError("查询文本不能为空")
+        vectors = await self.model_client.text_embeddings([normalized])
+        max_candidates = self.config.inquiry_text_search_max_candidates
+        limits = tuple(
+            dict.fromkeys(
+                min(max_candidates, int(limit))
+                for limit in candidate_limits
+                if int(limit) > 0
+            )
+        )
+        for limit in limits:
+            hits = await run_sync(
+                lambda current_limit=limit: self.store.search(
+                    vectors[0],
+                    limit=current_limit,
+                    item_ids=item_ids,
+                )
+            )
+            yield await self._filter_search_hits(
+                hits,
+                exclude_inquiry_id=exclude_inquiry_id,
+                before_inquiry_time=before_inquiry_time,
+            )
+            if len(hits) < limit:
+                return
+
+    async def search(
+        self,
+        query_text: str,
+        *,
+        top_k: int,
+        item_ids: list[int] | None = None,
+        exclude_inquiry_id: str | None = None,
+        before_inquiry_time: datetime | None = None,
+    ) -> list[dict]:
+        """检索历史询码描述样本，并按配件去重返回最高分语义候选。"""
+        candidate_limit = min(
+            self.config.inquiry_text_search_max_candidates,
+            max(
+                self.config.inquiry_text_search_min_candidates,
+                int(top_k) * self.config.inquiry_text_search_oversample,
+            ),
+        )
+        batches = self.search_candidate_batches(
+            query_text,
+            candidate_limits=(candidate_limit,),
+            item_ids=item_ids,
+            exclude_inquiry_id=exclude_inquiry_id,
+            before_inquiry_time=before_inquiry_time,
+        )
+        async for hits in batches:
+            return hits[:top_k]
+        return []
 
 
 _service: InquirySemanticIndexService | None = None

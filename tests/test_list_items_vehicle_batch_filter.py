@@ -9,10 +9,7 @@ from sqlalchemy.dialects import mysql
 from csrcqsf.models.orm import item as item_module
 from csrcqsf.models.orm.item import Items
 
-VEHICLE_SQL = (
-    "upper(coalesce(nullif(trim(item_inquiry_history.vehicle_batch), ''), "
-    "trim(item_inquiry_history.vehicle))) = 'SFE27'"
-)
+VEHICLE_SQL = "find_in_set('SFE27', item_info.vehicle_batch) > 0"
 
 
 def _compiled_statement(**kwargs) -> str:
@@ -42,12 +39,11 @@ def _compiled_statement(**kwargs) -> str:
     )
 
 
-def test_vehicle_batch_filter_matches_history_vehicle_exactly():
+def test_vehicle_batch_filter_matches_persisted_item_vehicle_batch():
     sql = _compiled_statement(vehicle_batch="SFE27")
 
-    # 与 V2 条件检索共用同一套车型归一化规则（旧数据回退原始车型文本）。
     assert VEHICLE_SQL in sql
-    assert "EXISTS (SELECT item_inquiry_history.id" in sql
+    assert "item_inquiry_history" not in sql
 
 
 def test_vehicle_batch_filter_normalizes_case_and_surrounding_spaces():
@@ -57,10 +53,10 @@ def test_vehicle_batch_filter_normalizes_case_and_surrounding_spaces():
 
 
 def test_blank_vehicle_batch_does_not_add_vehicle_filter():
-    assert "item_inquiry_history.vehicle_batch" not in _compiled_statement(
+    assert "find_in_set" not in _compiled_statement(
         vehicle_batch="   "
     )
-    assert "item_inquiry_history.vehicle_batch" not in _compiled_statement(
+    assert "find_in_set" not in _compiled_statement(
         vehicle_batch=None
     )
 

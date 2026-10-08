@@ -606,6 +606,10 @@ def test_sync_parts_items_records_invalid_source_id_without_stopping_task():
         SGOBiz,
         "sync_parts_hierarchy",
         AsyncMock(return_value=EMPTY_HIERARCHY_RESULT),
+    ), patch.object(
+        SGOBiz,
+        "sync_parts_vehicle_batch",
+        AsyncMock(return_value={"vehicle_item_count": 0, "updated_vehicle_item_count": 0}),
     ):
         result = asyncio.run(
             SGOBiz.sync_parts_items(progress_callback=capture_progress)
@@ -705,6 +709,10 @@ def test_sync_parts_items_skips_existing_and_batch_duplicate_item_codes():
         SGOBiz,
         "sync_parts_hierarchy",
         AsyncMock(return_value=EMPTY_HIERARCHY_RESULT),
+    ), patch.object(
+        SGOBiz,
+        "sync_parts_vehicle_batch",
+        AsyncMock(return_value={"vehicle_item_count": 0, "updated_vehicle_item_count": 0}),
     ):
         result = asyncio.run(SGOBiz.sync_parts_items())
 
@@ -830,6 +838,10 @@ def test_sync_parts_items_persists_metadata_and_supplier_snapshot():
         SGOBiz,
         "sync_parts_hierarchy",
         AsyncMock(return_value=EMPTY_HIERARCHY_RESULT),
+    ), patch.object(
+        SGOBiz,
+        "sync_parts_vehicle_batch",
+        AsyncMock(return_value={"vehicle_item_count": 0, "updated_vehicle_item_count": 0}),
     ):
         result = asyncio.run(SGOBiz.sync_parts_items())
 

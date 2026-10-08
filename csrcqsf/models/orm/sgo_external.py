@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bfrcommon.db import PageQueryResult, async_get_count
 
 from csrcqsf.models.orm.sgo_constants import (
-    A9_DEMO_COLUMN_ID,
+    SGO_MATERIEL_COLUMN_IDS,
     SYNC_MATERIEL_COLUMN_IDS,
 )
 
@@ -1657,7 +1657,7 @@ class SgoMaterielInfoTree(Base):
 
     @classmethod
     def sync_hierarchy_statement(cls):
-        # 父子层级与配件主数据使用同一板块边界，避免 A9 演示关系重新进入业务库。
+        # 父子层级与配件主数据使用同一 A1 板块边界。
         return select(
             cls.id,
             cls.materiel_code,
@@ -1779,7 +1779,7 @@ class SgoMaterielMasterplate(Base):
 
     @classmethod
     def sync_items_statement(cls):
-        # 配件业务库只接收 A1/A3/A5 板块；A9 演示配件不进入同步范围。
+        # 配件业务库只接收 A1 板块，其他板块不进入主数据及其关联信息同步范围。
         # 模板保留关联 ID，原物料表仅补齐模板缺失的基础字段。
         return select(
             cls.id,
@@ -1799,7 +1799,7 @@ class SgoMaterielMasterplate(Base):
     async def list_cleanup_column_item_codes(cls, session: AsyncSession):
         result = await session.execute(
             select(cls.column_id, cls.MATNR).where(
-                cls.column_id.in_((*SYNC_MATERIEL_COLUMN_IDS, A9_DEMO_COLUMN_ID)),
+                cls.column_id.in_(SGO_MATERIEL_COLUMN_IDS),
                 cls.MATNR.is_not(None),
             )
         )
@@ -1890,7 +1890,7 @@ class SgoMaterielSupplier(Base):
     @classmethod
     def sync_suppliers_statement(cls):
         # 配件同步只读取业务库需要展示的字段，避免复制供应商维护表中的无关信息。
-        # 供应商跟随主配件板块范围，A9 演示关系不进入业务库。
+        # 供应商跟随主配件的 A1 板块范围。
         return (
             select(
                 cls.id,
@@ -1915,7 +1915,32 @@ class SgoMaterielSupplier(Base):
     @classmethod
     async def list_sgo_suppliers(cls, session: AsyncSession):
         result = await session.execute(cls.sync_suppliers_statement())
-        return result.all()
+        official = result.all()
+        templates = (await session.execute(select(
+            SgoMaterielMasterplate.id,
+            SgoMaterielMasterplate.MATNR,
+            SgoMaterielMasterplate.tenant_id_,
+        ).where(SgoMaterielMasterplate.column_id.in_(SYNC_MATERIEL_COLUMN_IDS)))).all()
+        procurement = (await session.scalars(select(SgoProcureSupplier).order_by(
+            func.coalesce(SgoProcureSupplier.update_time, SgoProcureSupplier.create_time).is_(None).asc(),
+            func.coalesce(SgoProcureSupplier.update_time, SgoProcureSupplier.create_time).desc(),
+            SgoProcureSupplier.id.desc(),
+        ))).all()
+        from csrcqsf.models.supplier_mapping import merge_procurement_suppliers
+
+        return merge_procurement_suppliers(official, procurement, templates)
+
+
+class SgoProcureSupplier(Base):
+    __tablename__ = "sgo_procure_supplier"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    materiel_code: Mapped[Optional[str]] = mapped_column(String(64))
+    supplier_code: Mapped[Optional[str]] = mapped_column(String(64))
+    supplier_name: Mapped[Optional[str]] = mapped_column(String(255))
+    tenant_id_: Mapped[Optional[str]] = mapped_column(String(64))
+    create_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    update_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
 
 class SgoMaterielSyncSap(Base):
@@ -1977,6 +2002,23 @@ class SgoMaterielVehicle(Base):
             )
             .where(cls.vehicle_id.is_not(None))
             .distinct()
+        )
+        return result.all()
+
+    @classmethod
+    async def list_item_vehicle_mappings(cls, session: AsyncSession):
+        result = await session.execute(
+            select(
+                SgoMaterielMasterplate.MATNR,
+                cls.vehicle_id,
+                cls.vehicle_batch,
+                cls.vehicle_name,
+            )
+            .join(SgoMaterielMasterplate, cls.masterplate_id == SgoMaterielMasterplate.id)
+            .where(
+                SgoMaterielMasterplate.column_id.in_(SYNC_MATERIEL_COLUMN_IDS),
+                cls.vehicle_batch.is_not(None),
+            )
         )
         return result.all()
 

@@ -20,6 +20,7 @@ from csrcqsf.modules.railway_parts.schemas._parts_api_models import (
     SearchTextReq,
     V2IndexDeleteRes,
 )
+from csrcqsf.models.orm.search_history import SearchGroupMember
 
 __all__ = [
     "ContextualSearchRes",
@@ -36,6 +37,7 @@ __all__ = [
     "SearchHistoryVerifyReq",
     "SearchHistoryVerifyRes",
     "SearchHierarchyPart",
+    "SearchGroupMember",
     "SearchItem",
     "SearchRes",
     "SearchTextReq",

@@ -696,6 +696,113 @@ def test_contextual_search_returns_top_twenty_items():
     assert [result.item_code for result in results] == [
         f"CODE-{item_id}" for item_id in range(1, 21)
     ]
+    repository.list_histories_by_item_ids.assert_awaited_once_with(
+        session,
+        list(range(1, 21)),
+    )
+    repository.list_first_images_by_item_ids.assert_awaited_once_with(
+        session,
+        list(range(1, 21)),
+    )
+
+
+def test_contextual_text_search_groups_same_names_and_keeps_all_codes():
+    session = _Session()
+    all_items = [
+        SimpleNamespace(id=1, item_code="CODE-1", item_name=" ＡＢＣ  铰链 "),
+        SimpleNamespace(id=2, item_code="CODE-2", item_name="abc 铰链"),
+        SimpleNamespace(id=3, item_code="CODE-3", item_name="门控器"),
+    ]
+    repository = SimpleNamespace(
+        list_items_by_ids=AsyncMock(
+            side_effect=lambda _session, item_ids: [
+                item for item in all_items if item.id in item_ids
+            ]
+        ),
+        list_histories_by_item_ids=AsyncMock(return_value=[]),
+        list_first_images_by_item_ids=AsyncMock(return_value=[]),
+    )
+
+    class DeepSemanticService:
+        def __init__(self):
+            self.requested_limits = None
+
+        async def search_candidate_batches(self, *args, **kwargs):
+            self.requested_limits = kwargs["candidate_limits"]
+            yield [
+                {"distance": 0.93, "entity": {"item_id": 1, "description": "铰链", "inquiry_id": "i1"}},
+                {"distance": 0.92, "entity": {"item_id": 2, "description": "铰链", "inquiry_id": "i2"}},
+                {"distance": 0.80, "entity": {"item_id": 3, "description": "门控器", "inquiry_id": "i3"}},
+            ]
+
+    semantic_service = DeepSemanticService()
+    runtime = _runtime(session, repository)
+    with patch.object(
+        contextual_search_service,
+        "get_inquiry_semantic_index_service",
+        return_value=semantic_service,
+    ):
+        results, message = asyncio.run(
+            contextual_search_service._execute_contextual_search(
+                object,
+                query_images=[],
+                parameters=SearchParameters(item_description="铰链"),
+                runtime=runtime,
+            )
+        )
+
+    assert message is None
+    assert semantic_service.requested_limits == (1000,)
+    repository.list_items_by_ids.assert_awaited_once()
+    repository.list_histories_by_item_ids.assert_awaited_once()
+    assert len(results) == 2
+    assert [member.item_code for member in results[0].group_members] == [
+        "CODE-1",
+        "CODE-2",
+    ]
+
+
+def test_contextual_image_only_search_keeps_same_name_items_separate():
+    session = _Session()
+    repository = SimpleNamespace(
+        list_items_by_ids=AsyncMock(
+            return_value=[
+                SimpleNamespace(id=1, item_code="CODE-1", item_name="铰链"),
+                SimpleNamespace(id=2, item_code="CODE-2", item_name="铰链"),
+            ]
+        ),
+        list_histories_by_item_ids=AsyncMock(return_value=[]),
+        list_first_images_by_item_ids=AsyncMock(return_value=[]),
+    )
+    manager = SimpleNamespace(
+        search_by_image=AsyncMock(
+            return_value=[
+                {
+                    "distance": 0.91,
+                    "entity": {"item_id": 1, "item_code": "CODE-1", "item_name": "铰链"},
+                },
+                {
+                    "distance": 0.90,
+                    "entity": {"item_id": 2, "item_code": "CODE-2", "item_name": "铰链"},
+                },
+            ]
+        )
+    )
+    runtime = _runtime(session, repository)
+    runtime._get_milvus_manager_v2_cls = lambda: lambda: manager
+
+    results, message = asyncio.run(
+        contextual_search_service._execute_contextual_search(
+            object,
+            query_images=[object()],
+            parameters=SearchParameters(),
+            runtime=runtime,
+        )
+    )
+
+    assert message is None
+    assert [item.item_code for item in results] == ["CODE-1", "CODE-2"]
+    assert all(not item.group_members for item in results)
 
 
 def test_exact_item_name_filters_candidates_and_missing_name_falls_back():

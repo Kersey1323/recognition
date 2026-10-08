@@ -11,8 +11,8 @@ from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.modules.sgo.item_mapping import normalize_sgo_return_item
 from csrcqsf.modules.sgo.schemas import (
     ListInqueryItem,
-    SgoA9CleanupExecuteReq,
-    SgoA9CleanupPreviewRes,
+    SgoNonA1CleanupExecuteReq,
+    SgoNonA1CleanupPreviewRes,
     SgoSyncFailureListReq,
     SgoSyncFailureListRes,
     SgoSyncFailureRecord,
@@ -135,32 +135,37 @@ async def sgo_parts_sync(_: SyncItemsReq):
 
 
 @sgo_router.get(
-    '/sgo/parts/cleanup/a9/preview',
+    '/sgo/parts/cleanup/non-a1/preview',
     tags=["业务-SGO集成"],
-    summary='预览待清理的 A9 演示配件',
-    response_model=SgoA9CleanupPreviewRes,
+    summary='预览待清理的非 A1 配件',
+    response_model=SgoNonA1CleanupPreviewRes,
 )
-async def preview_sgo_a9_cleanup():
-    return SgoA9CleanupPreviewRes(**(await SGOBiz.preview_a9_cleanup()))
+async def preview_sgo_non_a1_cleanup():
+    return SgoNonA1CleanupPreviewRes(**(await SGOBiz.preview_non_a1_cleanup()))
 
 
 @sgo_router.post(
-    '/sgo/parts/cleanup/a9',
+    '/sgo/parts/cleanup/non-a1',
     tags=["业务-SGO集成"],
-    summary='清理已同步的 A9 演示配件',
+    summary='清理未上传原视频的非 A1 配件',
     response_model=SgoSyncTaskStartRes,
-    description='仅清理未同时出现在 A1/A3/A5 的 A9 配件；必须先调用预览接口确认范围。',
+    description='已上传原视频的配件强制保留；必须先调用预览接口确认范围。',
 )
-async def execute_sgo_a9_cleanup(_: SgoA9CleanupExecuteReq):
+async def execute_sgo_non_a1_cleanup(req: SgoNonA1CleanupExecuteReq):
+    try:
+        await SGOBiz.validate_non_a1_cleanup_preview(req.preview_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     try:
         task = await sgo_sync_task_manager.start(
             "parts-cleanup",
-            SGOBiz.cleanup_a9_demo_data,
+            SGOBiz.cleanup_non_a1_data,
+            preview_token=req.preview_token,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return SgoSyncTaskStartRes(
-        message="A9 演示配件清理任务已在后台启动",
+        message="非 A1 配件清理任务已在后台启动",
         task_id=task["task_id"],
         task_type=task["task_type"],
         status=task["status"],

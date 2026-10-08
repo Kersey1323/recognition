@@ -23,7 +23,7 @@ def test_inquiry_semantic_config_defaults(monkeypatch):
     assert config.inquiry_text_index_batch_size == 128
     assert config.inquiry_text_search_oversample == 5
     assert config.inquiry_text_search_min_candidates == 30
-    assert config.inquiry_text_search_max_candidates == 200
+    assert config.inquiry_text_search_max_candidates == 1000
     assert config.inquiry_text_min_score == 0.55
 
 

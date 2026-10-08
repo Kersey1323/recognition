@@ -111,7 +111,7 @@ def test_parts_sync_route_submits_background_task_without_awaiting_runner():
     assert result.status == "pending"
 
 
-def test_a9_cleanup_preview_and_execute_routes_are_separated():
+def test_non_a1_cleanup_preview_and_execute_routes_are_separated():
     manager = MagicMock()
     manager.start = AsyncMock(return_value={
         "task_id": "cleanup-task-1",
@@ -119,36 +119,84 @@ def test_a9_cleanup_preview_and_execute_routes_are_separated():
         "task_type": "parts-cleanup",
     })
     preview = {
-        "source_a9_code_count": 12,
-        "shared_code_count": 2,
-        "exclusive_code_count": 10,
-        "local_item_count": 8,
-        "sample_items": [{"item_id": "101", "item_code": "A9-1", "item_name": "演示配件"}],
+        "source_a1_code_count": 87_817,
+        "local_item_count": 90_000,
+        "a1_retained_count": 87_800,
+        "protected_source_video_count": 12,
+        "candidate_count": 2_188,
+        "candidate_with_images_count": 20,
+        "candidate_with_indexes_count": 5,
+        "preview_token": "a" * 64,
+        "sample_items": [{"item_id": "101", "item_code": "A5-1", "item_name": "待清理配件"}],
     }
 
     with patch.object(routes, "sgo_sync_task_manager", manager), patch.object(
         routes.SGOBiz,
-        "preview_a9_cleanup",
+        "preview_non_a1_cleanup",
         AsyncMock(return_value=preview),
     ), patch.object(
         routes.SGOBiz,
-        "cleanup_a9_demo_data",
+        "validate_non_a1_cleanup_preview",
+        AsyncMock(),
+    ), patch.object(
+        routes.SGOBiz,
+        "cleanup_non_a1_data",
         AsyncMock(),
     ) as runner:
-        preview_result = asyncio.run(routes.preview_sgo_a9_cleanup())
-        started = asyncio.run(routes.execute_sgo_a9_cleanup(
-            routes.SgoA9CleanupExecuteReq(confirmation="DELETE_A9_DEMO_DATA")
+        preview_result = asyncio.run(routes.preview_sgo_non_a1_cleanup())
+        started = asyncio.run(routes.execute_sgo_non_a1_cleanup(
+            routes.SgoNonA1CleanupExecuteReq(
+                preview_token="a" * 64,
+                confirmation="DELETE_NON_A1_WITHOUT_SOURCE_VIDEO",
+            )
         ))
 
-    assert preview_result.local_item_count == 8
+    assert preview_result.candidate_count == 2_188
     runner.assert_not_awaited()
-    manager.start.assert_awaited_once_with("parts-cleanup", runner)
+    manager.start.assert_awaited_once_with(
+        "parts-cleanup",
+        runner,
+        preview_token="a" * 64,
+    )
     assert started.task_id == "cleanup-task-1"
 
 
-def test_a9_cleanup_execute_request_requires_fixed_confirmation():
+def test_non_a1_cleanup_execute_request_requires_token_and_fixed_confirmation():
     with pytest.raises(ValidationError):
-        routes.SgoA9CleanupExecuteReq(confirmation="yes")
+        routes.SgoNonA1CleanupExecuteReq(
+            preview_token="a" * 64,
+            confirmation="yes",
+        )
+    with pytest.raises(ValidationError):
+        routes.SgoNonA1CleanupExecuteReq(
+            confirmation="DELETE_NON_A1_WITHOUT_SOURCE_VIDEO",
+        )
+
+
+def test_non_a1_cleanup_execute_rejects_stale_preview_token():
+    with patch.object(
+        routes.SGOBiz,
+        "validate_non_a1_cleanup_preview",
+        AsyncMock(side_effect=ValueError("清理范围已变化，请重新调用预览接口")),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(routes.execute_sgo_non_a1_cleanup(
+                routes.SgoNonA1CleanupExecuteReq(
+                    preview_token="a" * 64,
+                    confirmation="DELETE_NON_A1_WITHOUT_SOURCE_VIDEO",
+                )
+            ))
+
+    assert exc_info.value.status_code == 409
+
+
+def test_non_a1_cleanup_routes_replace_obsolete_a9_routes():
+    paths = {route.path for route in routes.sgo_router.routes}
+
+    assert "/sgo/sgo/parts/cleanup/non-a1/preview" in paths
+    assert "/sgo/sgo/parts/cleanup/non-a1" in paths
+    assert "/sgo/sgo/parts/cleanup/a9/preview" not in paths
+    assert "/sgo/sgo/parts/cleanup/a9" not in paths
 
 
 def test_images_sync_route_and_status_use_same_task_manager():

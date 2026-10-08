@@ -56,32 +56,42 @@ class SgoSyncTaskStartRes(BaseModel):
     task_id: str = Field(..., description="持久化同步任务 ID")
     task_type: str = Field(
         ...,
-        description="任务类型：parts 配件、images 图片、inquiry-history 询码历史",
+        description=(
+            "任务类型：parts 配件、images 图片、inquiry-history 询码历史、"
+            "parts-cleanup 非 A1 清理"
+        ),
     )
     status: str = Field(..., description="任务提交时状态，通常为 pending")
 
 
-class SgoA9CleanupItem(BaseModel):
+class SgoNonA1CleanupItem(BaseModel):
     item_id: str
     item_code: str
     item_name: str | None = None
 
 
-class SgoA9CleanupPreviewRes(BaseModel):
-    source_a9_code_count: int = Field(..., ge=0, description="甲方 A9 板块编码数")
-    shared_code_count: int = Field(..., ge=0, description="同时存在于 A1/A3/A5 的编码数")
-    exclusive_code_count: int = Field(..., ge=0, description="仅存在于 A9 的编码数")
-    local_item_count: int = Field(..., ge=0, description="已进入 item_info 的独占 A9 配件数")
-    sample_items: list[SgoA9CleanupItem] = Field(
+class SgoNonA1CleanupPreviewRes(BaseModel):
+    source_a1_code_count: int = Field(..., ge=0, description="当前甲方 A1 唯一编码数")
+    local_item_count: int = Field(..., ge=0, description="当前 item_info 配件总数")
+    a1_retained_count: int = Field(..., ge=0, description="因属于 A1 而保留的配件数")
+    protected_source_video_count: int = Field(
+        ..., ge=0, description="因已上传原视频而强制保护的非 A1 配件数"
+    )
+    candidate_count: int = Field(..., ge=0, description="可执行清理的配件数")
+    candidate_with_images_count: int = Field(..., ge=0, description="候选中存在图片记录的配件数")
+    candidate_with_indexes_count: int = Field(..., ge=0, description="候选中存在检索索引的配件数")
+    preview_token: str = Field(..., min_length=64, max_length=64, description="本次清理范围令牌")
+    sample_items: list[SgoNonA1CleanupItem] = Field(
         default_factory=list,
         description="待清理配件样例，最多返回 100 条",
     )
 
 
-class SgoA9CleanupExecuteReq(BaseModel):
-    confirmation: Literal["DELETE_A9_DEMO_DATA"] = Field(
+class SgoNonA1CleanupExecuteReq(BaseModel):
+    preview_token: str = Field(..., min_length=64, max_length=64, description="预览接口返回的范围令牌")
+    confirmation: Literal["DELETE_NON_A1_WITHOUT_SOURCE_VIDEO"] = Field(
         ...,
-        description="固定确认词，防止误触发演示数据清理",
+        description="固定确认词，防止误触发非 A1 数据清理",
     )
 
 
