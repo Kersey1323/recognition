@@ -355,6 +355,12 @@ async def list_item(cls, req, runtime=None):
                 inquiry_count=inquiry_count,
                 id=str(item.id),
                 created_at=runtime.date_to_str(item.time_created),
+                # 列表更新时间表示图片索引最近一次更新，不使用主数据同步时间。
+                updated_at=(
+                    runtime.date_to_str(getattr(item, "v2_index_updated_at", None))
+                    if getattr(item, "v2_index_updated_at", None) is not None
+                    else None
+                ),
             )
             item_desc.images_total_num = len(item_images)
             res.items.append(item_desc)

@@ -6,6 +6,8 @@ from fastapi import HTTPException, Path
 
 from csrcqsf.modules.railway_parts.routes.router import parts_router
 from csrcqsf.modules.railway_parts.schemas.viewer360 import (
+    Viewer360BackfillReq,
+    Viewer360BackfillRes,
     Viewer360CancelReq,
     Viewer360CurrentResultRes,
     Viewer360FailureListReq,
@@ -461,6 +463,37 @@ async def get_viewer360_statistics(_req: Viewer360StatisticsReq):
     - 成功耗时：completed_at - started_at，单位秒
     """
     return Viewer360StatisticsRes(**await viewer360_task_manager.statistics())
+
+
+@parts_router.post(
+    "/v2/viewer360/tasks/backfill",
+    tags=[TAG],
+    summary="为已有源视频但无360视图的配件批量创建任务",
+    response_model=Viewer360BackfillRes,
+    responses={
+        200: {
+            "description": (
+                "批量创建完成；响应仅表示任务已入队，不等待 Viewer360 图片生成完成。"
+                "单个配件失败不会中断本批次"
+            )
+        },
+        409: {"description": "Viewer360 功能未启用"},
+    },
+)
+async def backfill_viewer360_tasks(req: Viewer360BackfillReq):
+    """
+    扫描已有源视频、尚未发布 Viewer360 结果且没有进行中任务的配件，按 `limit`
+    创建后台任务。历史任务为失败、取消或服务中断时，配件仍可重新进入补建范围。
+
+    重复调用时，已经发布结果或已有 pending/running/cancelling 任务的配件会被跳过，
+    不会重复创建。每个配件独立处理；源视频不可读等单条错误会进入 `failures`，
+    其余配件继续创建。`remaining_count` 是本批处理结束后仍待补建的配件数量。
+    """
+    try:
+        result = await viewer360_task_manager.backfill(limit=req.limit)
+    except Viewer360ConflictError as exc:
+        _raise_business_error(exc)
+    return Viewer360BackfillRes(**result)
 
 
 @parts_router.get(

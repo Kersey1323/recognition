@@ -266,6 +266,53 @@ class Viewer360TaskManager:
             self._queue.put_nowait(str(record["task_id"]))
             return _serialize_task(await self._attach_item_brief(record))
 
+    async def backfill(self, *, limit: int) -> dict[str, Any]:
+        if not self.enabled:
+            raise Viewer360ConflictError("Viewer360 功能未启用")
+
+        eligible_total = await self.repository.count_backfill_candidates()
+        candidates = await self.repository.list_backfill_candidates(limit=limit)
+        created_tasks: list[dict[str, Any]] = []
+        failures: list[dict[str, Any]] = []
+        skipped_count = 0
+
+        # 候选查询只是执行前快照；逐条提交时再次校验，避免并发补建产生重复任务。
+        for candidate in candidates:
+            try:
+                task = await self.submit(
+                    item_id=int(candidate["item_id"]),
+                    rebuild_existing=False,
+                )
+            except Viewer360ConflictError:
+                skipped_count += 1
+                continue
+            except Exception as exc:
+                failures.append(
+                    {
+                        "item_id": str(candidate["item_id"]),
+                        "item_code": candidate.get("item_code"),
+                        "item_name": candidate.get("item_name"),
+                        "error_message": str(exc),
+                    }
+                )
+                continue
+
+            if task.get("reused_existing"):
+                skipped_count += 1
+            else:
+                created_tasks.append(task)
+
+        remaining_count = await self.repository.count_backfill_candidates()
+        return {
+            "eligible_total": eligible_total,
+            "created_count": len(created_tasks),
+            "skipped_count": skipped_count,
+            "failed_count": len(failures),
+            "remaining_count": remaining_count,
+            "created_tasks": created_tasks,
+            "failures": failures,
+        }
+
     async def _create_task(
         self,
         *,

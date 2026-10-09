@@ -72,6 +72,10 @@ class ListItem(BaseModel):
     weight: float | None
     video_path: str | None
     created_at: str
+    updated_at: str | None = Field(
+        default=None,
+        description='V2图片索引最近更新时间，对应item_info.v2_index_updated_at',
+    )
     has_index: int = Field(default=0, description='为1时表示已具备完整V2索引')
     has_source_video: int = Field(default=0, description='为1时表示已上传原视频')
     features: list[str] = Field(default_factory=list, description='当前BGE文字索引中的询码名称描述')

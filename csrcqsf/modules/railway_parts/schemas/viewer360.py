@@ -60,6 +60,41 @@ class Viewer360TaskStartRes(BaseModel):
     )
 
 
+class Viewer360BackfillReq(_StrictRequest):
+    limit: int = Field(
+        100,
+        ge=1,
+        le=500,
+        description="本次最多创建的 Viewer360 任务数，范围 1-500",
+    )
+
+    class Config(_StrictRequest.Config):
+        schema_extra = {"example": {"limit": 100}}
+
+
+class Viewer360BackfillFailure(BaseModel):
+    item_id: str = Field(..., description="创建任务失败的配件 ID")
+    item_code: str | None = Field(None, description="创建任务失败的配件编码")
+    item_name: str | None = Field(None, description="创建任务失败的配件名称")
+    error_message: str = Field(..., description="该配件创建任务失败的原因")
+
+
+class Viewer360BackfillRes(BaseModel):
+    eligible_total: int = Field(..., description="执行前符合补建条件的配件总数")
+    created_count: int = Field(..., description="本次成功创建的任务数")
+    skipped_count: int = Field(..., description="执行期间因已有结果或进行中任务而跳过的配件数")
+    failed_count: int = Field(..., description="本次创建任务失败的配件数")
+    remaining_count: int = Field(..., description="执行完成后仍符合补建条件的配件总数")
+    created_tasks: list[Viewer360TaskStartRes] = Field(
+        default_factory=list,
+        description="本次成功创建的 Viewer360 任务",
+    )
+    failures: list[Viewer360BackfillFailure] = Field(
+        default_factory=list,
+        description="未能创建任务的配件及失败原因",
+    )
+
+
 class Viewer360RowState(BaseModel):
     row_index: int = Field(..., description="1-based 角度行号，1 对应 row_01、2 对应 row_02")
     status: str = Field(

@@ -10,6 +10,7 @@ os.environ["SGO_KINGBASE_PORT"] = "54321"
 os.environ["SGO_MYSQL_PORT"] = "3306"
 
 from csrcqsf.modules.railway_parts.schemas.viewer360 import (
+    Viewer360BackfillReq,
     Viewer360FailureListReq,
     Viewer360RetryReq,
     Viewer360TaskCreateReq,
@@ -35,6 +36,20 @@ def test_viewer360_request_models_reject_unknown_fields():
             row_indexes=[2],
             prompt_box=[1, 2, 3, 4],
         )
+
+
+def test_viewer360_backfill_request_is_bounded_and_strict():
+    assert Viewer360BackfillReq().limit == 100
+    assert Viewer360BackfillReq(limit=500).limit == 500
+    with pytest.raises(ValidationError):
+        Viewer360BackfillReq(limit=0)
+    with pytest.raises(ValidationError):
+        Viewer360BackfillReq(limit=501)
+    with pytest.raises(ValidationError):
+        Viewer360BackfillReq(limit=100, unknown=True)
+
+    schema = Viewer360BackfillReq.schema()
+    assert schema["properties"]["limit"]["description"]
 
 
 def test_viewer360_request_fields_have_swagger_descriptions_and_examples():
@@ -81,6 +96,7 @@ def test_viewer360_routes_are_registered():
     paths = {route.path for route in parts_router.routes}
     assert {
         "/railway/parts/v2/viewer360/tasks",
+        "/railway/parts/v2/viewer360/tasks/backfill",
         "/railway/parts/v2/viewer360/tasks/list",
         "/railway/parts/v2/viewer360/tasks/statistics",
         "/railway/parts/v2/viewer360/tasks/{task_id}",
@@ -140,3 +156,49 @@ def test_create_route_returns_stable_start_response(monkeypatch):
     assert result.task_id == "task-1"
     assert result.item_id == "12"
     assert result.reused_existing is False
+
+
+def test_backfill_route_returns_batch_summary(monkeypatch):
+    _prepare_sgo_import()
+    from csrcqsf.modules.railway_parts.routes import viewer360_routes
+
+    calls = []
+
+    async def backfill(*, limit):
+        calls.append(limit)
+        return {
+            "eligible_total": 30,
+            "created_count": 1,
+            "skipped_count": 1,
+            "failed_count": 1,
+            "remaining_count": 27,
+            "created_tasks": [
+                {
+                    "task_id": "task-12",
+                    "item_id": "12",
+                    "item_code": "P12",
+                    "item_name": "配件12",
+                    "status": "pending",
+                    "reused_existing": False,
+                }
+            ],
+            "failures": [
+                {
+                    "item_id": "15",
+                    "item_code": "P15",
+                    "item_name": "配件15",
+                    "error_message": "source missing",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(viewer360_routes.viewer360_task_manager, "backfill", backfill)
+    result = asyncio.run(
+        viewer360_routes.backfill_viewer360_tasks(Viewer360BackfillReq(limit=25))
+    )
+
+    assert calls == [25]
+    assert result.eligible_total == 30
+    assert result.created_tasks[0].task_id == "task-12"
+    assert result.failures[0].item_code == "P15"
+    assert result.failures[0].error_message == "source missing"

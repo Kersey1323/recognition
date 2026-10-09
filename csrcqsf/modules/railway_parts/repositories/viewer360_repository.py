@@ -31,6 +31,48 @@ def _failure_to_dict(record: Viewer360TaskFailure) -> dict[str, Any]:
 
 
 class Viewer360Repository:
+    @staticmethod
+    def _backfill_eligibility_conditions():
+        current_exists = select(1).where(
+            ItemViewer360Current.item_id == Items.id
+        ).exists()
+        active_exists = select(1).where(
+            Viewer360Task.item_id == Items.id,
+            Viewer360Task.status.in_(ACTIVE_VIEWER360_TASK_STATUSES),
+        ).exists()
+        # 补建只处理已有源视频但尚未发布、也没有任务正在占用的配件。
+        return (
+            Items.source_video_path.is_not(None),
+            func.trim(Items.source_video_path) != "",
+            ~current_exists,
+            ~active_exists,
+        )
+
+    @classmethod
+    def _backfill_candidate_stmt(cls, *, limit: int):
+        return (
+            select(
+                Items.id.label("item_id"),
+                Items.item_name,
+                Items.item_code,
+            )
+            .where(*cls._backfill_eligibility_conditions())
+            .order_by(Items.source_video_updated_at.asc(), Items.id.asc())
+            .limit(limit)
+        )
+
+    async def count_backfill_candidates(self) -> int:
+        stmt = select(func.count(Items.id)).where(
+            *self._backfill_eligibility_conditions()
+        )
+        async with SessionLocal() as session:
+            return int((await session.scalar(stmt)) or 0)
+
+    async def list_backfill_candidates(self, *, limit: int) -> list[dict[str, Any]]:
+        async with SessionLocal() as session:
+            rows = await session.execute(self._backfill_candidate_stmt(limit=limit))
+            return [dict(row) for row in rows.mappings().all()]
+
     async def get_item_source(self, item_id: int) -> dict[str, Any] | None:
         async with SessionLocal() as session:
             item = await session.scalar(select(Items).where(Items.id == item_id))

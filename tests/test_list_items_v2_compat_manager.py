@@ -81,6 +81,7 @@ def test_list_item_uses_v2_flags_for_filter_and_response():
                 source_video_path="bfr-3d-videos/raw-videos/demo.mp4",
                 has_v2_index=1,
                 v2_indexed_image_num=4,
+                v2_index_updated_at=datetime(2026, 10, 9, 10, 20, 30),
                 time_created=datetime(2025, 10, 24, 15, 40, 16),
             )
         ],
@@ -105,6 +106,7 @@ def test_list_item_uses_v2_flags_for_filter_and_response():
     assert res.items[0].has_index == 1
     assert res.items[0].has_source_video == 1
     assert res.items[0].images_total_indexed_num == 4
+    assert res.items[0].updated_at == "2026-10-09 10:20:30"
     assert run_sync_mock.await_count == 0
     state_cls.assert_not_called()
 

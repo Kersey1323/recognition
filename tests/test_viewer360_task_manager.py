@@ -22,6 +22,16 @@ class FakeRepository:
             "source_video_object": "videos/12.mp4",
             "source_video_updated_at": datetime(2026, 9, 2),
         }
+        self.backfill_candidates = []
+        self.backfill_counts = []
+
+    async def count_backfill_candidates(self):
+        if self.backfill_counts:
+            return self.backfill_counts.pop(0)
+        return len(self.backfill_candidates)
+
+    async def list_backfill_candidates(self, *, limit):
+        return self.backfill_candidates[:limit]
 
     async def get_item_source(self, item_id):
         return self.item if item_id == 12 else None
@@ -155,6 +165,72 @@ def test_submit_checks_source_video_before_creating_task():
 
     assert pipeline.storage.checked_sources == ["videos/12.mp4"]
     assert result["status"] == "pending"
+
+
+def test_backfill_creates_tasks_and_isolates_item_failures(monkeypatch):
+    repository = FakeRepository()
+    repository.backfill_candidates = [
+        {"item_id": 12, "item_code": "P12", "item_name": "配件12"},
+        {"item_id": 13, "item_code": "P13", "item_name": "配件13"},
+        {"item_id": 14, "item_code": "P14", "item_name": "配件14"},
+        {"item_id": 15, "item_code": "P15", "item_name": "配件15"},
+    ]
+    repository.backfill_counts = [4, 2]
+    manager = Viewer360TaskManager(repository=repository, pipeline=FakePipeline())
+
+    async def submit(*, item_id, rebuild_existing):
+        assert rebuild_existing is False
+        if item_id == 12:
+            return {
+                "task_id": "task-12",
+                "item_id": "12",
+                "item_code": "P12",
+                "item_name": "配件12",
+                "status": "pending",
+                "reused_existing": False,
+            }
+        if item_id == 13:
+            return {
+                "task_id": "existing-13",
+                "item_id": "13",
+                "item_code": "P13",
+                "item_name": "配件13",
+                "status": "success",
+                "reused_existing": True,
+            }
+        if item_id == 14:
+            raise Viewer360ConflictError("任务已存在")
+        raise OSError("source missing")
+
+    monkeypatch.setattr(manager, "submit", submit)
+
+    result = asyncio.run(manager.backfill(limit=4))
+
+    assert result["eligible_total"] == 4
+    assert result["created_count"] == 1
+    assert result["skipped_count"] == 2
+    assert result["failed_count"] == 1
+    assert result["remaining_count"] == 2
+    assert result["created_tasks"][0]["task_id"] == "task-12"
+    assert result["failures"] == [
+        {
+            "item_id": "15",
+            "item_code": "P15",
+            "item_name": "配件15",
+            "error_message": "source missing",
+        }
+    ]
+
+
+def test_disabled_manager_rejects_backfill():
+    manager = Viewer360TaskManager(
+        repository=FakeRepository(),
+        pipeline=FakePipeline(),
+        enabled=False,
+    )
+
+    with pytest.raises(Viewer360ConflictError, match="未启用"):
+        asyncio.run(manager.backfill(limit=100))
 
 
 def test_disabled_manager_rejects_manual_submission_and_starts_no_workers():
