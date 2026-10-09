@@ -43,3 +43,5 @@ docker/recognition-cpu.tar
 *.tar
 /state/*
 
+
+csrcqsf.zip
