@@ -27,9 +27,39 @@ from csrcqsf.modules.railway_parts.schemas.parts import (
 )
 from csrcqsf.modules.sgo.services import SGOBiz
 from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsManager
+from csrcqsf.modules.railway_parts.services.file_upload_service import (
+    EmptyFileError,
+    upload_file_to_oss,
+)
 from csrcqsf.modules.railway_parts.services.search_hierarchy_service import enrich_search_items, get_hierarchy_item_detail as load_hierarchy_item_detail
 
 from .router import parts_router
+
+
+@parts_router.post(
+    "/upload_file",
+    tags=["业务-文件管理"],
+    summary="上传文件到 OSS",
+    response_model=dict[str, str],
+    responses={
+        200: {
+            "description": "上传成功，返回 bucket/对象路径格式的 OSS 地址",
+            "content": {
+                "application/json": {
+                    "example": {"oss_url": "bfr-ai-files/uploads/20261010/唯一标识_video.mp4"}
+                }
+            },
+        },
+        400: {"description": "上传文件为空"},
+    },
+)
+async def upload_file(file: UploadFile = File(..., description="待上传文件，支持视频、图片等类型")):
+    """上传单个文件并返回 OSS 地址，使用 multipart/form-data 的 file 字段。"""
+    try:
+        oss_url = await upload_file_to_oss(file)
+    except EmptyFileError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"oss_url": oss_url}
 
 
 @parts_router.post('/item',  tags=["业务-配件管理"], summary='创建配件实体', responses={
