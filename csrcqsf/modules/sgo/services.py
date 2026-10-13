@@ -46,6 +46,7 @@ from csrcqsf.models.orm.item import (
 )
 from csrcqsf.models.orm.item_inquiry_history import ItemInquiryHistory
 from csrcqsf.models.orm.sgo import SegmentedImage, SgoItemImages
+from csrcqsf.models.orm.sgo_stock import WmsStockDetail
 from csrcqsf.models.orm.sgo_external import (
     SgoCodeInquiry,
     SgoCodeInquiryReturn,
@@ -62,6 +63,7 @@ from csrcqsf.modules.railway_parts.vector_search.storage.inquiry_semantic_store 
 )
 from csrcqsf.modules.sgo.item_mapping import normalize_sgo_return_item
 from csrcqsf.modules.sgo.photo_parser import extract_photo_raw_urls
+from csrcqsf.modules.sgo.stock_locations import build_stock_locations
 from csrcqsf.modules.sgo.schemas import ImageSourceType
 from csrcqsf.modules.sgo.sync_task_manager import sgo_sync_task_manager
 
@@ -1170,6 +1172,10 @@ class SGOBiz:
         vehicle_result = await cls.sync_parts_vehicle_batch(
             progress_callback=progress_callback,
         )
+        # 新配件已经入库，按编码刷新全部可用货位；保留原视频和人工采集数据。
+        stock_result = await cls.sync_parts_stock_locations(
+            progress_callback=progress_callback,
+        )
 
         logger.info(
             "SGO 配件同步完成: source_parts={}, created_parts={}, updated_metadata={}, "
@@ -1209,6 +1215,7 @@ class SGOBiz:
                     "unmatched_supplier_count": supplier_unmatched_count,
                     **hierarchy_result,
                     **vehicle_result,
+                    **stock_result,
                     "estimated_remaining_seconds": 0,
                     "failed_item_ids": list(failed_item_ids),
                     "new_failure_details": list(pending_failure_details),
@@ -1230,10 +1237,47 @@ class SGOBiz:
             "unmatched_supplier_count": supplier_unmatched_count,
             **hierarchy_result,
             **vehicle_result,
+            **stock_result,
             "failed_item_ids": failed_item_ids,
             "failure_details": failure_details,
             "failures_persisted_incrementally": progress_callback is not None,
         }
+
+    @classmethod
+    async def sync_parts_stock_locations(
+        cls,
+        progress_callback: Callable[[dict], None] | None = None,
+    ) -> dict[str, int]:
+        async with sgo_sessionLocal() as session:
+            locations = await WmsStockDetail.list_available_locations(session)
+        async with SessionLocal() as session:
+            states = await Items.list_stock_sync_state(session)
+        snapshot = build_stock_locations(
+            {_item_code_key(row.item_code): int(row.id) for row in states}, locations,
+        )
+        empty = {"LGORT": None, "LGORTD": None, "GRARD": None, "stock_locations": []}
+        changed = []
+        for row in states:
+            target = snapshot.get(int(row.id), empty)
+            current = {key: _clean_text(getattr(row, key)) for key in ("LGORT", "LGORTD", "GRARD")}
+            current["stock_locations"] = row.stock_locations or []
+            # 已移库或库存归零的位置必须清空，避免叉车师傅继续按旧位置取件。
+            if current != target:
+                changed.append({"item_id": int(row.id), **target})
+        for offset in range(0, len(changed), 500):
+            async with SessionLocal() as session:
+                await Items.update_stock_locations(session, changed[offset:offset + 500])
+                await session.commit()
+            if progress_callback is not None:
+                await _notify_progress(progress_callback, {
+                    "progress": 98,
+                    "stock_item_count": len(snapshot),
+                    "updated_stock_item_count": min(offset + 500, len(changed)),
+                })
+        result = {"stock_item_count": len(snapshot), "updated_stock_item_count": len(changed)}
+        logger.info("SGO 配件库存位置同步完成: source_locations={}, matched_items={}, updated_items={}",
+                    len(locations), len(snapshot), len(changed))
+        return result
 
     @classmethod
     async def sync_parts_vehicle_batch(

@@ -43,6 +43,23 @@ class ListItemReq(PageReq):
     has_inquery_code: int = Field(description='只查看有询码记录的配件.1为是 0为否', default=0, example=0)
     has_images: int = Field(description='只查看有图片的配件.1 为是 0为否', default=0, example=0)
     has_source_video: int = Field(description='原视频筛选.0未上传 1已上传 2不筛选', default=2, example=2)
+    LGORT: str | None = Field(default=None, description='库区编码精确筛选，与货位条件匹配同一位置', example='JS00')
+    LGORTD: str | None = Field(default=None, description='库区名称精确筛选', example='青岛寄售库')
+    GRARD: str | None = Field(default=None, description='货位编码精确筛选', example='DF050205')
+    rack_no: str | None = Field(
+        default=None,
+        description='货架号，匹配货位中数字的前两位；传1或01均表示01号货架，忽略公司前缀',
+        example='01',
+    )
+
+    @validator("rack_no", pre=True, allow_reuse=True)
+    def normalize_rack_no(cls, value):
+        value = str(value).strip() if value is not None else ""
+        if not value:
+            return None
+        if not value.isascii() or not value.isdigit() or len(value) > 2:
+            raise ValueError("货架号须为1至2位数字，例如01")
+        return value.zfill(2)
 
     class Config:
         json_schema_extra = {
@@ -58,8 +75,43 @@ class ListItemReq(PageReq):
                 "has_inquery_code": 0,
                 "has_images": 0,
                 "has_source_video": 2,
+                "LGORT": None,
+                "LGORTD": None,
+                "GRARD": None,
+                "rack_no": None,
             }
         }
+
+
+class ExportUncollectedItemsReq(BaseModel):
+    LGORT: str = Field(description='指定库区编码', min_length=1, max_length=10, example='JS00')
+    rack_no: str = Field(description='指定货架号，传9或09均表示09号货架', example='09')
+    limit: int = Field(default=20, gt=0, description='导出配件数量；不传、null或空字符串时默认20', example=20)
+
+    @validator("LGORT", pre=True, allow_reuse=True)
+    def normalize_warehouse(cls, value):
+        return value.strip().upper() if isinstance(value, str) else value
+
+    @validator("rack_no", pre=True, allow_reuse=True)
+    def normalize_required_rack(cls, value):
+        normalized = ListItemReq.normalize_rack_no(value)
+        if normalized is None:
+            raise ValueError("导出时必须指定货架号")
+        return normalized
+
+    @validator("limit", pre=True, allow_reuse=True)
+    def normalize_export_limit(cls, value):
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return 20
+        if isinstance(value, (bool, float)):
+            raise ValueError("导出数量须为正整数")
+        return value
+
+
+class StockLocation(BaseModel):
+    LGORT: str = Field(description='库区编码')
+    LGORTD: str | None = Field(default=None, description='库区名称')
+    GRARD: str = Field(description='货位编码')
 
 
 class ListItem(BaseModel):
@@ -86,6 +138,10 @@ class ListItem(BaseModel):
     inquiry_nums: list[str] = Field(default_factory=list, description='该配件的全部询码流水号，按时间从新到旧排列')
     inquiry_count: int = Field(default=0, description='该配件关联的询码记录总数')
     vehicle_batch: str | None = Field(default=None, description='适用车型项目号，多个值以逗号分隔')
+    LGORT: str | None = Field(default=None, description='有可用库存的库区编码，多个值以逗号分隔')
+    LGORTD: str | None = Field(default=None, description='库区名称，多个值以逗号分隔')
+    GRARD: str | None = Field(default=None, description='货位编码，多个值以逗号分隔')
+    stock_locations: list[StockLocation] = Field(default_factory=list, description='全部可用库存位置，保留库区与货位对应关系')
     id: str
 
 

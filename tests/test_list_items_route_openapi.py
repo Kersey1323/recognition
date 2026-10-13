@@ -87,3 +87,28 @@ def test_list_items_openapi_exposes_vehicle_batch_filter():
 
     assert "vehicle_batch" in body_schema["properties"]
     assert body_schema["properties"]["vehicle_batch"]["type"] == "string"
+
+
+def test_list_items_openapi_exposes_rack_number_filter():
+    route_subset = _import_parts_route_subset()
+    app = FastAPI()
+    app.include_router(route_subset.parts_router)
+    schema = app.openapi()
+    properties = schema["components"]["schemas"]["ListItemReq"]["properties"]
+
+    assert properties["rack_no"]["type"] == "string"
+    assert properties["rack_no"]["example"] == "01"
+
+
+def test_export_uncollected_items_openapi_documents_excel_download():
+    route_subset = _import_parts_route_subset()
+    app = FastAPI()
+    app.include_router(route_subset.parts_router)
+    schema = app.openapi()
+    operation = schema["paths"]["/railway/parts/export_uncollected_items"]["post"]
+    content = operation["responses"]["200"]["content"]
+    media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert content[media_type]["schema"]["format"] == "binary"
+    request_schema = schema["components"]["schemas"]["ExportUncollectedItemsReq"]
+    assert request_schema["properties"]["limit"]["default"] == 20
+    assert set(request_schema["required"]) == {"LGORT", "rack_no"}

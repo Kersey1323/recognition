@@ -1,6 +1,8 @@
 """配件维护、图片管理和分割入口路由。"""
 
 from fastapi import File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import Response
+from urllib.parse import quote
 
 from csrcqsf.modules.railway_parts.schemas.parts import (
     CreateItemImagesReq,
@@ -9,6 +11,7 @@ from csrcqsf.modules.railway_parts.schemas.parts import (
     DeleteItemImageReq,
     DeleteItemImageRes,
     DeleteItemReq,
+    ExportUncollectedItemsReq,
     GetItemDetailReq,
     GetItemDetailRes,
     HierarchyItemDetailReq,
@@ -30,6 +33,10 @@ from csrcqsf.modules.railway_parts.services.parts_service import RailwayPartsMan
 from csrcqsf.modules.railway_parts.services.file_upload_service import (
     EmptyFileError,
     upload_file_to_oss,
+)
+from csrcqsf.modules.railway_parts.services.stock_export_service import (
+    XLSX_MEDIA_TYPE,
+    export_uncollected_items as build_uncollected_items_export,
 )
 from csrcqsf.modules.railway_parts.services.search_hierarchy_service import enrich_search_items, get_hierarchy_item_detail as load_hierarchy_item_detail
 
@@ -134,6 +141,21 @@ async def put_item_size_desc(req: UpdateItemSizeStr):
 })
 async def list_items(req: ListItemReq):
     return await RailwayPartsManager.list_item(req)
+
+
+@parts_router.post(
+    "/export_uncollected_items",
+    tags=["业务-配件管理"],
+    summary="导出指定库区与货架的未采集配件，按排数升序排列",
+    response_class=Response,
+    responses={200: {"content": {XLSX_MEDIA_TYPE: {"schema": {"type": "string", "format": "binary"}}}}},
+)
+async def export_uncollected_items(req: ExportUncollectedItemsReq):
+    content = await build_uncollected_items_export(req)
+    filename = f"uncollected_parts_{req.LGORT}_rack_{req.rack_no}.xlsx"
+    return Response(content=content, media_type=XLSX_MEDIA_TYPE, headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename, safe='')}",
+    })
 
 
 @parts_router.post('/list_item_images', tags=["业务-图片管理"], summary='列出配件已保存图片', responses={

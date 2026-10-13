@@ -79,6 +79,13 @@ def test_list_item_uses_v2_flags_for_filter_and_response():
                 width=None,
                 weight=None,
                 source_video_path="bfr-3d-videos/raw-videos/demo.mp4",
+                LGORT="JS00",
+                LGORTD="青岛寄售库",
+                GRARD="DF050201,DF050205",
+                stock_locations=[
+                    {"LGORT": "JS00", "LGORTD": "青岛寄售库", "GRARD": "DF050201"},
+                    {"LGORT": "JS00", "LGORTD": "青岛寄售库", "GRARD": "DF050205"},
+                ],
                 has_v2_index=1,
                 v2_indexed_image_num=4,
                 v2_index_updated_at=datetime(2026, 10, 9, 10, 20, 30),
@@ -96,17 +103,24 @@ def test_list_item_uses_v2_flags_for_filter_and_response():
          patch.object(parts_module, "MilvusStateManagerV2") as state_cls:
         res = asyncio.run(
             parts_module.RailwayPartsManager.list_item(
-                ListItemReq(page=1, pageSize=20, only_has_index=1, has_source_video=1)
+                ListItemReq(page=1, pageSize=20, only_has_index=1, has_source_video=1,
+                            LGORT="JS00", LGORTD="青岛寄售库", GRARD="DF050205", rack_no="5")
             )
         )
 
     kwargs = list_mock.await_args.kwargs
     assert kwargs["need_v2_index"] is True
     assert kwargs["has_source_video"] == 1
+    assert kwargs["LGORT"] == "JS00"
+    assert kwargs["LGORTD"] == "青岛寄售库"
+    assert kwargs["GRARD"] == "DF050205"
+    assert kwargs["rack_no"] == "05"
     assert res.items[0].has_index == 1
     assert res.items[0].has_source_video == 1
     assert res.items[0].images_total_indexed_num == 4
     assert res.items[0].updated_at == "2026-10-09 10:20:30"
+    assert res.items[0].GRARD == "DF050201,DF050205"
+    assert [position.GRARD for position in res.items[0].stock_locations] == ["DF050201", "DF050205"]
     assert run_sync_mock.await_count == 0
     state_cls.assert_not_called()
 

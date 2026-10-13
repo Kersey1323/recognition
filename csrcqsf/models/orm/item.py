@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from urllib.parse import quote_plus
-from sqlalchemy import Boolean, String, bindparam, delete, func, insert, select, update, and_, INT, BIGINT, Text, or_, DECIMAL, DateTime, Index
+from sqlalchemy import JSON, Boolean, String, bindparam, delete, func, insert, literal_column, select, true, update, and_, INT, BIGINT, Text, or_, DECIMAL, DateTime, Index
 from sqlalchemy.orm import relationship, Mapped, mapped_column, Session, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from bfrcommon.common import get_pinyin
@@ -231,6 +231,10 @@ class Items(Base):
     drawing_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     material_quality: Mapped[str] = mapped_column(String(255), nullable=True)
     vehicle_batch: Mapped[str | None] = mapped_column(Text, nullable=True)
+    LGORT: Mapped[str | None] = mapped_column(Text, nullable=True)
+    LGORTD: Mapped[str | None] = mapped_column(Text, nullable=True)
+    GRARD: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stock_locations: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     item_type: Mapped[ItemType] = mapped_column(
         String(200), nullable=False, default='real')
     parent_num: Mapped[int] = mapped_column(INT, nullable=False, default=0)
@@ -630,6 +634,26 @@ class Items(Base):
         return result.all()
 
     @classmethod
+    async def list_stock_sync_state(cls, session: AsyncSession):
+        result = await session.execute(select(
+            cls.id, cls.item_code, cls.LGORT, cls.LGORTD, cls.GRARD, cls.stock_locations,
+        ))
+        return result.all()
+
+    @classmethod
+    async def update_stock_locations(cls, session: AsyncSession, rows: list[dict]):
+        if not rows:
+            return
+        fields = ("LGORT", "LGORTD", "GRARD", "stock_locations")
+        stmt = cls.__table__.update().where(
+            cls.__table__.c.id == bindparam("stock_item_id")
+        ).values({key: bindparam(f"stock_{key}") for key in fields})
+        await session.execute(stmt, [
+            {"stock_item_id": row["item_id"], **{f"stock_{key}": row[key] for key in fields}}
+            for row in rows
+        ])
+
+    @classmethod
     async def list_cleanup_state(cls, session: AsyncSession):
         # 线上清洗只读取判定范围和索引状态所需字段，避免加载完整配件对象。
         result = await session.execute(
@@ -746,12 +770,59 @@ class Items(Base):
         return None
 
     @classmethod
+    def stock_location_condition(cls, *, LGORT=None, LGORTD=None, GRARD=None, rack_no=None):
+        stock_filters = {
+            key: str(value).strip()
+            for key, value in (("LGORT", LGORT), ("LGORTD", LGORTD), ("GRARD", GRARD))
+            if value is not None and str(value).strip()
+        }
+        normalized_rack_no = str(rack_no or "").strip()
+        if normalized_rack_no:
+            # 货位去掉公司前缀后，前两位是货架，中间两位是排，末尾两至三位是位置。
+            # 按位置逐条匹配，避免货架属于一个库区，而库区条件命中另一个位置。
+            stock_items = cls.__table__.alias("stock_items")
+            locations = func.json_table(
+                stock_items.c.stock_locations,
+                literal_column(
+                    "'$[*]' COLUMNS (LGORT VARCHAR(10) PATH '$.LGORT', "
+                    "LGORTD VARCHAR(255) PATH '$.LGORTD', GRARD VARCHAR(50) PATH '$.GRARD')"
+                ),
+            ).table_valued("LGORT", "LGORTD", "GRARD").alias("stock_location")
+            rack_pattern = "^[^0-9]*" + normalized_rack_no.zfill(2) + "[0-9]{4,5}$"
+            # 展开位置后按配件 ID 筛选，同一个配件匹配多个货位也只返回一次。
+            matching_location = select(stock_items.c.id).select_from(
+                stock_items.join(locations, true())
+            ).where(
+                locations.c.GRARD.op("REGEXP")(rack_pattern),
+                *[locations.c[key] == value for key, value in stock_filters.items()],
+            )
+            return cls.id.in_(matching_location)
+        elif stock_filters:
+            # 库区和货位必须属于同一条库存位置，不能分别命中配件的两个不同位置。
+            candidate = func.json_object(*[
+                part for pair in stock_filters.items() for part in pair
+            ])
+            return func.json_contains(cls.stock_locations, candidate) == 1
+        return None
+
+    @classmethod
+    async def list_uncollected_stock_items(cls, session: AsyncSession, *, LGORT: str, rack_no: str):
+        # 导出只读取名称与位置；先取全部符合条件的配件，按实际排数排序后再限制数量。
+        result = await session.execute(select(cls.id, cls.item_name, cls.stock_locations).where(
+            cls.source_video_path.is_(None),
+            cls.stock_location_condition(LGORT=LGORT, rack_no=rack_no),
+        ))
+        return result.all()
+
+    @classmethod
     async def list_items(cls, session: AsyncSession, query: str = None, page: int = 0, per_page: int = 20,
                          has_images: bool = False,
                          item_id_list: list[int] = [], item_code_list: list[str] = [], need_index: bool = False,
                          need_v2_index: bool = False, has_source_video: int = 2,
                          has_inquiry_history: bool = False, item_name: str | None = None,
-                         vehicle_batch: str | None = None):
+                         vehicle_batch: str | None = None,
+                         LGORT: str | None = None, LGORTD: str | None = None,
+                         GRARD: str | None = None, rack_no: str | None = None):
         """按配件主数据、图片和索引汇总状态组合筛选列表。"""
         offset = (page-1) * per_page
         stmt = select(cls)
@@ -785,6 +856,11 @@ class Items(Base):
             stmt = stmt.where(
                 func.find_in_set(normalized_vehicle_batch, cls.vehicle_batch) > 0
             )
+        location_condition = cls.stock_location_condition(
+            LGORT=LGORT, LGORTD=LGORTD, GRARD=GRARD, rack_no=rack_no,
+        )
+        if location_condition is not None:
+            stmt = stmt.where(location_condition)
         if need_index:
             stmt = stmt.where(cls.image_index_num.__gt__(0).__and__(cls.feature_index_num.__gt__(0)))
         if need_v2_index:
