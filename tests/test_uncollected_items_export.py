@@ -53,38 +53,44 @@ def location(code, warehouse="JS00"):
 def test_export_sorts_rows_before_limit_and_excludes_other_locations():
     service = export_module()
     rows = [
-        SimpleNamespace(id=3, item_name="第三排", stock_locations=[location("DF090301")]),
-        SimpleNamespace(id=2, item_name="第二排", stock_locations=[location("DF090201")]),
-        SimpleNamespace(id=1, item_name="第一排", stock_locations=[
+        SimpleNamespace(id=3, item_name="第三排", item_code="C003", stock_locations=[location("DF090301")]),
+        SimpleNamespace(id=2, item_name="第二排", item_code="C002", stock_locations=[location("DF090201")]),
+        SimpleNamespace(id=1, item_name="第一排", item_code="C001", stock_locations=[
             location("DF0901002"), location("DF090101"), location("DF090101"),
             location("DF100101"), location("DF090001", "2514"),
         ]),
     ]
     result = service.prepare_export_rows(rows, request(limit=2))
-    assert result == [("第一排", "DF090101\nDF0901002"), ("第二排", "DF090201")]
+    assert result == [("第一排", "C001", "DF090101\nDF0901002"), ("第二排", "C002", "DF090201")]
 
 
-def test_workbook_has_two_text_columns_and_supports_empty_results():
+def test_workbook_has_three_text_columns_and_preserves_long_codes():
     service = export_module()
-    data = service.build_workbook([("=配件名称", "DF090101\nDF0901002")])
+    data = service.build_workbook([("=配件名称", "001234567890123456789", "DF090101\nDF0901002")])
     book = load_workbook(io.BytesIO(data))
     sheet = book.active
-    assert tuple(cell.value for cell in sheet[1]) == ("配件名称", "货位号")
+    assert tuple(cell.value for cell in sheet[1]) == ("配件名称", "配件编码", "货位号")
     assert sheet["A2"].value == "=配件名称"
     assert sheet["A2"].data_type == "s"
-    assert sheet["B2"].value == "DF090101\nDF0901002"
+    assert sheet["B2"].value == "001234567890123456789"
+    assert sheet["B2"].data_type == "s"
+    assert sheet["B2"].number_format == "@"
+    assert sheet["C2"].value == "DF090101\nDF0901002"
+    assert sheet.auto_filter.ref == "A1:C2"
     assert sheet.freeze_panes == "A2"
     empty = load_workbook(io.BytesIO(service.build_workbook([])))
     assert empty.active.max_row == 1
+    assert tuple(cell.value for cell in empty.active[1]) == ("配件名称", "配件编码", "货位号")
 
 
-def test_export_repository_only_reads_uncollected_names_and_locations():
+def test_export_repository_reads_uncollected_names_codes_and_locations():
     method = getattr(Items, "list_uncollected_stock_items", None)
     assert method is not None, "export repository query has not been added"
     session = AsyncMock()
     session.execute.return_value = SimpleNamespace(all=lambda: [])
     asyncio.run(method(session, LGORT="JS00", rack_no="09"))
     compiled = session.execute.await_args.args[0].compile(dialect=mysql.dialect())
+    assert "item_code" in session.execute.await_args.args[0].selected_columns.keys()
     query = str(compiled)
     assert "source_video_path IS NULL" in query
     assert "json_table(" in query
@@ -99,7 +105,7 @@ def test_export_route_returns_a_downloadable_excel_and_validates_input():
     routes = importlib.import_module("csrcqsf.modules.railway_parts.routes.parts_routes")
     app = FastAPI()
     app.include_router(routes.parts_router)
-    payload = service.build_workbook([("配件一", "DF090101")])
+    payload = service.build_workbook([("配件一", "C001", "DF090101")])
     build = AsyncMock(return_value=payload)
 
     async def run():

@@ -10,10 +10,11 @@ import os
 import time
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Callable, Literal
 
 from anyio.to_thread import run_sync
+from apscheduler.jobstores.base import JobLookupError
 from bfrcommon.snowflake import get_id
 from csrcqsf.core.logging_config import logger
 from pydantic import BaseModel
@@ -24,6 +25,7 @@ from urllib3.util import create_urllib3_context
 from csrcqsf.core.scheduler import scheduler, submit_coroutine_to_main_loop
 from csrcqsf.core.settings import (
     inquiry_text_auto_index_enabled,
+    sgo_inquiry_history_sync_interval_minutes,
     sgo_parts_sync_interval_minutes,
     sgo_image_download_concurrency,
     sgo_image_download_retries,
@@ -433,40 +435,104 @@ class SGOBiz:
 
     @classmethod
     def init(cls):
-        # 配件主数据可独立定时同步；图片 token 仅在开启图片同步时预热和续期。
+        # 基础信息与询码历史各自定时提交，由任务管理器串行执行，保留进度与失败记录。
         scheduler.add_job(
             cls._submit_scheduled_parts_sync,
             "interval",
             minutes=sgo_parts_sync_interval_minutes,
             id="sgo-parts-sync",
             replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+        )
+        scheduler.add_job(
+            cls._submit_scheduled_sync,
+            "interval",
+            minutes=sgo_inquiry_history_sync_interval_minutes,
+            args=["inquiry-history"],
+            id="sgo-inquiry-history-sync",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+        )
+        # 每天北京时间零点扫描已入库配件，复用图片同步的去重逻辑，仅下载缺失图片。
+        scheduler.add_job(
+            cls._submit_scheduled_sync,
+            "cron",
+            hour=0,
+            minute=0,
+            second=0,
+            timezone="Asia/Shanghai",
+            args=["images"],
+            id="sgo-images-sync",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
         )
         if os.getenv("SGO_ENABLE_IMAGE_SYNC", "false").lower() == "true":
-            scheduler.add_job(cls.get_token, "interval", minutes=60)
+            scheduler.add_job(
+                cls.get_token, "interval", minutes=60,
+                id="sgo-image-token-refresh", replace_existing=True,
+            )
             cls.get_token()
         else:
-            logger.info("SGO 图片同步已禁用（SGO_ENABLE_IMAGE_SYNC != true）")
+            logger.info("SGO 图片 token 不预热，下载时按需获取；每日图片定时同步仍启用")
+        logger.info(
+            "SGO 定时同步已启用: 配件每 {} 分钟，询码历史每 {} 分钟，图片每天北京时间 00:00",
+            sgo_parts_sync_interval_minutes, sgo_inquiry_history_sync_interval_minutes,
+        )
 
     @classmethod
     def _submit_scheduled_parts_sync(cls):
+        cls._submit_scheduled_sync("parts")
+
+    @classmethod
+    def _submit_scheduled_sync(cls, task_type: str):
         """定时线程只负责投递，实际同步仍在主事件循环的受管理任务中运行。"""
-        future = submit_coroutine_to_main_loop(cls._start_scheduled_parts_sync())
+        future = submit_coroutine_to_main_loop(cls._start_scheduled_sync(task_type))
 
         def _log_submission_result(completed_future):
             try:
                 completed_future.result()
             except Exception as exc:
-                logger.error(f"提交 SGO 配件定时同步失败: {exc}")
+                logger.error("提交 SGO 定时同步失败: type={}, error={}", task_type, exc)
 
         future.add_done_callback(_log_submission_result)
 
     @classmethod
     async def _start_scheduled_parts_sync(cls):
+        await cls._start_scheduled_sync("parts")
+
+    @classmethod
+    async def _start_scheduled_sync(cls, task_type: str):
+        runners = {
+            "parts": (cls.sync_parts_items, {}),
+            "images": (cls.sync_images, {"item_id_list": [], "sync_scope": "all"}),
+            "inquiry-history": (cls.sync_inquiry_history, {}),
+        }
+        runner, kwargs = runners[task_type]
+        retry_id = f"sgo-{task_type}-sync-retry"
         try:
-            task = await sgo_sync_task_manager.start("parts", cls.sync_parts_items)
-            logger.info(f"SGO 配件定时同步已提交: task_id={task['task_id']}")
+            task = await sgo_sync_task_manager.start(task_type, runner, **kwargs)
         except RuntimeError as exc:
-            logger.info(f"跳过本轮 SGO 配件定时同步: {exc}")
+            # 三类同步共用一个执行通道；忙时一分钟后重新提交，不丢弃零点任务或堆积重复等待。
+            scheduler.add_job(
+                cls._submit_scheduled_sync,
+                "date",
+                run_date=datetime.now(timezone.utc) + timedelta(minutes=1),
+                args=[task_type],
+                id=retry_id,
+                replace_existing=True,
+                max_instances=1,
+            )
+            logger.info("SGO 定时同步延后一分钟: type={}, reason={}", task_type, exc)
+            return
+
+        try:
+            scheduler.remove_job(retry_id)
+        except JobLookupError:
+            pass
+        logger.info("SGO 定时同步已提交: type={}, task_id={}", task_type, task["task_id"])
 
     @classmethod
     def get_token(cls):

@@ -17,7 +17,7 @@ XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 LOCATION_PATTERN = re.compile(r"[^0-9]*([0-9]{2})([0-9]{2})([0-9]{2,3})")
 
 
-def prepare_export_rows(items, req: ExportUncollectedItemsReq) -> list[tuple[str, str]]:
+def prepare_export_rows(items, req: ExportUncollectedItemsReq) -> list[tuple[str, str, str]]:
     records = []
     for item in items:
         positions = {}
@@ -34,32 +34,34 @@ def prepare_export_rows(items, req: ExportUncollectedItemsReq) -> list[tuple[str
         ordered = sorted(positions, key=positions.get)
         # 同一配件只占一个名额；仅导出本次库区与货架内的位置，按最前面的排排序。
         key = (*positions[ordered[0]], item.item_name, int(item.id))
-        records.append((key, (item.item_name, "\n".join(ordered))))
+        records.append((key, (item.item_name, item.item_code, "\n".join(ordered))))
     records.sort(key=lambda record: record[0])
     return [row for _key, row in records[:req.limit]]
 
 
-def build_workbook(rows: list[tuple[str, str]]) -> bytes:
+def build_workbook(rows: list[tuple[str, str, str]]) -> bytes:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "未采集配件"
-    sheet.append(("配件名称", "货位号"))
+    sheet.append(("配件名称", "配件编码", "货位号"))
     for row in rows:
         sheet.append([ILLEGAL_CHARACTERS_RE.sub("", value) for value in row])
         for cell in sheet[sheet.max_row]:
-            # 名称按文字写入，避免以等号开头的配件名称被 Excel 当作公式。
+            # 按文字保存，保留编码前导零和长编码完整值，也避免配件名称被当作公式。
             cell.data_type = "s"
+            cell.number_format = "@"
             cell.font = Font(name="Arial", size=11)
             cell.alignment = Alignment(vertical="top", wrap_text=True)
         name_lines = sum(max(1, (len(line) + 21) // 22) for line in row[0].splitlines())
-        sheet.row_dimensions[sheet.max_row].height = max(24, 16 * max(name_lines, len(row[1].splitlines())))
+        sheet.row_dimensions[sheet.max_row].height = max(24, 16 * max(name_lines, len(row[2].splitlines())))
     for cell in sheet[1]:
         cell.font = Font(name="Arial", size=11, bold=True)
         cell.fill = PatternFill("solid", fgColor="E6EEF2")
     sheet.column_dimensions["A"].width = 44
-    sheet.column_dimensions["B"].width = 32
+    sheet.column_dimensions["B"].width = 24
+    sheet.column_dimensions["C"].width = 32
     sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = f"A1:B{sheet.max_row}"
+    sheet.auto_filter.ref = f"A1:C{sheet.max_row}"
     sheet.print_title_rows = "1:1"
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.page_setup.fitToWidth = 1

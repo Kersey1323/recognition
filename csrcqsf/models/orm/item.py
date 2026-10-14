@@ -807,8 +807,8 @@ class Items(Base):
 
     @classmethod
     async def list_uncollected_stock_items(cls, session: AsyncSession, *, LGORT: str, rack_no: str):
-        # 导出只读取名称与位置；先取全部符合条件的配件，按实际排数排序后再限制数量。
-        result = await session.execute(select(cls.id, cls.item_name, cls.stock_locations).where(
+        # 导出只读取名称、编码与位置；先取全部符合条件的配件，按实际排数排序后再限制数量。
+        result = await session.execute(select(cls.id, cls.item_name, cls.item_code, cls.stock_locations).where(
             cls.source_video_path.is_(None),
             cls.stock_location_condition(LGORT=LGORT, rack_no=rack_no),
         ))
