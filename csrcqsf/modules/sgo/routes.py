@@ -136,7 +136,7 @@ async def sgo_parts_sync(_: SyncItemsReq):
 
 @sgo_router.get(
     '/sgo/parts/cleanup/non-a1/preview',
-    tags=["业务-SGO集成"],
+    tags=["数据清理"],
     summary='预览待清理的非 A1 配件',
     response_model=SgoNonA1CleanupPreviewRes,
 )
@@ -146,7 +146,7 @@ async def preview_sgo_non_a1_cleanup():
 
 @sgo_router.post(
     '/sgo/parts/cleanup/non-a1',
-    tags=["业务-SGO集成"],
+    tags=["数据清理"],
     summary='清理未上传原视频的非 A1 配件',
     response_model=SgoSyncTaskStartRes,
     description='已上传原视频的配件强制保留；必须先调用预览接口确认范围。',

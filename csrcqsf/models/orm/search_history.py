@@ -348,6 +348,35 @@ class SearchHistory(Base):
         return rows
 
     @classmethod
+    async def get_pending_history_cleanup_upper_bound(cls, session: AsyncSession):
+        # 空状态旧记录在页面上同样显示为待反馈，和 pending 一并清理。
+        return await session.scalar(select(func.max(cls.id)).where(
+            or_(cls.verify_status.is_(None), cls.verify_status == "pending"),
+        ))
+
+    @classmethod
+    async def delete_pending_history_batch_with_query_images(
+        cls, session: AsyncSession, *, upper_bound: int, batch_size: int,
+    ):
+        # 锁住本批仍待反馈的历史再删除，避免读取后状态已变为正确或错误时误删。
+        rows = (await session.execute(select(
+            cls.id, cls.query_image, cls.query_images_json, cls.previous_search_snapshot,
+        ).where(
+            cls.id <= upper_bound,
+            or_(cls.verify_status.is_(None), cls.verify_status == "pending"),
+        ).order_by(cls.id).limit(batch_size).with_for_update())).all()
+        if not rows:
+            return []
+        history_ids = [row[0] for row in rows]
+        # 清理关联复核单，避免工单统计中残留无法打开的历史记录。
+        await session.execute(delete(SearchReviewTicket).where(
+            SearchReviewTicket.history_id.in_(history_ids),
+        ))
+        await session.execute(delete(cls).where(cls.id.in_(history_ids)))
+        await session.flush()
+        return rows
+
+    @classmethod
     async def delete_history(cls, session: AsyncSession, history_id_list: list[int]):
         if len(history_id_list) == 0:
             return

@@ -51,6 +51,18 @@ class SearchHistoryRepository:
         )
 
     @classmethod
+    async def get_pending_history_cleanup_upper_bound(cls, session, *, history_model=None):
+        return await cls._get_history_model(history_model).get_pending_history_cleanup_upper_bound(session)
+
+    @classmethod
+    async def delete_pending_history_batch_with_query_images(
+        cls, session, *, upper_bound: int, batch_size: int, history_model=None,
+    ):
+        return await cls._get_history_model(history_model).delete_pending_history_batch_with_query_images(
+            session, upper_bound=upper_bound, batch_size=batch_size,
+        )
+
+    @classmethod
     async def list_latest_by_history_ids(
         cls,
         session,

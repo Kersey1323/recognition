@@ -234,7 +234,7 @@ def test_contextual_search_route_preserves_business_error_status():
     with patch.object(
         routes.RailwayPartsManager,
         "search_v2_contextual",
-        AsyncMock(side_effect=ContextualSearchBusinessError(409, "只有 pending 状态允许再次检索")),
+        AsyncMock(side_effect=ContextualSearchBusinessError(409, "只有 wrong 或 pending 状态允许再次检索")),
         create=True,
     ):
         with pytest.raises(HTTPException) as exc:

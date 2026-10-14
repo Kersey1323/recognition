@@ -173,11 +173,11 @@ class ContextualSearchRepository:
         results,
         top_item,
     ) -> bool:
-        # 同一历史只允许一个 pending 请求按读取到的版本推进窗口。
+        # 错误和旧的待反馈记录可再次检索；按版本保存，且不覆盖检索期间已确认正确的记录。
         stmt = (
             update(SearchHistory)
             .where(SearchHistory.id == history_id)
-            .where(SearchHistory.verify_status == "pending")
+            .where(SearchHistory.verify_status.in_(("pending", "wrong")))
             .where(SearchHistory.search_revision == expected_revision)
             .values(
                 previous_search_snapshot=previous_snapshot,

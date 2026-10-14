@@ -807,6 +807,9 @@ async def delete_v2_search_history(cls, history_id_list: list[int]):
         runtime=_runtime_context(),
     )
 
+async def cleanup_pending_v2_search_history(cls):
+    return await search_service.cleanup_pending_v2_search_history(cls, runtime=_runtime_context())
+
 async def search_v2_by_text(
     cls,
     query_text: str,

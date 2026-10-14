@@ -4,6 +4,8 @@ import io
 from datetime import datetime
 from typing import Any
 
+from anyio.to_thread import run_sync
+
 from csrcqsf.core.settings import agent_running
 from csrcqsf.models.orm.search_history import SearchParameters
 from csrcqsf.modules.railway_parts.services.contextual_search_service import (
@@ -21,6 +23,7 @@ from csrcqsf.modules.railway_parts.services.text_search_grouping import (
 
 
 SearchHistoryListReq: Any = None
+PENDING_HISTORY_CLEANUP_BATCH_SIZE = 500
 
 def _runtime():
     from csrcqsf.modules.railway_parts.services import parts_search_service
@@ -147,7 +150,15 @@ async def delete_v2_search_history(cls, history_id_list: list[int], runtime=None
         )
         await session.commit()
 
-    _, minio_instance, parse_minio_path = runtime._get_minio_helpers()
+    await _delete_history_query_images(rows, runtime=runtime)
+    return runtime.SearchHistoryDeleteRes(
+        deleted_count=len(rows),
+        message="检索历史删除成功",
+    )
+
+
+async def _delete_history_query_images(rows, *, runtime):
+    helpers = None
     for row in rows:
         history_id, query_image = row[0], row[1]
         query_images_json = row[2] if len(row) > 2 else None
@@ -166,11 +177,15 @@ async def delete_v2_search_history(cls, history_id_list: list[int], runtime=None
 
         for image_path in dict.fromkeys(delete_paths):
             try:
+                # 纯文本历史无需连接对象存储；存储异常也不阻断已提交的历史清理。
+                if helpers is None:
+                    helpers = runtime._get_minio_helpers()
+                _, minio_instance, parse_minio_path = helpers
                 bucket, object_name = parse_minio_path(
                     image_path,
                     default_bucket=runtime.minio_search_history_bucket,
                 )
-                minio_instance.client.remove_object(bucket, object_name)
+                await run_sync(minio_instance.client.remove_object, bucket, object_name)
             except Exception as exc:
                 runtime.logger.warning(
                     "删除检索历史查询图失败: history_id=%s, path=%s, error=%s",
@@ -179,9 +194,34 @@ async def delete_v2_search_history(cls, history_id_list: list[int], runtime=None
                     exc,
                 )
 
+async def cleanup_pending_v2_search_history(cls, runtime=None):
+    runtime = runtime or _runtime()
+    async with runtime.SessionLocal() as session:
+        # 固定本次清理的 ID 上界，保留清理过程中用户新建的检索历史。
+        upper_bound = await runtime.SearchHistoryRepository.get_pending_history_cleanup_upper_bound(
+            session, history_model=runtime.SearchHistory,
+        )
+
+    deleted_count = 0
+    if upper_bound is not None:
+        while True:
+            async with runtime.SessionLocal() as session:
+                rows = await runtime.SearchHistoryRepository.delete_pending_history_batch_with_query_images(
+                    session,
+                    upper_bound=int(upper_bound),
+                    batch_size=PENDING_HISTORY_CLEANUP_BATCH_SIZE,
+                    history_model=runtime.SearchHistory,
+                )
+                if rows:
+                    await session.commit()
+            if not rows:
+                break
+            deleted_count += len(rows)
+            await _delete_history_query_images(rows, runtime=runtime)
+
     return runtime.SearchHistoryDeleteRes(
-        deleted_count=len(rows),
-        message="检索历史删除成功",
+        deleted_count=deleted_count,
+        message="pending 检索历史清理完成",
     )
 
 

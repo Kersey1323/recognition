@@ -903,8 +903,9 @@ async def search_v2_contextual(
         )
     if history is None:
         raise ContextualSearchBusinessError(404, f"history_id={history_id} 的记录不存在")
-    if getattr(history, "verify_status", None) != "pending":
-        raise ContextualSearchBusinessError(409, "只有 pending 状态允许再次检索")
+    # 用户反馈识别错误后可补充条件再次检索，并兼容旧的待反馈记录。
+    if getattr(history, "verify_status", None) not in {"pending", "wrong"}:
+        raise ContextualSearchBusinessError(409, "只有 wrong 或 pending 状态允许再次检索")
     if not files and not has_metadata:
         raise ContextualSearchBusinessError(422, "未上传新图片时至少提供一个业务条件")
 

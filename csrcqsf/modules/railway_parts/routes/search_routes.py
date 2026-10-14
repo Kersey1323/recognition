@@ -484,7 +484,7 @@ async def search_v2_contextual(
     search_mode: str = Form(default="siglip"),
     search_equipment: str = Form(default="web"),
 ):
-    """使用图片或配件描述检索，并在同一 pending 历史中滚动最近两次结果。"""
+    """使用图片或配件描述检索，在 wrong 或 pending 历史中保留最近两次结果。"""
     ensure_vector_models_enabled()
     try:
         normalized_history_id = (
@@ -657,6 +657,16 @@ async def delete_v2_search_history(req: SearchHistoryDeleteReq):
     return await RailwayPartsManager.delete_v2_search_history(
         [int(history_id) for history_id in req.history_id_list]
     )
+
+@parts_router.post(
+    '/v2/search/history/cleanup/pending',
+    tags=["数据清理"],
+    summary='清理全部待反馈的检索历史',
+    response_model=SearchHistoryDeleteRes,
+    description='无需请求参数。删除 pending 及空状态旧记录、关联复核单和查询图片，返回删除数量；保留正确、错误记录及清理开始后新建的历史。',
+)
+async def cleanup_pending_v2_search_history():
+    return await RailwayPartsManager.cleanup_pending_v2_search_history()
 
 
 @parts_router.get('/v2/search/modes', tags=["算法-向量检索V2"], summary='获取V2检索模式说明')

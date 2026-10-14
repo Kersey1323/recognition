@@ -123,7 +123,7 @@ def test_item_name_candidate_query_uses_normalized_exact_match():
     assert "lower(trim(item_info.item_name)) = '便器冲洗按钮'" in sql
 
 
-def test_history_window_update_uses_pending_state_and_revision_compare_and_swap():
+def test_history_window_update_allows_wrong_and_pending_with_revision_compare_and_swap():
     session = _ExecuteSession(SimpleNamespace(rowcount=1))
     snapshot = SearchSnapshot(
         query_images=["old.jpg"],
@@ -156,9 +156,10 @@ def test_history_window_update_uses_pending_state_and_revision_compare_and_swap(
     )
     assert updated is True
     assert "search_history.id = 101" in where_sql
-    assert "search_history.verify_status = 'pending'" in where_sql
+    assert "search_history.verify_status IN ('pending', 'wrong')" in where_sql
     assert "search_history.search_revision = 3" in where_sql
     assert statement._values[SearchHistory.__table__.columns.search_revision].value == 4
+    assert SearchHistory.__table__.columns.verify_status not in statement._values
     assert (
         statement._values[SearchHistory.__table__.columns.query_text].value
         == "卫生间墙面上的冲洗按钮"

@@ -44,6 +44,7 @@ summary_v2_search_history = search_routes.summary_v2_search_history
 verify_v2_search_history = search_routes.verify_v2_search_history
 submit_v2_search_feedback = search_routes.submit_v2_search_feedback
 delete_v2_search_history = search_routes.delete_v2_search_history
+cleanup_pending_v2_search_history = search_routes.cleanup_pending_v2_search_history
 get_v2_search_modes = search_routes.get_v2_search_modes
 
 list_v2_search_review_tickets = review_ticket_routes.list_v2_search_review_tickets
@@ -116,6 +117,7 @@ __all__ = [
     "verify_v2_search_history",
     "submit_v2_search_feedback",
     "delete_v2_search_history",
+    "cleanup_pending_v2_search_history",
     "get_v2_search_modes",
     "list_v2_search_review_tickets",
     "get_v2_search_review_ticket_detail",

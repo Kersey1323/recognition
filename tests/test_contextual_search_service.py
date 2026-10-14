@@ -183,8 +183,10 @@ def test_first_contextual_search_accepts_description_without_image():
     assert session.added[0].query_text == "厕所里的马桶盖"
 
 
-def test_repeated_search_replaces_image_and_keeps_only_old_current_as_previous():
+@pytest.mark.parametrize("status", ["pending", "wrong"])
+def test_repeated_search_replaces_image_and_keeps_only_old_current_as_previous(status):
     history = _pending_history()
+    history.verify_status = status
     session = _Session()
     repository = SimpleNamespace(
         get_history=AsyncMock(return_value=history),
@@ -222,11 +224,14 @@ def test_repeated_search_replaces_image_and_keeps_only_old_current_as_previous()
     update_kwargs = repository.update_history_window.await_args.kwargs
     assert update_kwargs["expected_revision"] == 2
     assert update_kwargs["previous_snapshot"].query_images == ["old-current.jpg"]
+    session.commit.assert_awaited_once()
     delete_mock.assert_awaited_once_with(["old-previous.jpg"], runtime=runtime)
 
 
-def test_repeated_search_without_new_file_reuses_current_query_image():
+@pytest.mark.parametrize("status", ["pending", "wrong"])
+def test_repeated_search_without_new_file_reuses_current_query_image(status):
     history = _pending_history()
+    history.verify_status = status
     session = _Session()
     repository = SimpleNamespace(
         get_history=AsyncMock(return_value=history),
@@ -854,7 +859,7 @@ def test_parts_manager_delegates_item_description():
     assert "item_description" in [keyword.arg for keyword in delegated_call.keywords]
 
 
-def test_only_pending_history_can_be_searched_again():
+def test_correct_history_cannot_be_searched_again():
     history = _pending_history()
     history.verify_status = "correct"
     session = _Session()
@@ -874,8 +879,10 @@ def test_only_pending_history_can_be_searched_again():
     assert exc.value.status_code == 409
 
 
-def test_revision_conflict_cleans_new_upload_and_does_not_overwrite_window():
+@pytest.mark.parametrize("status", ["pending", "wrong"])
+def test_revision_conflict_cleans_new_upload_and_does_not_overwrite_window(status):
     history = _pending_history()
+    history.verify_status = status
     session = _Session()
     repository = SimpleNamespace(
         get_history=AsyncMock(return_value=history),

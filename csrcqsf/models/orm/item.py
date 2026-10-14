@@ -871,7 +871,8 @@ class Items(Base):
         elif source_video_filter_mode == "missing":
             stmt = stmt.where(cls.source_video_path.is_(None))
         count = await async_get_count(session, stmt)
-        stmt = stmt.order_by(cls.time_created.desc()).order_by(cls.id.desc())
+        # 列表 updated_at 对应图片索引更新时间，最近更新优先；同时间按 ID 倒序保证分页稳定。
+        stmt = stmt.order_by(cls.v2_index_updated_at.desc(), cls.id.desc())
         if page != -1:
             stmt = stmt.limit(
                 per_page).offset(offset)

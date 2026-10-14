@@ -526,6 +526,11 @@ class RailwayPartsManager:
         )
 
     @classmethod
+    async def cleanup_pending_v2_search_history(cls):
+        _bind_parts_search_runtime()
+        return await parts_search_service.cleanup_pending_v2_search_history(cls)
+
+    @classmethod
     async def search_v2_by_text(
         cls,
         query_text: str,
