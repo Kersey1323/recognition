@@ -1,4 +1,4 @@
-"""SGO 库存中可供现场取件的库区与货位。"""
+"""SGO 库存表中记录的库区与货位。"""
 
 import os
 from decimal import Decimal
@@ -28,7 +28,7 @@ class WmsStockDetail(Base):
 
     @classmethod
     async def list_available_locations(cls, session):
-        # 现场只取指定库区内有非限制库存且有货位的物料；零库存、在途和质检库存不列入取件位置。
+        # 库存数量不准确，现场取件清单保留指定库区内全部有货位的物料，不按数量筛选。
         fields = (
             func.trim(cls.MATNR), func.trim(cls.LGORT),
             func.nullif(func.trim(cls.LGORTD), ""), func.trim(cls.GRARD),
@@ -38,7 +38,6 @@ class WmsStockDetail(Base):
                 cls.WERKS == STOCK_FACTORY,
                 cls.LGORT.in_(STOCK_WAREHOUSES),
                 cls.tenant_id_ == STOCK_TENANT,
-                cls.CLABS > 0,
                 func.trim(cls.MATNR) != "",
                 func.trim(cls.GRARD) != "",
             ).distinct()

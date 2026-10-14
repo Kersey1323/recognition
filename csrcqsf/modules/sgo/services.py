@@ -1261,7 +1261,7 @@ class SGOBiz:
             target = snapshot.get(int(row.id), empty)
             current = {key: _clean_text(getattr(row, key)) for key in ("LGORT", "LGORTD", "GRARD")}
             current["stock_locations"] = row.stock_locations or []
-            # 已移库或库存归零的位置必须清空，避免叉车师傅继续按旧位置取件。
+            # 以来源表的货位记录为准，移除来源中已不存在的位置；库存数量为零仍保留。
             if current != target:
                 changed.append({"item_id": int(row.id), **target})
         for offset in range(0, len(changed), 500):

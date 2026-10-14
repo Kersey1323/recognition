@@ -138,10 +138,10 @@ class ListItem(BaseModel):
     inquiry_nums: list[str] = Field(default_factory=list, description='该配件的全部询码流水号，按时间从新到旧排列')
     inquiry_count: int = Field(default=0, description='该配件关联的询码记录总数')
     vehicle_batch: str | None = Field(default=None, description='适用车型项目号，多个值以逗号分隔')
-    LGORT: str | None = Field(default=None, description='有可用库存的库区编码，多个值以逗号分隔')
+    LGORT: str | None = Field(default=None, description='库存表中有货位记录的库区编码，多个值以逗号分隔')
     LGORTD: str | None = Field(default=None, description='库区名称，多个值以逗号分隔')
     GRARD: str | None = Field(default=None, description='货位编码，多个值以逗号分隔')
-    stock_locations: list[StockLocation] = Field(default_factory=list, description='全部可用库存位置，保留库区与货位对应关系')
+    stock_locations: list[StockLocation] = Field(default_factory=list, description='全部库存货位记录，不按库存数量筛选，保留库区与货位对应关系')
     id: str
 
 

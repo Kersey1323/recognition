@@ -472,7 +472,7 @@ def test_build_search_history_item_prefers_query_images_when_present():
     assert item.result.items[0].matched_images[0].matched_query_indexes == [0, 1]
 
 
-def test_build_search_history_item_maps_public_statuses_by_history_and_latest_ticket():
+def test_build_search_history_item_preserves_wrong_regardless_of_latest_ticket():
     RailwayPartsManager, _parts_module = _import_railway_parts_manager()
     base_row = SimpleNamespace(
         id=1,
@@ -498,7 +498,7 @@ def test_build_search_history_item_maps_public_statuses_by_history_and_latest_ti
         search_results=None,
     )
 
-    pending_item = RailwayPartsManager._build_search_history_item(base_row)
+    no_ticket_item = RailwayPartsManager._build_search_history_item(base_row)
     open_ticket_item = RailwayPartsManager._build_search_history_item(
         base_row,
         SimpleNamespace(id=11, review_status="open", issue_type="precision_issue"),
@@ -521,10 +521,14 @@ def test_build_search_history_item_maps_public_statuses_by_history_and_latest_ti
     correct_item = RailwayPartsManager._build_search_history_item(
         SimpleNamespace(**{**base_row.__dict__, "id": 3, "verify_status": "correct"})
     )
+    pending_item = RailwayPartsManager._build_search_history_item(
+        SimpleNamespace(**{**base_row.__dict__, "id": 4, "verify_status": None})
+    )
 
     assert pending_item.status == "pending"
-    assert open_ticket_item.status == "pending"
-    assert reviewing_ticket_item.status == "pending"
+    assert no_ticket_item.status == "wrong"
+    assert open_ticket_item.status == "wrong"
+    assert reviewing_ticket_item.status == "wrong"
     assert resolved_ticket_item.status == "wrong"
     assert closed_ticket_item.status == "wrong"
     assert misjudged_item.status == "correct"

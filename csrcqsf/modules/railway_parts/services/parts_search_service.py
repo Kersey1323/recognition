@@ -342,10 +342,10 @@ def _normalize_review_status(
     status: str | None,
     latest_review_status: str | None = None,
 ) -> str:
-    # 错误结果在复核工单闭环前仍对用户显示待处理，避免提前视为已纠正。
+    # 用户反馈错误后立即显示错误状态，复核进度由独立的工单状态字段表示。
     if status in {"correct", "user_misjudged"}:
         return "correct"
-    if status == "wrong" and latest_review_status in {"resolved", "closed"}:
+    if status == "wrong":
         return "wrong"
     return "pending"
 

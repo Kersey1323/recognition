@@ -68,7 +68,7 @@ def test_stock_sync_clears_stale_positions_and_does_not_touch_video():
     assert result == {"stock_item_count": 1, "updated_stock_item_count": 2}
 
 
-def test_available_stock_query_excludes_zero_stock_and_other_warehouses():
+def test_stock_location_query_ignores_quantity_and_excludes_other_warehouses():
     from csrcqsf.models.orm import sgo_external
     assert "wms_stock_detail" in sgo_external.Base.metadata.tables, "stock ORM not added"
     from csrcqsf.models.orm.sgo_stock import WmsStockDetail
@@ -80,7 +80,7 @@ def test_available_stock_query_excludes_zero_stock_and_other_warehouses():
     sql = str(session.execute.await_args.args[0].compile(
         dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
     ))
-    assert '"CLABS" > 0' in sql
+    assert '"CLABS"' not in sql
     assert '"WERKS" = \'3100\'' in sql
     assert "('2514', 'JS00')" in sql
     assert 'trim(wms_stock_detail."GRARD") !=' in sql

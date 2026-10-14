@@ -370,6 +370,30 @@ def test_list_v2_search_history_maps_partial_status_to_wrong():
     assert res.items[0].status == "pending"
 
 
+@pytest.mark.parametrize("ticket_status", [None, "open", "reviewing", "resolved", "closed"])
+def test_get_v2_search_history_detail_returns_wrong_before_review_completion(ticket_status):
+    RailwayPartsManager, parts_module = _import_railway_parts_manager()
+    history = SimpleNamespace(
+        id=1, query_text="制动盘", query_image=None, verify_status="wrong",
+        verify_remark=None, verified_at=None,
+        time_created=datetime(2026, 4, 28, 10, 0, 0),
+        search_results=SearchResults(items=[]), inquery_id=None, inquery_num=None,
+        search_result_item_name="制动盘", search_result_item_code="40000728845",
+        correct_item_name=None, correct_item_code=None,
+    )
+    tickets = {} if ticket_status is None else {
+        1: SimpleNamespace(id=3001, review_status=ticket_status, issue_type="precision_issue"),
+    }
+    with patch.object(parts_module, "SessionLocal", return_value=_AsyncSessionContext(AsyncMock())), \
+         patch.object(parts_module.SearchHistory, "get_history_by_id", AsyncMock(return_value=history)), \
+         patch.object(parts_module.SearchReviewTicket, "list_latest_by_history_ids", AsyncMock(return_value=tickets)), \
+         patch.object(parts_module.parts_search_service.search_service, "enrich_search_result_metadata", AsyncMock()):
+        detail = asyncio.run(RailwayPartsManager.get_v2_search_history_detail(1))
+
+    assert detail.status == "wrong"
+    assert detail.latest_review_status == ticket_status
+
+
 def test_get_v2_search_history_detail_returns_full_record():
     RailwayPartsManager, parts_module = _import_railway_parts_manager()
     fake_history = SimpleNamespace(
