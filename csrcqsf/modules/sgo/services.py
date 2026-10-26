@@ -428,10 +428,10 @@ class SGOBiz:
     token = ""
     _token_error_detail = ""
     _api_url = os.getenv("SGO_API_URL", "https://sgo.4dlp.com.cn")
-    _tenant_id = os.getenv("SGO_TENANT_ID", "1463844437338755072")
-    _username = os.getenv("SGO_USERNAME", "wrps")
-    _password = os.getenv("SGO_PASSWORD", "REMOVED_CREDENTIAL")
-    _encryption = os.getenv("SGO_ENCRYPTION", "REMOVED_CREDENTIAL")
+    _tenant_id = os.getenv("SGO_TENANT_ID", "")
+    _username = os.getenv("SGO_USERNAME", "")
+    _password = os.getenv("SGO_PASSWORD", "")
+    _encryption = os.getenv("SGO_ENCRYPTION", "")
 
     @classmethod
     def init(cls):
@@ -564,6 +564,20 @@ class SGOBiz:
     @classmethod
     def get_token(cls):
         """获取图片下载令牌，并保留不含敏感值的诊断信息。"""
+        # 未配置完整的租户及登录凭据时不请求甲方认证，避免使用共享账号兜底。
+        missing = [
+            name for name, value in (
+                ("SGO_TENANT_ID", cls._tenant_id),
+                ("SGO_USERNAME", cls._username),
+                ("SGO_PASSWORD", cls._password),
+                ("SGO_ENCRYPTION", cls._encryption),
+            ) if not value.strip()
+        ]
+        if missing:
+            cls.token = ""
+            cls._token_error_detail = "缺少 SGO 认证配置: " + ", ".join(missing)
+            logger.error(cls._token_error_detail)
+            return False
         url = f"{cls._api_url}/uc/sfsso/authByAccount?tenantId={cls._tenant_id}"
         response = None
         with PoolManager(ssl_context=ctx) as pool:

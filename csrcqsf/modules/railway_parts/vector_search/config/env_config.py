@@ -34,7 +34,7 @@ class VectorDBConfig:
         # ============================================
         self.minio_endpoint = os.getenv("MINIO_ENDPOINT", "192.168.100.2:9000")
         self.minio_access_key = os.getenv("MINIO_ACCESS_KEY", "root")
-        self.minio_secret_key = os.getenv("MINIO_SECRET_KEY", "REMOVED_CREDENTIAL")
+        self.minio_secret_key = os.getenv("MINIO_SECRET_KEY", "")
         self.minio_bucket = os.getenv("MINIO_BUCKET", "bfr-ai-files")
         self.minio_secure = os.getenv("MINIO_SECURE", "false").lower() == "true"
         

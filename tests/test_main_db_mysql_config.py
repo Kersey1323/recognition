@@ -24,22 +24,22 @@ def test_main_db_mysql_dsn_uses_new_env_names(monkeypatch):
         MAIN_DB_HOST="192.168.100.2",
         MAIN_DB_PORT="3307",
         MAIN_DB_USER="root",
-        MAIN_DB_PASSWORD="REMOVED_CREDENTIAL",
+        MAIN_DB_PASSWORD="unit-test-db-password",
         MAIN_DB_DATABASE="coronavirusdb",
     )
 
     assert settings.ai_settings.mysql.url == "192.168.100.2"
     assert settings.ai_settings.mysql.port == "3307"
     assert settings.ai_settings.mysql.user_name == "root"
-    assert settings.ai_settings.mysql.password == "REMOVED_CREDENTIAL"
+    assert settings.ai_settings.mysql.password == "unit-test-db-password"
     assert settings.ai_settings.get_mysql_dsn() == (
-        "mysql+pymysql://root:REMOVED_CREDENTIAL@192.168.100.2:3307/coronavirusdb"
+        "mysql+pymysql://root:unit-test-db-password@192.168.100.2:3307/coronavirusdb"
     )
     assert settings.ai_settings.get_async_mysql_dsn() == (
-        "mysql+asyncmy://root:REMOVED_CREDENTIAL@192.168.100.2:3307/coronavirusdb"
+        "mysql+asyncmy://root:unit-test-db-password@192.168.100.2:3307/coronavirusdb"
     )
     assert settings.ai_settings.get_async_main_db_dsn() == (
-        "mysql+asyncmy://root:REMOVED_CREDENTIAL@192.168.100.2:3307/coronavirusdb"
+        "mysql+asyncmy://root:unit-test-db-password@192.168.100.2:3307/coronavirusdb"
     )
     assert settings.ai_settings.get_pg_dsn() == settings.ai_settings.get_mysql_dsn()
     assert (

@@ -219,7 +219,8 @@ minio_search_history_bucket = os.getenv(
 )
 minio_endpoint = os.getenv("MINIO_ENDPOINT", "192.168.100.2:9000")
 minio_access_key = os.getenv("MINIO_ACCESS_KEY", "root")
-minio_secret_key = os.getenv("MINIO_SECRET_KEY", "REMOVED_CREDENTIAL")
+# 对象存储凭据由部署环境提供，源码不提供共享访问密钥。
+minio_secret_key = os.getenv("MINIO_SECRET_KEY", "")
 minio_secure = _env_bool("MINIO_SECURE", False)
 agent_running = _env_bool("AGENT_RUNING", False)
 temp_dir = str(runtime_paths.temp_dir)

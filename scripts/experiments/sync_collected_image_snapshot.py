@@ -27,13 +27,15 @@ def main():
     helper.ROOT = args.output.resolve()
     helper.ROOT.mkdir(parents=True, exist_ok=True)
     cfg = dotenv_values('.env')
+    required = ('SGO_API_URL', 'SGO_TENANT_ID', 'SGO_USERNAME', 'SGO_PASSWORD', 'SGO_ENCRYPTION')
+    missing = [name for name in required if not (cfg.get(name) or '').strip()]
+    if missing:
+        raise ValueError('Missing SGO configuration: ' + ', '.join(missing))
     auth = requests.post(
-        (cfg.get('SGO_API_URL') or 'https://sgo.4dlp.com.cn') + '/uc/sfsso/authByAccount',
-        params={'tenantId': cfg.get('SGO_TENANT_ID') or '1463844437338755072'},
-        json={key: cfg.get('SGO_' + key.upper()) or default for key, default in {
-            'username': 'wrps', 'password': 'REMOVED_CREDENTIAL',
-            'encryption': 'REMOVED_CREDENTIAL',
-        }.items()}, timeout=20,
+        cfg['SGO_API_URL'].rstrip('/') + '/uc/sfsso/authByAccount',
+        params={'tenantId': cfg['SGO_TENANT_ID']},
+        json={key: cfg['SGO_' + key.upper()] for key in ('username', 'password', 'encryption')},
+        timeout=20,
     )
     auth.raise_for_status()
     os.environ['SGO_SNAPSHOT_TOKEN'] = auth.json()['token']

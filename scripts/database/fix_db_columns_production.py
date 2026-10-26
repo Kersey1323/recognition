@@ -4,13 +4,14 @@
 用于在 192.168.100.8 数据库上添加缺失的 parent_num 和 son_num 字段
 """
 import asyncio
+import os
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from urllib.parse import quote_plus
 
-# 生产数据库连接信息（从 Docker 容器配置中获取）
+# 维护脚本从本机环境读取凭据，避免将生产口令写入仓库。
 DB_USER = "root"  # PostgreSQL 用户名
-DB_PASSWORD = "REMOVED_CREDENTIAL"  # PostgreSQL 密码
+DB_PASSWORD = os.getenv("PG_PASSWORD", "")
 DB_HOST = "192.168.100.8"
 DB_PORT = "5432"  # PostgreSQL 使用 host 网络模式，直接监听在 5432 端口
 DB_NAME = "zcsf"

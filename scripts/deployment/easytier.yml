@@ -17,4 +17,4 @@ services:
     volumes:
       - /etc/easytier:/root
       - /etc/machine-id:/etc/machine-id:ro # 映射宿主机机器码
-    command: -d --network-name 邹航宇 --network-secret REMOVED_CREDENTIAL -p udp://47.115.94.169:10000
+    command: -d --network-name ${EASYTIER_NETWORK_NAME:?Set EASYTIER_NETWORK_NAME} --network-secret ${EASYTIER_NETWORK_SECRET:?Set EASYTIER_NETWORK_SECRET} -p udp://47.115.94.169:10000

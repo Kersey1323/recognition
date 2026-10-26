@@ -61,7 +61,14 @@ def build_zip(file_count):
     return buffer.getvalue()
 
 
-def test_get_token_records_safe_http_failure_details():
+def test_get_token_records_safe_http_failure_details(monkeypatch):
+    for name, value in {
+        "_tenant_id": "test-tenant",
+        "_username": "test-user",
+        "_password": "test-login-password",
+        "_encryption": "test-login-encryption",
+    }.items():
+        monkeypatch.setattr(SGOBiz, name, value)
     response = FakeResponse(
         401,
         data=b'{"code":401,"message":"account rejected"}',
@@ -81,6 +88,17 @@ def test_get_token_records_safe_http_failure_details():
     assert "username_configured=True" in SGOBiz._token_error_detail
     assert SGOBiz._password not in SGOBiz._token_error_detail
     assert SGOBiz._encryption not in SGOBiz._token_error_detail
+
+
+def test_get_token_without_credentials_does_not_request_sgo(monkeypatch):
+    monkeypatch.setattr(SGOBiz, "_password", "")
+    monkeypatch.setattr(SGOBiz, "token", "stale-token")
+    monkeypatch.setattr(SGOBiz, "_token_error_detail", "")
+    with patch.object(sgo_services, "PoolManager") as pool:
+        assert SGOBiz.get_token() is False
+    pool.assert_not_called()
+    assert SGOBiz.token == ""
+    assert "SGO_PASSWORD" in SGOBiz._token_error_detail
 
 
 def test_download_images_fetches_missing_token_on_demand():

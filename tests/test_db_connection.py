@@ -4,13 +4,14 @@
 测试到 192.168.100.8 PostgreSQL 的连接
 """
 import asyncio
+import os
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from urllib.parse import quote_plus
 
 # 数据库连接信息
 DB_USER = "root"
-DB_PASSWORD = "REMOVED_CREDENTIAL"
+DB_PASSWORD = os.getenv("PG_PASSWORD", "")
 DB_HOST = "192.168.100.8"
 DB_PORT = "5432"
 DB_NAME = "zcsf"

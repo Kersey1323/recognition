@@ -8,6 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+# Local credentials stay outside Git; only sanitized environment templates are tracked.
+.env*
+!.env.example
 logs/
 temp
 resnet_models/
