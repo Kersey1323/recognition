@@ -23,6 +23,9 @@ from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service impor
 from csrcqsf.modules.railway_parts.services.text_search_grouping import (
     aggregate_text_search_items_by_name,
 )
+from csrcqsf.modules.railway_parts.vector_search.storage.inquiry_semantic_store import (
+    is_catalog_name_document,
+)
 
 
 FINAL_SCORE_WEIGHTS = {
@@ -665,7 +668,8 @@ async def _execute_contextual_search(
             text_hits = [
                 hit
                 for hit in text_hits
-                if str(hit.get("entity", {}).get("inquiry_id") or "")
+                if is_catalog_name_document(hit.get("entity", {}))
+                or str(hit.get("entity", {}).get("inquiry_id") or "")
                 in eligible_inquiry_ids
             ]
             text_scores = {}

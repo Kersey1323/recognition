@@ -599,6 +599,32 @@ def test_agent_mode_removes_current_and_future_semantic_hits():
     )
 
 
+def test_agent_mode_keeps_catalog_names_without_inquiry_history():
+    session = _Session()
+    repository = SimpleNamespace(
+        list_items_by_ids=AsyncMock(return_value=[
+            SimpleNamespace(id=1, item_code="40001", item_name="门控器"),
+        ]),
+        list_histories_by_item_ids=AsyncMock(return_value=[]),
+        list_first_images_by_item_ids=AsyncMock(return_value=[]),
+    )
+    semantic_service = SimpleNamespace(search=AsyncMock(return_value=[
+        {"distance": 0.9, "entity": {
+            "item_id": 1, "description": "门控器", "document_key": "catalog:40001",
+            "history_id": 0, "inquiry_id": "",
+        }},
+    ]))
+    with patch.object(contextual_search_service, "agent_running", True), patch.object(
+        contextual_search_service, "get_inquiry_semantic_index_service", return_value=semantic_service,
+    ):
+        results, _ = asyncio.run(contextual_search_service._execute_contextual_search(
+            object, query_images=[], runtime=_runtime(session, repository),
+            parameters=SearchParameters(item_description="门控器", source_inquiry_id="current",
+                                        source_inquiry_time=datetime(2026, 3, 5)),
+        ))
+    assert [item.item_code for item in results] == ["40001"]
+
+
 def test_agent_leakage_filter_is_disabled_by_default():
     cutoff = datetime(2026, 3, 5, 10, 30, 26)
     session = _Session()

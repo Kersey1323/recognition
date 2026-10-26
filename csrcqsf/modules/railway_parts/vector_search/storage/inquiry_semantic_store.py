@@ -17,6 +17,15 @@ class InquirySemanticIndexNotReady(RuntimeError):
     pass
 
 
+def is_catalog_name_document(entity: dict) -> bool:
+    # 物料基础名称不属于历史询码，仅放行显式标记且未关联任何询码的文档。
+    return (
+        str(entity.get("document_key") or "").startswith("catalog:")
+        and entity.get("history_id") == 0
+        and entity.get("inquiry_id") == ""
+    )
+
+
 @dataclass(frozen=True)
 class InquirySemanticDocument:
     document_key: str

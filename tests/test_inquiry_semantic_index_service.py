@@ -138,6 +138,29 @@ def make_config(**overrides):
     return SimpleNamespace(**values)
 
 
+def test_catalog_names_survive_replay_filter_without_admitting_unmarked_rows():
+    from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
+        InquirySemanticIndexService,
+    )
+
+    service = InquirySemanticIndexService(
+        repository=FakeRepository([]),
+        state_repository=FakeStateRepository(),
+        store=FakeStore(),
+        model_client=FakeModelClient(),
+        config=make_config(),
+    )
+    hits = [
+        {"distance": 0.9, "entity": {"item_id": 10, "document_key": "catalog:40001", "history_id": 0, "inquiry_id": ""}},
+        {"distance": 0.95, "entity": {"item_id": 20, "inquiry_id": ""}},
+        {"distance": 0.99, "entity": {"item_id": 30, "document_key": "catalog:40003", "history_id": 5, "inquiry_id": "current"}},
+    ]
+    filtered = asyncio.run(service._filter_search_hits(
+        hits, exclude_inquiry_id="current", before_inquiry_time=datetime(2026, 3, 5),
+    ))
+    assert [hit["entity"]["item_id"] for hit in filtered] == [10]
+
+
 def test_description_normalization_and_hashes_are_deterministic():
     from csrcqsf.modules.railway_parts.services.inquiry_semantic_index_service import (
         build_content_hash,

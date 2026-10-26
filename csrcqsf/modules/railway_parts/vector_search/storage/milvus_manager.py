@@ -53,6 +53,7 @@ class MilvusManagerV2:
 
         self.model_client = get_model_client()
         self.siglip_collection = env_config.siglip_collection_name
+        self.siglip_group_by_item = env_config.siglip_group_by_item
         self.dinov2_collection = env_config.dinov2_collection_name
         self.patch_tokens_dir = env_config.dinov2_patch_tokens_dir
 
@@ -615,14 +616,18 @@ class MilvusManagerV2:
         # 提取图像特征
         image_vector = await self.model_client.siglip_image_features(image)
 
+        # 采集库按配件取最高分图片，避免图片多的配件占满 TopK 召回位。
+        grouped = getattr(self, "siglip_group_by_item", False)
+        grouping_kwargs = {"group_by_field": "item_id"} if grouped else {}
         # 在 Milvus 中检索
         results = self.collection_manager.client.search(
             collection_name=self.siglip_collection,
             data=[image_vector.tolist()],
             anns_field="image_vector",
-            limit=top_k * 3,
+            limit=top_k if grouped else top_k * 3,
             output_fields=self._build_search_output_fields(),
             **self._item_filter_kwargs(item_ids),
+            **grouping_kwargs,
         )[0]
 
         return self._dedupe_hits_by_image_id(results)[:top_k]

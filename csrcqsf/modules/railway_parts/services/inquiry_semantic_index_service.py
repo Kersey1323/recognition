@@ -24,6 +24,7 @@ from csrcqsf.modules.railway_parts.vector_search.config.env_config import get_co
 from csrcqsf.modules.railway_parts.vector_search.storage.inquiry_semantic_store import (
     InquirySemanticDocument,
     InquirySemanticStore,
+    is_catalog_name_document,
 )
 
 
@@ -396,7 +397,8 @@ class InquirySemanticIndexService:
             hits = [
                 hit
                 for hit in hits
-                if str(hit.get("entity", {}).get("inquiry_id") or "")
+                if is_catalog_name_document(hit.get("entity", {}))
+                or str(hit.get("entity", {}).get("inquiry_id") or "")
                 in eligible_inquiry_ids
             ]
 

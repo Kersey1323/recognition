@@ -1,0 +1,285 @@
+http://192.168.100.36:8001/recognition_web/railway/parts-manage
+# 铁路配件智能识别系统
+https://github.com/Tencent-Hunyuan/Hunyuan3D-2
+基于 FastAPI 的铁路配件主业务服务，当前覆盖以下能力：
+
+- 配件基础管理
+- 图片检索与基于历史询码描述的自然语言语义检索
+- V2 向量索引管理
+- 检索历史与技术部核验闭环
+- 配件图片分割与预处理
+- 三维重构视频上传、任务提交、状态同步
+
+本仓库现在只承载主业务服务；模型推理和三维重构训练链路都已经拆分为独立服务。
+
+## 文档入口
+
+- [部署文档](部署文档.md)
+- [Docker 快速部署](docs/Docker镜像快速部署.md)
+- [代码结构说明](docs/代码结构说明.md)
+- [SGO网关与算法服务接口对接说明](SGO网关与算法服务接口对接说明.md)
+
+## 当前架构
+
+当前部署形态已经调整为“三服务解耦”：
+
+- `recognition`：主业务服务，对前端保持现有接口路径与返回结构
+- 模型推理服务：通过 `MODEL_SERVICE_URL` 提供 OCR、分割、向量特征等推理能力
+- 三维重构服务：通过 `RECONSTRUCTION_SERVER_URL` 对接独立的 `reconstruction_server`
+
+相关目录约定：
+
+- 主业务仓库：`/home/ubuntu/project-train/recognition`
+- 三维重构服务：`/home/ubuntu/project-train/reconstruction_server`
+- 三维重构算法研发工程：`/home/ubuntu/project-train/reconstruction`
+
+说明：
+
+- 前端仍然只访问主业务服务
+- 主业务服务本身不带统一前缀；如果线上通过 Nginx 代理增加 `/recognition_api`，那属于网关层行为
+- 主业务已支持脱离 GPU 启动
+- 未配置 `RECONSTRUCTION_SERVER_URL` 时，三维重构能力会禁用
+
+## 代码结构
+
+```text
+recognition/
+├── csrcqsf/
+│   ├── __main__.py                   # python -m csrcqsf 包启动入口
+│   ├── core/                         # 应用入口、配置、运行时、调度
+│   ├── infra/                        # 数据库、MinIO、Milvus、外部服务客户端
+│   ├── modules/
+│   │   ├── railway_parts/            # 铁路配件主业务模块
+│   │   │   ├── routes/               # 路由定义
+│   │   │   ├── schemas/              # 请求/响应模型
+│   │   │   ├── services/             # 业务服务
+│   │   │   ├── repositories/         # 仓储层
+│   │   │   ├── integrations/         # 外部能力适配
+│   │   │   ├── utils/                # 上传/文件等通用工具
+│   │   │   └── vector_search/        # 向量检索子系统
+│   │   ├── image/                    # 图像能力
+│   │   ├── doc_parse/                # 文档解析
+│   │   └── sgo/                      # SGO 集成
+│   └── models/
+│       └── orm/                      # ORM 模型
+├── docs/                             # 项目文档
+├── scripts/                          # 运维/测试/迁移脚本
+├── tests/                            # 自动化测试
+├── state/                            # 运行状态目录
+└── temp/                             # 临时文件目录
+```
+
+这次结构治理后的几个关键变化：
+
+- 旧的 `services / biz / data / models` 混合结构已经收敛到 `core / infra / modules / models`
+- 三维重构运行时代码已从主仓库迁出到独立的 `reconstruction_server`
+- 配件检索子系统已收口到 `csrcqsf/modules/railway_parts/vector_search`
+- `patch_tokens` 不再放在源码目录，默认落在 `state/vector_db/patch_tokens`
+
+## 快速开始
+
+
+### 1. 安装依赖
+
+```bash
+cd /home/ubuntu/project-train/recognition
+uv sync
+```
+
+### 2. 配置环境变量
+
+```bash
+cp .env.example .env
+```
+
+按实际环境至少检查以下配置：
+
+- 主业务 MySQL：`MAIN_DB_*`
+- MinIO：`MINIO_*`
+- Milvus：`MILVUS_*`
+- Token 验证缓存：`AUTH_REDIS_URL`
+- SGO 全局鉴权：`AUTH_*`、`SGO_SSO_*`
+- 模型推理服务：`MODEL_SERVICE_URL`
+- 询码语义索引：`INQUIRY_TEXT_*`
+- 三维重构服务：`RECONSTRUCTION_SERVER_URL`
+
+说明：
+
+- `MODEL_SERVICE_URL` 不可用时，依赖模型推理的接口无法正常使用
+- 文本检索调用模型服务的 BGE-M3 `/api/v1/text/embeddings`，不再使用 SigLIP 文本找图
+- V2 索引构建要求模型服务 `/health` 包含 `indexing_extract`；任务会先校验能力，再读取业务数据
+- V2 索引对 `BASEINFO`、`INQUERY`、`CREATEBYSELF` 图片统一执行 YOLO-World + SAM2 黑底抠图，仅主体未检测到或空 mask 时回退原图
+- 分割 PNG 写入 `MINIO_BUCKET/segmented/{item_id}/{image_id}/`，记录保存在 `segmented_image_info`
+- `MODEL_SERVICE_INDEX_TIMEOUT_SEC` 控制单张组合提取超时，默认 120 秒
+- `RECONSTRUCTION_SERVER_URL` 不配置时，主业务仍可启动，但三维重构相关接口会禁用
+- `DINOV2_PATCH_TOKENS_DIR` 默认是 `state/vector_db/patch_tokens`，部署时应挂载持久化目录
+
+### 询码语义检索首次启用
+
+文本检索只索引主库 `item_inquiry_history.inquiry_item_name`，用于“监控室对面窗帘”这类自然语言描述。首次启用顺序：
+
+1. 模型服务启用 BGE-M3，并确认 `/health` 已声明文本向量能力。
+2. 部署主服务，让启动迁移创建询码语义任务表和 SGO 任务关联字段。
+3. 调用 `POST /railway/parts/v2/inquiry-text-index/rebuild` 创建首次全量任务。
+4. 查询 `GET /railway/parts/v2/inquiry-text-index/tasks/{task_id}`，等待状态变为 `success`。
+5. 使用 `POST /railway/parts/v2/search/text` 验证自然语言描述召回。
+
+服务启动不会自动执行全量重建。后续 SGO 询码同步提交成功后会创建增量语义索引任务；增量任务创建失败只记录在同步任务的 `semantic_index_warning`，不会回滚已同步的询码数据。
+
+### 3. 启动主服务
+
+```bash
+cd /home/ubuntu/project-train/recognition
+source .venv/bin/activate
+RECOGNITION_ENV_FILE=.env python -m csrcqsf
+```
+
+服务只在明确设置 `RECOGNITION_ENV_FILE` 时加载环境文件；生产容器直接通过
+`--env-file` 注入配置并执行 `python -m csrcqsf`。控制台保留彩色业务日志、
+源码位置、启动耗时、异常堆栈和 Uvicorn 访问日志，文件日志写入
+`APP_LOG_DIR/app` 并按天轮转、保留 30 天、压缩为 ZIP。
+
+默认访问地址：
+
+- Swagger UI：`http://127.0.0.1:65432/docs`
+- OpenAPI：`http://127.0.0.1:65432/openapi.json`
+
+## 主服务与外部能力边界
+
+主服务本身负责：
+
+- 对前 HTTP API
+- 主业务数据落库
+- 检索历史、校验清单、上传记录、重构任务记录管理
+- 调用外部模型服务和重构服务
+
+主服务不再本地承担：
+
+- OCR / 向量特征 / 分割模型推理
+- 3D 重构训练与结果生成
+
+如果需要启用完整能力：
+
+- 部署模型服务并配置 `MODEL_SERVICE_URL`
+- 部署 `reconstruction_server` 并配置 `RECONSTRUCTION_SERVER_URL`
+
+发布时先升级模型服务并确认 `/health` 已声明 `indexing_extract`，再升级主业务服务。反向发布会导致索引任务在能力前检阶段被拒绝，但不会影响其他业务接口。
+
+## Docker 部署说明
+
+当前主业务 Docker 镜像默认即为无 GPU 版本，重点用于甲方联调，不再单独维护 CPU 专属 Dockerfile 或部署脚本。
+
+部署约束：
+
+- 只容器化主业务服务
+- MySQL、Redis、Milvus、MinIO 使用外部现成服务
+- 模型推理与三维重构服务独立部署
+- `logs`、`temp`、`state` 必须挂载到宿主机持久化目录
+- 项目根目录 `Dockerfile` 定义运行时契约：端口、健康检查、持久化目录
+- `Dockerfile.vendor` 作为 GitLab 发布流水线固定使用的镜像入口
+
+详细步骤见：
+
+- [Docker 快速部署](docs/Docker镜像快速部署.md)
+- [部署文档](部署文档.md)
+
+## 常用验证命令
+
+### 验证主业务外部服务与向量配置
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/testing/debug_model_paths.py
+```
+
+### 运行测试
+
+```bash
+PYTHONPATH=. .venv/bin/pytest tests/ -q
+```
+
+### 本地模式分片上传调试页
+
+如果要验证 `/railway/parts/v2/reconstruct/video/upload/part` 是否按真实分片方式上传，不要直接用 Swagger 选择整视频文件。
+
+可直接打开：
+
+- [reconstruct_local_upload_debug.html](/home/ubuntu/project-train/recognition/tools/reconstruct_local_upload_debug.html)
+
+这个调试页会在浏览器里用 `file.slice(start, end)` 切出每个 `partBuffer`，再逐片调用：
+
+- `/railway/parts/v2/reconstruct/video/upload/init`
+- `/railway/parts/v2/reconstruct/video/upload/part`
+- `/railway/parts/v2/reconstruct/video/upload/progress`
+- `/railway/parts/v2/reconstruct/video/upload/complete`
+
+当前分片模式说明：
+
+- `storage_mode=local`
+  - 前端分片后把每片传给主业务服务
+  - 主业务服务先落本地
+  - 后续再同步到 MinIO
+- `storage_mode=remote`
+  - 前端分片后把每片传给主业务服务
+  - 主业务服务立即代理上传当前分片到 MinIO multipart upload
+  - 前端不再直接访问 MinIO 预签名 URL
+
+### 文件下载代理调试页
+
+如果要验证 `/{bucket}/{object}` 是否已经能通过主业务鉴权并由 Nginx 内部回源 MinIO，可直接打开：
+
+- [assets_download_debug.html](/home/ubuntu/project-train/recognition/tools/assets_download_debug.html)
+
+配套 Nginx 示例配置：
+
+- [nginx-assets-proxy-example.conf](/home/ubuntu/project-train/recognition/docs/deployment/nginx-assets-proxy-example.conf)
+
+这个页面会：
+
+- 带 `Authorization: Bearer <SGO_TOKEN>` 发起 `fetch`
+- 请求主业务返回的 `bucket/object` 路径
+- 自动预览图片/视频，或生成下载链接
+
+如果 SGO 鉴权服务尚未接通，可仅在本地开发环境中配置：
+
+```env
+APP_ENV=development
+AUTH_ENABLED=true
+AUTH_PROVIDER=mock
+AUTH_MOCK_TOKEN=recognition-dev-token
+```
+
+业务接口和文件资源共用全局鉴权开关与 Provider，不再保留文件代理专用免鉴权配置。生产环境禁止关闭鉴权或使用 Mock Provider。
+
+如果本机没有安装 Nginx，可直接使用 Docker 启动一个本地代理容器：
+
+```bash
+bash scripts/deployment/run_assets_proxy_debug.sh
+```
+
+这个脚本会把容器内的 `host.docker.internal` 映射到宿主机，用来访问你本机启动的主业务 `65432` 端口。
+
+## 文件下载代理
+
+当前主业务保留接口中的原始 MinIO 业务路径，不再改写返回值：
+
+- `bfr-3d-videos/...`
+- `bfr-reconstruction-files/...`
+- `bfr-search-history-files/...`
+
+推荐部署方式：
+
+- 前端只访问主业务返回的 `bucket/object`
+- 下载时直接拼接代理域名，例如 `http://127.0.0.1:8080/bfr-3d-videos/raw-videos/...`
+- 文件请求优先携带 Bearer Token；原生图片和 Viewer360 可使用 `?token=<SGO_TOKEN>`
+- 主业务全局校验 Token 后，文件代理返回 `X-Accel-Redirect: /recognition_oss/<bucket>/<object>`
+- Nginx 配置 `location ^~ /recognition_oss { internal; proxy_pass http://<minio>; }`
+- Nginx 再把 `/bfr-3d-videos/`、`/bfr-reconstruction-files/`、`/bfr-search-history-files/` 代理到主业务服务
+- Nginx 文件访问日志不得记录查询字符串，避免原始 Token 落盘
+
+## 说明
+
+- README 只保留项目概览、目录说明和导航信息
+- 具体部署步骤、环境准备和故障排查统一维护在 [部署文档](部署文档.md)
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportGeneralTypeIssues": "none"
+  }

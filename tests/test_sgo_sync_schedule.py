@@ -10,6 +10,11 @@ from csrcqsf.modules.sgo import services
 from csrcqsf.modules.sgo.services import SGOBiz
 
 
+@pytest.fixture(autouse=True)
+def enable_scheduled_sync(monkeypatch):
+    monkeypatch.setenv("SGO_ENABLE_SCHEDULED_SYNC", "true")
+
+
 @pytest.fixture
 def scheduler():
     instance = BackgroundScheduler(timezone="UTC")
@@ -118,3 +123,33 @@ def test_inquiry_sync_interval_can_be_configured(monkeypatch, scheduler):
     job = scheduler.get_job("sgo-inquiry-history-sync")
     assert job is not None
     assert job.trigger.interval == timedelta(minutes=45)
+
+
+def test_disabled_scheduled_sync_registers_no_jobs_or_token_requests(monkeypatch, scheduler):
+    monkeypatch.setenv("SGO_ENABLE_SCHEDULED_SYNC", "false")
+    monkeypatch.setenv("SGO_ENABLE_IMAGE_SYNC", "true")
+    with patch.object(services, "scheduler", scheduler), patch.object(SGOBiz, "get_token") as token:
+        SGOBiz.init()
+    assert scheduler.get_jobs() == []
+    token.assert_not_called()
+
+
+def test_disabling_sync_removes_existing_jobs_and_retries_only(monkeypatch, scheduler):
+    with patch.object(services, "scheduler", scheduler), patch.object(SGOBiz, "get_token"):
+        SGOBiz.init()
+        scheduler.add_job(lambda: None, "interval", minutes=1, id="sgo-images-sync-retry")
+        scheduler.add_job(lambda: None, "interval", minutes=1, id="unrelated-job")
+        monkeypatch.setenv("SGO_ENABLE_SCHEDULED_SYNC", "false")
+        SGOBiz.init()
+    assert [job.id for job in scheduler.get_jobs()] == ["unrelated-job"]
+
+
+@pytest.mark.parametrize("task_type", ["parts", "images", "inquiry-history"])
+def test_disabled_scheduled_sync_cannot_submit_or_start_task(monkeypatch, task_type):
+    monkeypatch.setenv("SGO_ENABLE_SCHEDULED_SYNC", "false")
+    with patch.object(services, "submit_coroutine_to_main_loop") as submit, \
+         patch.object(services, "sgo_sync_task_manager", AsyncMock()) as manager:
+        SGOBiz._submit_scheduled_sync(task_type)
+        asyncio.run(SGOBiz._start_scheduled_sync(task_type))
+    submit.assert_not_called()
+    manager.start.assert_not_awaited()

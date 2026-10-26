@@ -1,285 +1,193 @@
-http://192.168.100.36:8001/recognition_web/railway/parts-manage
-# 铁路配件智能识别系统
-https://github.com/Tencent-Hunyuan/Hunyuan3D-2
-基于 FastAPI 的铁路配件主业务服务，当前覆盖以下能力：
+# 铁路配件智能识别与视觉检索系统
 
-- 配件基础管理
-- 图片检索与基于历史询码描述的自然语言语义检索
-- V2 向量索引管理
-- 检索历史与技术部核验闭环
-- 配件图片分割与预处理
-- 三维重构视频上传、任务提交、状态同步
+面向铁路配件采集与询码的计算机视觉项目：将现场拍摄的图片与配件图库进行匹配，返回候选配件及对应图片；同时将采集视频自动处理为可交互的 360° 多视角展示。
 
-本仓库现在只承载主业务服务；模型推理和三维重构训练链路都已经拆分为独立服务。
+项目覆盖从数据采集、自动分割、特征提取、向量检索，到结果审核和索引更新的完整流程。算法重点是 **多模型图像检索、自动前景分割、视频生成 360° 视图**。主服务负责业务与任务调度，模型服务独立部署。
 
-## 文档入口
+> 本文为面向 GitHub 的技术介绍。现有运行说明见 [README.md](README.md)。文中区分已实现功能与独立研究实验，实验指标不代表线上总体识别准确率。
 
-- [部署文档](部署文档.md)
-- [Docker 快速部署](docs/Docker镜像快速部署.md)
-- [代码结构说明](docs/代码结构说明.md)
-- [SGO网关与算法服务接口对接说明](SGO网关与算法服务接口对接说明.md)
+## 核心算法能力
 
-## 当前架构
+### 1. 多模型图像检索：利用不同视觉模型的互补能力
 
-当前部署形态已经调整为“三服务解耦”：
+**要解决的问题：** 同一种配件有多个拍摄角度，询码照片又包含不同的背景、距离和铭牌信息。单一模型容易漏检，而且同一配件的多张图片不应重复占据候选名额。
 
-- `recognition`：主业务服务，对前端保持现有接口路径与返回结构
-- 模型推理服务：通过 `MODEL_SERVICE_URL` 提供 OCR、分割、向量特征等推理能力
-- 三维重构服务：通过 `RECONSTRUCTION_SERVER_URL` 对接独立的 `reconstruction_server`
+**实现方式：**
 
-相关目录约定：
+- 使用 **SigLIP** 提取 1,152 维图片特征，使用 **DINOv2-large** 提取 1,024 维整图特征，并保留局部图片特征。
+- 按配件组织图片索引，将图片相似度汇总到配件编码；同一配件的多张图片最终对应一个候选。
+- 支持 SigLIP、DINOv2 及混合检索。混合检索通过 RRF 合并排名：候选在各路越靠前、得到的支持越多，避免直接比较不同模型的原始分数。
+- 实现 DINOv2 局部特征重排：比较询码图与候选图的局部特征，每个询码局部取最佳匹配，再汇总相似度，补充整图特征难以表达的细节。
 
-- 主业务仓库：`/home/ubuntu/project-train/recognition`
-- 三维重构服务：`/home/ubuntu/project-train/reconstruction_server`
-- 三维重构算法研发工程：`/home/ubuntu/project-train/reconstruction`
+**输出结果：** 按匹配程度排列的配件编码、名称、对应图库图片，以及命中的询码图片位置。保留图片证据，便于人工判断识别依据。
 
-说明：
+在独立研究实验中，进一步验证了 **图片分类分流** 和 **Qwen3-VL 图片重排**：先判断每张照片属于近景、远景还是铭牌，再组合检索与重排。相关结果见后文；这些实验不等同于生产默认配置。
 
-- 前端仍然只访问主业务服务
-- 主业务服务本身不带统一前缀；如果线上通过 Nginx 代理增加 `/recognition_api`，那属于网关层行为
-- 主业务已支持脱离 GPU 启动
-- 未配置 `RECONSTRUCTION_SERVER_URL` 时，三维重构能力会禁用
+实现入口：[向量检索与排名融合](csrcqsf/modules/railway_parts/vector_search/storage/milvus_manager.py)。
 
-## 代码结构
+### 2. 自动前景分割：从复杂背景中提取配件
 
-```text
-recognition/
-├── csrcqsf/
-│   ├── __main__.py                   # python -m csrcqsf 包启动入口
-│   ├── core/                         # 应用入口、配置、运行时、调度
-│   ├── infra/                        # 数据库、MinIO、Milvus、外部服务客户端
-│   ├── modules/
-│   │   ├── railway_parts/            # 铁路配件主业务模块
-│   │   │   ├── routes/               # 路由定义
-│   │   │   ├── schemas/              # 请求/响应模型
-│   │   │   ├── services/             # 业务服务
-│   │   │   ├── repositories/         # 仓储层
-│   │   │   ├── integrations/         # 外部能力适配
-│   │   │   ├── utils/                # 上传/文件等通用工具
-│   │   │   └── vector_search/        # 向量检索子系统
-│   │   ├── image/                    # 图像能力
-│   │   ├── doc_parse/                # 文档解析
-│   │   └── sgo/                      # SGO 集成
-│   └── models/
-│       └── orm/                      # ORM 模型
-├── docs/                             # 项目文档
-├── scripts/                          # 运维/测试/迁移脚本
-├── tests/                            # 自动化测试
-├── state/                            # 运行状态目录
-└── temp/                             # 临时文件目录
+![采集原图与自动分割后的配件前景对照](assets/readme/segmentation-before-after.jpg)
+
+左侧为现场采集原图，右侧为同一图片经过自动分割、去背景和裁切后的结果。展示图已缩放，并对配件标识作模糊处理；保留实际分割边缘，没有人工修补掩码。
+
+**要解决的问题：** 原始采集图片包含转盘、工作台等背景，直接提取特征可能让模型关注背景。逐张人工抠图又难以支撑持续采集。
+
+**实现方式：**
+
+1. 使用 **YOLO-World** 根据工业物体提示定位配件，获得目标框。
+2. 将目标框交给 **SAM2**，生成并选择前景掩码。
+3. 针对转盘采集中的误分割，使用 SigLIP 判断是否误选转盘，并通过补充正负提示点重新分割。
+4. 对掩码进行闭运算、膨胀和裁切，生成统一黑色背景的配件图，再提取视觉特征。
+5. 未检测到目标或掩码为空时，按已定义的分支回退到原图，保留后续建库能力。
+
+**输出结果：**
+
+| 产物 | 用途 |
+| --- | --- |
+| 前景 PNG | 检索建库与分割效果审核 |
+| 目标框、掩码面积、检测分数、选用提示词 | 追踪分割结果与排查错误 |
+| SigLIP 图片向量 | 图片相似度检索 |
+| DINOv2 整图向量与局部特征 | 候选召回与局部特征重排 |
+
+模型服务提供 `/api/v1/indexing/extract`，主服务负责保存分割图、特征和配件关联关系，并管理索引任务。
+
+当前流程主要适配采集图片，包含针对转盘场景的处理；复杂询码照片的自动定位与分割属于后续适配方向。目前没有独立的分割 IoU 测试结果，不以检索指标代替分割精度。
+
+实现入口：[配件索引服务](csrcqsf/modules/railway_parts/services/parts_index_service.py)、[分割图片管理](csrcqsf/modules/railway_parts/services/segmented_image_service.py)。模型推理实现在独立的 `RecognitionModelService` 项目中。
+
+### 3. 视频生成 360° 视图：将采集过程转为可查看的算法产物
+
+![自动分割后的配件 360 度多角度旋转预览](assets/readme/viewer360-rotation.gif)
+
+自动分割后的旋转预览：从一个配件的 4 组、共 288 张透明背景视图中抽取 48 帧，保留分割掩码、去掉转盘和现场背景，再统一裁切展示范围，制作黑色背景的 GIF。使用实际分割结果，没有人工修补掩码。网页中可通过拖动切换角度；这里使用 GIF，方便在 GitHub 直接查看。
+
+<details>
+<summary>展开查看 4 组拍摄角度的静态图片</summary>
+
+![自动分割后的四组拍摄角度，每组展示四个旋转位置](assets/readme/viewer360-angles.jpg)
+
+每行对应一组拍摄角度，每列选取一个旋转位置。图片来自实际导出的透明背景视图序列，在黑色底色上展示分割后的配件。
+
+</details>
+
+**要解决的问题：** 一段原始视频不方便按角度查看配件，逐帧制作展示图又需要大量人工处理。不同角度的图像还存在背景干扰和位置偏移。
+
+**实现方式：**
+
+1. 根据视频时长和拍摄配置划分不同角度片段，跳过角度切换区间，使用 FFmpeg 抽帧。
+2. 自动定位首帧目标，使用 SAM2 在连续帧之间传播分割掩码。
+3. 合成前景图片，按每组掩码中心的统计结果调整位置，减少拖动查看时的主体偏移。
+4. 导出 WebP 多视角图片及 `manifest.json`，上传对象存储，供前端按角度切换。
+
+默认配置为 **4 组角度 × 每组 72 帧，共 288 张展示图片**，数量可配置。这是输出规格，不是处理速度指标。
+
+**输出结果：** WebP 图片序列、视角网格清单、资源地址和任务状态。支持采集后的自动触发、已有视频批量补建，以及分阶段进度与断点恢复。
+
+这里的 360° 视图是基于多视角图片的交互展示；真正的三维重建由独立服务承担。
+
+实现入口：[视频处理流程](csrcqsf/modules/railway_parts/services/viewer360_pipeline.py)、[前景合成与对齐](csrcqsf/modules/railway_parts/services/viewer360_grid.py)、[任务管理](csrcqsf/modules/railway_parts/services/viewer360_task_manager.py)。
+
+## 算法实验与结果
+
+### 实验一：677 条真实询码的纯图像检索对比
+
+**检索图库：471 个配件、8,896 张图片。测试集：677 条询码、2,526 张不同的询码图片。**
+
+图库使用基础信息和人工上传图片，查询使用询码记录图片。实验只输入图片，不使用名称、车型、BGE、Agent 或生成名称。正确编码仅在检索结束后用于评分。
+
+同一配件取多图组合中的最高余弦相似度，按不同配件编码排名。DINOv2 本轮只使用整图特征，没有使用局部特征重排。
+
+| 正确编码召回率 | SigLIP | DINOv2 整图特征 |
+| --- | ---: | ---: |
+| Top1 | **28.21%（191/677）** | 23.49%（159/677） |
+| Top5 | **51.26%（347/677）** | 46.23%（313/677） |
+| Top10 | **59.68%（404/677）** | 54.21%（367/677） |
+| Top20 | **68.69%（465/677）** | 61.30%（415/677） |
+| MRR@20 | **0.386847** | 0.336869 |
+
+**关键发现：模型存在互补，不能简单替换。** DINOv2 另外找回了 SigLIP 未命中的 57 条。两路各取前 20 名，合并后的覆盖率为 **77.10%（522/677）**；合并后最多有 40 个候选，这不是最终 Top20 召回率。
+
+询码图片与图库图片的文件级 SHA-256 完全重复数为 0；这项检查不能排除所有视觉近重复。测试集限于正确编码属于当前图库且具备可用图片的询码，不代表平台全部询码分布。
+
+### 实验二：50 条询码的分类、融合与图片重排
+
+本轮为独立研究实验，使用同一完整图库，测试 **50 条询码、161 张图片**，不使用业务文字。与早期使用 205 张图片的 50 条实验不是同一组输入。
+
+- **图片分类：** Valen-0.8B 一次查看同一询码的全部图片，逐张判断近景、远景和铭牌。
+- **分类分流：** 近景交给 DINOv2，远景与铭牌交给 SigLIP，通过 RRF 合并为前 20 个不同编码。
+- **图片重排：** Qwen3-VL-Reranker-2B 比较查询图与候选图库图，重新排列这 20 个候选，不接收配件编码、名称或正确答案。
+
+| 方案 | Top1 | Top5 | Top10 | Top20 |
+| --- | ---: | ---: | ---: | ---: |
+| SigLIP：全部图片 | 34%（17/50） | 48%（24/50） | 56%（28/50） | 64%（32/50） |
+| DINOv2：全部图片 | 28%（14/50） | 58%（29/50） | 60%（30/50） | 62%（31/50） |
+| 分类分流并融合 | 22%（11/50） | 44%（22/50） | 52%（26/50） | **70%（35/50）** |
+| 分类分流、融合，再做图片重排 | 42%（21/50） | 64%（32/50） | **68%（34/50）** | **70%（35/50）** |
+| 不分类，两模型检索全部图片、融合并重排 | **48%（24/50）** | **66%（33/50）** | 66%（33/50） | 68%（34/50） |
+
+**最明确的收益来自重排：** 固定分类分流得到的 20 个候选后，Top1 从 22% 提高到 42%，Top5 从 44% 提高到 64%，均提高 **20 个百分点**。候选集合没有改变，因此 Top20 保持不变。
+
+不分类的双模型方案取得了本轮更高的 Top1 和 Top5，分类分流则在 Top20 多命中 1 条。由此不能认定分类分流全面优于全图检索。将重排候选扩大到 50 个后，最终 Top20 反而降为 66%，本次没有获得扩容收益。
+
+这 50 条用于反复比较方案，结果应视为探索性结论；还需要在独立保留集上验证。上述指标也不能用于证明分割或局部特征重排的收益，因为本轮没有测试这些改动。
+
+### 评测方法
+
+- **按编码评分：** 返回编码与正确编码完全一致才算命中，同名不同编码不算正确。
+- **按配件去重：** 同一配件的多张图库图片只占一个候选位置。
+- **TopK：** 正确编码进入前 K 名的询码比例；不等同于第一名识别准确率。
+- **MRR@20：** 正确编码在前 20 名时取排名倒数，未命中计 0，再对全部询码求平均。
+- **人工审核：** 保存查询图、命中图库图及排名，生成网页对照，用于分析漏检、错排和图片重复问题。
+
+本仓库提供[双模型对比脚本](scripts/experiments/compare_dinov2_image_retrieval.py)和[检索得分核验脚本](scripts/experiments/audit_image_retrieval_scores.py)。分类与 Qwen 图片重排实验在配套 `searchCode-agent` 项目中完成；本 README 记录结果，运行仍需对应脚本、模型权重与授权数据。文档只附少量缩放后的效果样例，分割对照中的配件标识已作模糊处理；完整业务原图及询码记录不随公开介绍发布。
+
+## 从算法到业务闭环
+
+```mermaid
+flowchart LR
+    A[图片与视频采集] --> B[自动分割与前景提取]
+    B --> C[视觉特征与配件索引]
+    Q[询码图片] --> D[图像检索与候选排序]
+    C --> D
+    D --> E[配件结果与匹配图片]
+    E --> F[用户反馈与人工校验]
+    F --> G[错误分析与实验评估]
+    A --> H[视频抽帧与连续分割]
+    H --> I[360° 多视角展示]
 ```
 
-这次结构治理后的几个关键变化：
+工程实现还包括：
 
-- 旧的 `services / biz / data / models` 混合结构已经收敛到 `core / infra / modules / models`
-- 三维重构运行时代码已从主仓库迁出到独立的 `reconstruction_server`
-- 配件检索子系统已收口到 `csrcqsf/modules/railway_parts/vector_search`
-- `patch_tokens` 不再放在源码目录，默认落在 `state/vector_db/patch_tokens`
+- **索引生命周期管理：** 全量构建、增量更新、任务进度、取消与失败重试。
+- **结果可追溯：** 保存检索参数、候选快照、对应图片与用户反馈，支持错误结果再次检索和人工校验。
+- **数据持续更新：** 同步配件基础信息、图片、车型、供应商、父子关系和库存位置，为检索与采集提供业务信息。
+- **大文件采集：** 视频分片上传、对象存储和异步处理，避免长任务阻塞接口。
 
-## 快速开始
+反馈数据用于审核与分析；当前不把反馈后自动训练模型作为已实现能力。
 
+## 技术架构
 
-### 1. 安装依赖
+| 层次 | 技术与职责 |
+| --- | --- |
+| 业务主服务 | Python、FastAPI：接口、业务规则、任务调度与结果管理 |
+| 独立模型服务 | PyTorch、Transformers：YOLO-World、SAM2、SigLIP、DINOv2、OCR、BGE-M3 |
+| 向量检索 | Milvus：图片及文本向量索引 |
+| 数据与文件 | MySQL、Redis、MinIO：业务记录、任务协作与图片视频存储 |
+| 视频处理 | FFmpeg、WebP：抽帧、多视角图片输出 |
+| 研究实验 | Valen-0.8B、Qwen3-VL-Reranker-2B：图片分类与视觉重排 |
+
+主服务与 GPU 模型推理解耦，可以分别扩容和更新。三维重建也由独立服务提供，与基于图片序列的 360° 展示分别管理。
+
+## 运行入口
+
+准备 MySQL、Redis、Milvus、MinIO，并单独启动所需模型服务，再安装和配置主服务：
 
 ```bash
-cd /home/ubuntu/project-train/recognition
 uv sync
-```
-
-### 2. 配置环境变量
-
-```bash
 cp .env.example .env
+# 配置数据库、对象存储、向量库、认证及模型服务地址后启动
+RECOGNITION_ENV_FILE=.env uv run python -m csrcqsf
 ```
 
-按实际环境至少检查以下配置：
-
-- 主业务 MySQL：`MAIN_DB_*`
-- MinIO：`MINIO_*`
-- Milvus：`MILVUS_*`
-- Token 验证缓存：`AUTH_REDIS_URL`
-- SGO 全局鉴权：`AUTH_*`、`SGO_SSO_*`
-- 模型推理服务：`MODEL_SERVICE_URL`
-- 询码语义索引：`INQUIRY_TEXT_*`
-- 三维重构服务：`RECONSTRUCTION_SERVER_URL`
-
-说明：
-
-- `MODEL_SERVICE_URL` 不可用时，依赖模型推理的接口无法正常使用
-- 文本检索调用模型服务的 BGE-M3 `/api/v1/text/embeddings`，不再使用 SigLIP 文本找图
-- V2 索引构建要求模型服务 `/health` 包含 `indexing_extract`；任务会先校验能力，再读取业务数据
-- V2 索引对 `BASEINFO`、`INQUERY`、`CREATEBYSELF` 图片统一执行 YOLO-World + SAM2 黑底抠图，仅主体未检测到或空 mask 时回退原图
-- 分割 PNG 写入 `MINIO_BUCKET/segmented/{item_id}/{image_id}/`，记录保存在 `segmented_image_info`
-- `MODEL_SERVICE_INDEX_TIMEOUT_SEC` 控制单张组合提取超时，默认 120 秒
-- `RECONSTRUCTION_SERVER_URL` 不配置时，主业务仍可启动，但三维重构相关接口会禁用
-- `DINOV2_PATCH_TOKENS_DIR` 默认是 `state/vector_db/patch_tokens`，部署时应挂载持久化目录
-
-### 询码语义检索首次启用
-
-文本检索只索引主库 `item_inquiry_history.inquiry_item_name`，用于“监控室对面窗帘”这类自然语言描述。首次启用顺序：
-
-1. 模型服务启用 BGE-M3，并确认 `/health` 已声明文本向量能力。
-2. 部署主服务，让启动迁移创建询码语义任务表和 SGO 任务关联字段。
-3. 调用 `POST /railway/parts/v2/inquiry-text-index/rebuild` 创建首次全量任务。
-4. 查询 `GET /railway/parts/v2/inquiry-text-index/tasks/{task_id}`，等待状态变为 `success`。
-5. 使用 `POST /railway/parts/v2/search/text` 验证自然语言描述召回。
-
-服务启动不会自动执行全量重建。后续 SGO 询码同步提交成功后会创建增量语义索引任务；增量任务创建失败只记录在同步任务的 `semantic_index_warning`，不会回滚已同步的询码数据。
-
-### 3. 启动主服务
-
-```bash
-cd /home/ubuntu/project-train/recognition
-source .venv/bin/activate
-RECOGNITION_ENV_FILE=.env python -m csrcqsf
-```
-
-服务只在明确设置 `RECOGNITION_ENV_FILE` 时加载环境文件；生产容器直接通过
-`--env-file` 注入配置并执行 `python -m csrcqsf`。控制台保留彩色业务日志、
-源码位置、启动耗时、异常堆栈和 Uvicorn 访问日志，文件日志写入
-`APP_LOG_DIR/app` 并按天轮转、保留 30 天、压缩为 ZIP。
-
-默认访问地址：
-
-- Swagger UI：`http://127.0.0.1:65432/docs`
-- OpenAPI：`http://127.0.0.1:65432/openapi.json`
-
-## 主服务与外部能力边界
-
-主服务本身负责：
-
-- 对前 HTTP API
-- 主业务数据落库
-- 检索历史、校验清单、上传记录、重构任务记录管理
-- 调用外部模型服务和重构服务
-
-主服务不再本地承担：
-
-- OCR / 向量特征 / 分割模型推理
-- 3D 重构训练与结果生成
-
-如果需要启用完整能力：
-
-- 部署模型服务并配置 `MODEL_SERVICE_URL`
-- 部署 `reconstruction_server` 并配置 `RECONSTRUCTION_SERVER_URL`
-
-发布时先升级模型服务并确认 `/health` 已声明 `indexing_extract`，再升级主业务服务。反向发布会导致索引任务在能力前检阶段被拒绝，但不会影响其他业务接口。
-
-## Docker 部署说明
-
-当前主业务 Docker 镜像默认即为无 GPU 版本，重点用于甲方联调，不再单独维护 CPU 专属 Dockerfile 或部署脚本。
-
-部署约束：
-
-- 只容器化主业务服务
-- MySQL、Redis、Milvus、MinIO 使用外部现成服务
-- 模型推理与三维重构服务独立部署
-- `logs`、`temp`、`state` 必须挂载到宿主机持久化目录
-- 项目根目录 `Dockerfile` 定义运行时契约：端口、健康检查、持久化目录
-- `Dockerfile.vendor` 作为 GitLab 发布流水线固定使用的镜像入口
-
-详细步骤见：
-
-- [Docker 快速部署](docs/Docker镜像快速部署.md)
-- [部署文档](部署文档.md)
-
-## 常用验证命令
-
-### 验证主业务外部服务与向量配置
-
-```bash
-PYTHONPATH=. .venv/bin/python scripts/testing/debug_model_paths.py
-```
-
-### 运行测试
-
-```bash
-PYTHONPATH=. .venv/bin/pytest tests/ -q
-```
-
-### 本地模式分片上传调试页
-
-如果要验证 `/railway/parts/v2/reconstruct/video/upload/part` 是否按真实分片方式上传，不要直接用 Swagger 选择整视频文件。
-
-可直接打开：
-
-- [reconstruct_local_upload_debug.html](/home/ubuntu/project-train/recognition/tools/reconstruct_local_upload_debug.html)
-
-这个调试页会在浏览器里用 `file.slice(start, end)` 切出每个 `partBuffer`，再逐片调用：
-
-- `/railway/parts/v2/reconstruct/video/upload/init`
-- `/railway/parts/v2/reconstruct/video/upload/part`
-- `/railway/parts/v2/reconstruct/video/upload/progress`
-- `/railway/parts/v2/reconstruct/video/upload/complete`
-
-当前分片模式说明：
-
-- `storage_mode=local`
-  - 前端分片后把每片传给主业务服务
-  - 主业务服务先落本地
-  - 后续再同步到 MinIO
-- `storage_mode=remote`
-  - 前端分片后把每片传给主业务服务
-  - 主业务服务立即代理上传当前分片到 MinIO multipart upload
-  - 前端不再直接访问 MinIO 预签名 URL
-
-### 文件下载代理调试页
-
-如果要验证 `/{bucket}/{object}` 是否已经能通过主业务鉴权并由 Nginx 内部回源 MinIO，可直接打开：
-
-- [assets_download_debug.html](/home/ubuntu/project-train/recognition/tools/assets_download_debug.html)
-
-配套 Nginx 示例配置：
-
-- [nginx-assets-proxy-example.conf](/home/ubuntu/project-train/recognition/docs/deployment/nginx-assets-proxy-example.conf)
-
-这个页面会：
-
-- 带 `Authorization: Bearer <SGO_TOKEN>` 发起 `fetch`
-- 请求主业务返回的 `bucket/object` 路径
-- 自动预览图片/视频，或生成下载链接
-
-如果 SGO 鉴权服务尚未接通，可仅在本地开发环境中配置：
-
-```env
-APP_ENV=development
-AUTH_ENABLED=true
-AUTH_PROVIDER=mock
-AUTH_MOCK_TOKEN=recognition-dev-token
-```
-
-业务接口和文件资源共用全局鉴权开关与 Provider，不再保留文件代理专用免鉴权配置。生产环境禁止关闭鉴权或使用 Mock Provider。
-
-如果本机没有安装 Nginx，可直接使用 Docker 启动一个本地代理容器：
-
-```bash
-bash scripts/deployment/run_assets_proxy_debug.sh
-```
-
-这个脚本会把容器内的 `host.docker.internal` 映射到宿主机，用来访问你本机启动的主业务 `65432` 端口。
-
-## 文件下载代理
-
-当前主业务保留接口中的原始 MinIO 业务路径，不再改写返回值：
-
-- `bfr-3d-videos/...`
-- `bfr-reconstruction-files/...`
-- `bfr-search-history-files/...`
-
-推荐部署方式：
-
-- 前端只访问主业务返回的 `bucket/object`
-- 下载时直接拼接代理域名，例如 `http://127.0.0.1:8080/bfr-3d-videos/raw-videos/...`
-- 文件请求优先携带 Bearer Token；原生图片和 Viewer360 可使用 `?token=<SGO_TOKEN>`
-- 主业务全局校验 Token 后，文件代理返回 `X-Accel-Redirect: /recognition_oss/<bucket>/<object>`
-- Nginx 配置 `location ^~ /recognition_oss { internal; proxy_pass http://<minio>; }`
-- Nginx 再把 `/bfr-3d-videos/`、`/bfr-reconstruction-files/`、`/bfr-search-history-files/` 代理到主业务服务
-- Nginx 文件访问日志不得记录查询字符串，避免原始 Token 落盘
-
-## 说明
-
-- README 只保留项目概览、目录说明和导航信息
-- 具体部署步骤、环境准备和故障排查统一维护在 [部署文档](部署文档.md)
-  "python.analysis.diagnosticSeverityOverrides": {
-    "reportGeneralTypeIssues": "none"
-  }
+接口参数、服务依赖及部署方式见 [现有 README](README.md) 和 [部署文档](部署文档.md)。模型权重、业务数据与访问凭据需单独准备。

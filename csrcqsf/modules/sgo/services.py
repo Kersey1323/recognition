@@ -435,6 +435,22 @@ class SGOBiz:
 
     @classmethod
     def init(cls):
+        # 开发环境可统一关闭自动同步，避免基础数据和图片定时拉取占用磁盘；手动同步仍可调用。
+        if not cls._scheduled_sync_enabled():
+            job_ids = {
+                "sgo-parts-sync", "sgo-inquiry-history-sync", "sgo-images-sync",
+                "sgo-image-token-refresh", "sgo-parts-sync-retry",
+                "sgo-inquiry-history-sync-retry", "sgo-images-sync-retry",
+            }
+            for job in scheduler.get_jobs():
+                if job.id in job_ids:
+                    try:
+                        scheduler.remove_job(job.id)
+                    except JobLookupError:
+                        pass
+            logger.info("SGO 自动同步已关闭，手动同步接口仍可使用")
+            return
+
         # 基础信息与询码历史各自定时提交，由任务管理器串行执行，保留进度与失败记录。
         scheduler.add_job(
             cls._submit_scheduled_parts_sync,
@@ -482,6 +498,12 @@ class SGOBiz:
             sgo_parts_sync_interval_minutes, sgo_inquiry_history_sync_interval_minutes,
         )
 
+    @staticmethod
+    def _scheduled_sync_enabled() -> bool:
+        return os.getenv("SGO_ENABLE_SCHEDULED_SYNC", "true").strip().lower() in {
+            "true", "1", "yes", "on",
+        }
+
     @classmethod
     def _submit_scheduled_parts_sync(cls):
         cls._submit_scheduled_sync("parts")
@@ -489,6 +511,8 @@ class SGOBiz:
     @classmethod
     def _submit_scheduled_sync(cls, task_type: str):
         """定时线程只负责投递，实际同步仍在主事件循环的受管理任务中运行。"""
+        if not cls._scheduled_sync_enabled():
+            return
         future = submit_coroutine_to_main_loop(cls._start_scheduled_sync(task_type))
 
         def _log_submission_result(completed_future):
@@ -505,6 +529,9 @@ class SGOBiz:
 
     @classmethod
     async def _start_scheduled_sync(cls, task_type: str):
+        # 已投递但尚未启动的定时回调也受总开关控制，关闭后不创建任务或排队重试。
+        if not cls._scheduled_sync_enabled():
+            return
         runners = {
             "parts": (cls.sync_parts_items, {}),
             "images": (cls.sync_images, {"item_id_list": [], "sync_scope": "all"}),

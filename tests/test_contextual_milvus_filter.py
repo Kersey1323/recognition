@@ -49,3 +49,12 @@ def test_regular_search_does_not_send_an_empty_filter_to_milvus():
     asyncio.run(manager.search_by_text("制动盘", top_k=10))
 
     assert "filter" not in manager.collection_manager.client.search.call_args.kwargs
+
+
+def test_grouped_siglip_search_requests_distinct_parts_before_truncation():
+    manager = _manager_with_empty_search_results()
+    manager.siglip_group_by_item = True
+    asyncio.run(manager.search_by_image(Image.new("RGB", (8, 8)), top_k=20))
+    kwargs = manager.collection_manager.client.search.call_args.kwargs
+    assert kwargs["group_by_field"] == "item_id"
+    assert kwargs["limit"] == 20

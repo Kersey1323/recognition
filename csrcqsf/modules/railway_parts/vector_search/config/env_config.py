@@ -50,6 +50,7 @@ class VectorDBConfig:
         # SigLIP 集合配置（模型推理已迁移至独立服务）
         # ============================================
         self.siglip_collection_name = os.getenv("SIGLIP_COLLECTION_NAME", "PARTS_SIGLIP_SO400M_1152D_V1")
+        self.siglip_group_by_item = os.getenv("SIGLIP_GROUP_BY_ITEM", "false").lower() == "true"
 
         # ============================================
         # DINOv2 集合配置（模型推理已迁移至独立服务）
@@ -115,6 +116,7 @@ class VectorDBConfig:
             },
             'siglip': {
                 'collection_name': self.siglip_collection_name,
+                'group_by_item': self.siglip_group_by_item,
             },
             'dinov2': {
                 'collection_name': self.dinov2_collection_name,
